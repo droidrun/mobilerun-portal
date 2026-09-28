@@ -25,6 +25,7 @@ object MediaProjectionAutoAccept {
     private const val INLINE_SELECTION_RETRY_MS = 1500L
     private const val MAX_INLINE_SELECTION_ATTEMPTS = 2
     private const val DECISION_LOG_COOLDOWN_MS = 1500L
+    private const val DIALOG_ATTEMPT_TIMEOUT_MS = 5000L
 
     private var lastSuccessTime = 0L
     private var pendingSpinnerOriginWindowId: Int? = null
@@ -38,6 +39,8 @@ object MediaProjectionAutoAccept {
     private var assumedEntireScreenUntilMs = 0L
     private var lastDecisionLogKey: String? = null
     private var lastDecisionLogAtMs = 0L
+    private var dialogAttemptWindowId: Int? = null
+    private var dialogAttemptStartedAtMs = 0L
 
     private const val DIALOG_VIEW_ID = "com.android.systemui:id/screen_share_permission_dialog"
     private const val SHARE_MODE_OPTIONS_VIEW_ID =
@@ -117,6 +120,12 @@ object MediaProjectionAutoAccept {
         EXPIRE,
     }
 
+    internal enum class DialogAttemptStep {
+        NO_ATTEMPT,
+        WAIT,
+        TIMEOUT,
+    }
+
     internal data class InlineOptionSnapshot(
         val label: String,
         val selected: Boolean,
@@ -138,6 +147,7 @@ object MediaProjectionAutoAccept {
         val assumeEntireScreen: Boolean,
         val selectedOptionRowIndex: Int?,
         val isAospSpinnerDialog: Boolean,
+        val allOptionsEnabledAndClickable: Boolean,
     )
 
     internal data class DialogDecision(
@@ -222,6 +232,8 @@ object MediaProjectionAutoAccept {
             clearTransientState()
             return AutoAcceptResult.NoAction
         }
+
+        startDialogAttempt(windowId, now)
 
         val positiveButton = findNodeByViewId(rootNode, POSITIVE_BUTTON_ID)
             ?: findButtonByTexts(rootNode, START_BUTTON_TEXTS)
@@ -386,20 +398,32 @@ object MediaProjectionAutoAccept {
             PlannedAction.WAIT -> {
                 positiveButton?.recycle()
                 recycleInlineOptionNodes(inlineOptionNodes)
-                AutoAcceptResult.NoAction
+                if (
+                    evaluateDialogAttemptStep(now - dialogAttemptStartedAtMs) ==
+                        DialogAttemptStep.TIMEOUT
+                ) {
+                    markFailure("MediaProjection dialog has no supported controls")
+                } else {
+                    AutoAcceptResult.NoAction
+                }
             }
         }
     }
 
     internal fun decideAction(input: DecisionInput): DialogDecision {
         val inlineSelection = inferInlineSelection(input.inlineOptions)
-        val hasInlineEntireScreenOption = input.inlineOptions.any { isEntireScreenLabel(it.label) }
-        val hasStructuralFallback = input.optionCount == 2 && input.selectedOptionCount == 1
+        val hasInlineEntireScreenOption = input.inlineOptions.any {
+            isEntireScreenLabel(it.label) && it.enabled && it.clickable
+        }
+        val hasStructuralFallback = input.optionCount == 2 &&
+                input.selectedOptionCount == 1 &&
+                input.allOptionsEnabledAndClickable
         val hasLocalizedInlineSecondRowHeuristic =
-            input.hasShareModeOptionsViewId &&
+                    input.hasShareModeOptionsViewId &&
                     input.hasPositiveButton &&
                     input.optionCount == 2 &&
                     input.selectedOptionCount == 1 &&
+                    input.allOptionsEnabledAndClickable &&
                     !hasInlineEntireScreenOption
 
         if (input.optionListMode == DialogMode.INLINE_OPTIONS) {
@@ -597,6 +621,10 @@ object MediaProjectionAutoAccept {
 
     internal fun clearTransientStateForTest() {
         clearTransientState()
+    }
+
+    internal fun inspectDialogAttemptStepForTest(elapsedMs: Long): DialogAttemptStep {
+        return evaluateDialogAttemptStep(elapsedMs)
     }
 
     internal fun inspectPendingDropdownSettleStepForTest(
@@ -1037,7 +1065,9 @@ object MediaProjectionAutoAccept {
                     optionSnapshots.all { it.enabled && it.clickable } ->
                 OptionTarget.SECOND_OPTION
 
-            optionSnapshots.size == 2 && optionSnapshots.count { it.selected } == 1 ->
+            optionSnapshots.size == 2 &&
+                    optionSnapshots.count { it.selected } == 1 &&
+                    optionSnapshots.all { it.enabled && it.clickable } ->
                 OptionTarget.NON_SELECTED_OPTION
 
             else -> null
@@ -1137,6 +1167,15 @@ object MediaProjectionAutoAccept {
         clearPendingDropdownSettle()
         clearPendingInlineSelection()
         assumedEntireScreenUntilMs = 0L
+        dialogAttemptWindowId = null
+        dialogAttemptStartedAtMs = 0L
+    }
+
+    private fun startDialogAttempt(windowId: Int, now: Long) {
+        if (dialogAttemptWindowId != windowId) {
+            dialogAttemptWindowId = windowId
+            dialogAttemptStartedAtMs = now
+        }
     }
 
     private fun clearPendingSpinnerTransaction() {
@@ -1194,6 +1233,14 @@ object MediaProjectionAutoAccept {
 
             optionListMode == DialogMode.DROPDOWN -> PendingDropdownSettleStep.EXPIRE
             else -> PendingDropdownSettleStep.CONTINUE
+        }
+    }
+
+    private fun evaluateDialogAttemptStep(elapsedMs: Long): DialogAttemptStep {
+        return when {
+            elapsedMs < 0L -> DialogAttemptStep.WAIT
+            elapsedMs >= DIALOG_ATTEMPT_TIMEOUT_MS -> DialogAttemptStep.TIMEOUT
+            else -> DialogAttemptStep.WAIT
         }
     }
 

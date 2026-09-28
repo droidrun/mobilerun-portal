@@ -181,6 +181,18 @@ class MediaProjectionAutoAcceptTest {
     }
 
     @Test
+    fun dialogAttempt_timeoutAfterFiveSeconds() {
+        assertEquals(
+            MediaProjectionAutoAccept.DialogAttemptStep.WAIT,
+            MediaProjectionAutoAccept.inspectDialogAttemptStepForTest(4_999L),
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.DialogAttemptStep.TIMEOUT,
+            MediaProjectionAutoAccept.inspectDialogAttemptStepForTest(5_000L),
+        )
+    }
+
+    @Test
     fun decideAction_localizedDropdownTwoOptions_usesStructuralFallback() {
         val decision = MediaProjectionAutoAccept.decideAction(
             decisionInput(
@@ -259,7 +271,7 @@ class MediaProjectionAutoAcceptTest {
             pendingStrategy = MediaProjectionAutoAccept.PendingSpinnerStrategy.AOSP_ORDERED_TWO_OPTION,
         )
 
-        assertEquals(MediaProjectionAutoAccept.OptionTarget.NON_SELECTED_OPTION, target)
+        assertEquals(null, target)
     }
 
     @Test
@@ -519,6 +531,8 @@ class MediaProjectionAutoAcceptTest {
             assumeEntireScreen = assumeEntireScreen,
             selectedOptionRowIndex = selectedOptionRowIndex,
             isAospSpinnerDialog = isAospSpinnerDialog,
+            allOptionsEnabledAndClickable = options.isNotEmpty() &&
+                options.all { it.enabled && it.clickable },
         )
     }
 }
