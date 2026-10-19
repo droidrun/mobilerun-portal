@@ -672,7 +672,7 @@ class MobilerunContentProviderTest {
             configManager = configManager,
             values = values,
             readStringValue = { _, _ -> null },
-            stopReverseConnectionService = { _, _ -> stopCount += 1 },
+            disconnectReverseConnectionService = { stopCount += 1 },
             publishConnectionState = { publishedState = it },
         )
 
@@ -684,6 +684,73 @@ class MobilerunContentProviderTest {
         assertEquals(1, stopCount)
         verify(exactly = 1) { configManager.markReverseJoinExplicitlyDisconnected() }
         verify(exactly = 0) { configManager.reverseJoinBlockedByHttp402 = false }
+    }
+
+    @Test
+    fun requestReverseConnectionStop_usesForegroundStartWhenAllowed() {
+        val calls = mutableListOf<String>()
+
+        requestReverseConnectionStop(
+            startForegroundStop = { calls += "foreground" },
+            startStop = { calls += "plain" },
+            stopService = { calls += "stopService" },
+        )
+
+        assertEquals(listOf("foreground"), calls)
+    }
+
+    @Test
+    fun requestReverseConnectionStop_fallsBackToPlainStartBeforeStopService() {
+        every { Log.w(any(), any<String>(), any()) } returns 0
+        val calls = mutableListOf<String>()
+
+        requestReverseConnectionStop(
+            startForegroundStop = { throw IllegalStateException("fgs not allowed") },
+            startStop = { calls += "plain" },
+            stopService = { calls += "stopService" },
+        )
+
+        assertEquals(listOf("plain"), calls)
+    }
+
+    @Test
+    fun requestReverseConnectionStop_stopsServiceWhenBothStartsRefused() {
+        every { Log.w(any(), any<String>(), any()) } returns 0
+        val calls = mutableListOf<String>()
+
+        requestReverseConnectionStop(
+            startForegroundStop = { throw IllegalStateException("fgs not allowed") },
+            startStop = { throw IllegalStateException("background start not allowed") },
+            stopService = { calls += "stopService" },
+        )
+
+        assertEquals(listOf("stopService"), calls)
+    }
+
+    @Test
+    fun handleReverseConnectionConfigInsert_disableReportsUnexpectedDispatchFailure() {
+        val context = mockk<Context>(relaxed = true)
+        val values = mockk<ContentValues>()
+        val configManager = mockk<ConfigManager>(relaxed = true)
+
+        every { values.getAsBoolean("enabled") } returns false
+
+        val result = handleReverseConnectionConfigInsert(
+            providerContext = context,
+            configManager = configManager,
+            values = values,
+            readStringValue = { _, _ -> null },
+            disconnectReverseConnectionService = {
+                requestReverseConnectionStop(
+                    startForegroundStop = { throw SecurityException("denied") },
+                    startStop = { error("must not fall back") },
+                    stopService = { error("must not fall back") },
+                )
+            },
+            publishConnectionState = {},
+        )
+
+        assertEquals(ApiResponse.Error("Exception: denied"), result)
     }
 
     @Test
