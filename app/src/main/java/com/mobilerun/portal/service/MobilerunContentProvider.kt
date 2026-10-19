@@ -390,6 +390,30 @@ internal fun handleCloudTaskLaunchInsert(
     }
 }
 
+/**
+ * Stops through an ordered service start rather than stopService(), which crashes the app
+ * if it lands while an earlier startForegroundService() is still waiting for startForeground().
+ */
+internal fun requestReverseConnectionStop(
+    startForegroundStop: () -> Unit,
+    startStop: () -> Unit,
+    stopService: () -> Unit,
+) {
+    // Background starts can be refused; each fallback is less ordered than the one before.
+    try {
+        startForegroundStop()
+        return
+    } catch (e: IllegalStateException) {
+        Log.w("MobilerunContentProvider", "Foreground stop start refused", e)
+    }
+    try {
+        startStop()
+    } catch (e: IllegalStateException) {
+        Log.w("MobilerunContentProvider", "Stop start refused, using stopService", e)
+        stopService()
+    }
+}
+
 internal fun handleReverseConnectionConfigInsert(
     providerContext: Context?,
     configManager: ConfigManager,
@@ -402,8 +426,20 @@ internal fun handleReverseConnectionConfigInsert(
             Intent(action, null, context, ReverseConnectionService::class.java),
         )
     },
-    stopReverseConnectionService: (Context, Intent) -> Unit = { context, intent ->
-        context.stopService(intent)
+    disconnectReverseConnectionService: (Context) -> Unit = { context ->
+        val stopIntent = Intent(
+            ReverseConnectionService.ACTION_STOP,
+            null,
+            context,
+            ReverseConnectionService::class.java,
+        )
+        requestReverseConnectionStop(
+            startForegroundStop = { context.startForegroundService(stopIntent) },
+            startStop = { context.startService(stopIntent) },
+            stopService = {
+                context.stopService(Intent(context, ReverseConnectionService::class.java))
+            },
+        )
     },
     publishConnectionState: (ConnectionState) -> Unit = ConnectionStateManager::setState,
 ): ApiResponse {
@@ -452,14 +488,11 @@ internal fun handleReverseConnectionConfigInsert(
                     ReverseConnectionService.ACTION_RECONNECT,
                 )
             } else {
-                val serviceIntent = Intent(appContext, ReverseConnectionService::class.java)
                 performExplicitReverseConnectionDisconnect(
                     markExplicitlyDisconnected =
                         configManager::markReverseJoinExplicitlyDisconnected,
                     publishDisconnected = publishConnectionState,
-                    dispatchDisconnect = {
-                        stopReverseConnectionService(appContext, serviceIntent)
-                    },
+                    dispatchDisconnect = { disconnectReverseConnectionService(appContext) },
                 )
             }
         }

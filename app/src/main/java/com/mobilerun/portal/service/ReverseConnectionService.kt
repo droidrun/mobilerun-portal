@@ -89,6 +89,9 @@ class ReverseConnectionService : Service() {
         const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
         const val ACTION_RECONNECT = "com.mobilerun.portal.action.REVERSE_RECONNECT"
 
+        /** Sent with startForegroundService(); stops the service in order after any queued start. */
+        internal const val ACTION_STOP = "com.mobilerun.portal.action.REVERSE_STOP"
+
         @Volatile
         private var instance: ReverseConnectionService? = null
 
@@ -167,8 +170,14 @@ class ReverseConnectionService : Service() {
         )
         lastStartId = startId
         if (intent?.action == ACTION_DISCONNECT) {
-            Log.i(TAG, "onStartCommand: Disconnect requested via notification")
+            Log.i(TAG, "onStartCommand: Disconnect requested")
             disconnectByUser(startId)
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "onStartCommand: Stop requested")
+            ensureForeground(deferNotification = true)
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
@@ -523,7 +532,6 @@ class ReverseConnectionService : Service() {
     }
 
     private fun disconnectByUser(startId: Int) {
-        configManager.reverseConnectionEnabled = false
         retryController.onExplicitDisconnect()
         isServiceRunning.set(false)
         isReconnecting.set(false)
@@ -534,8 +542,10 @@ class ReverseConnectionService : Service() {
         reverseMediaReleased = true
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-        // A newer queued startForegroundService() must still reach onStartCommand.
-        stopSelf(startId)
+        // A newer queued start must still reach onStartCommand, and its sender owns the enabled flag.
+        if (stopSelfResult(startId)) {
+            configManager.reverseConnectionEnabled = false
+        }
     }
 
     /** Stops the service after a terminal close so it is not left sticky in the foreground. */
@@ -618,20 +628,21 @@ class ReverseConnectionService : Service() {
         Log.d(TAG, "$prefix network=${transports.joinToString(",")} validated=$validated")
     }
 
-    private fun ensureForeground() {
+    /** [deferNotification] keeps an answer-only startForeground() from flashing the notification. */
+    private fun ensureForeground(deferNotification: Boolean = false) {
         when (reverseForegroundActionFor(isForeground, foregroundSuppressed)) {
             ReverseForegroundAction.NONE -> Unit
-            ReverseForegroundAction.START -> startForegroundNotification()
+            ReverseForegroundAction.START -> startForegroundNotification(deferNotification)
             ReverseForegroundAction.START_THEN_RELEASE -> {
                 // Answer startForegroundService() even while capture owns the foreground.
-                if (startForegroundNotification()) suspendForegroundForStreaming()
+                if (startForegroundNotification(deferred = true)) suspendForegroundForStreaming()
             }
         }
     }
 
-    private fun startForegroundNotification(): Boolean {
+    private fun startForegroundNotification(deferred: Boolean): Boolean {
         return try {
-            val notification = createNotification()
+            val notification = createNotification(deferred)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID,
@@ -676,7 +687,7 @@ class ReverseConnectionService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification(deferred: Boolean): Notification {
         val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -706,6 +717,13 @@ class ReverseConnectionService : Service() {
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setForegroundServiceBehavior(
+                if (deferred) {
+                    NotificationCompat.FOREGROUND_SERVICE_DEFERRED
+                } else {
+                    NotificationCompat.FOREGROUND_SERVICE_DEFAULT
+                },
+            )
             .build()
     }
 
