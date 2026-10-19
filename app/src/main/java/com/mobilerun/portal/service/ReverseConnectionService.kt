@@ -42,29 +42,60 @@ internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolea
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link"
 
+internal enum class ReverseMediaRelease {
+    STOP_CAPTURE,
+    STOP_SESSIONS,
+    NONE,
+}
+
+/** Capture-only (shared screenshot) captures are left to their own idle stop. */
+internal fun reverseMediaReleaseFor(
+    captureServiceRunning: Boolean,
+    captureSessionMode: WebRtcManager.CaptureSessionMode,
+    streamActive: Boolean,
+): ReverseMediaRelease = when {
+    captureServiceRunning && captureSessionMode == WebRtcManager.CaptureSessionMode.STREAM ->
+        ReverseMediaRelease.STOP_CAPTURE
+
+    streamActive -> ReverseMediaRelease.STOP_SESSIONS
+    else -> ReverseMediaRelease.NONE
+}
+
+internal enum class ReverseForegroundAction {
+    NONE,
+    START,
+    START_THEN_RELEASE,
+}
+
+/** A start while capture owns the foreground still has to call startForeground() before releasing it. */
+internal fun reverseForegroundActionFor(
+    isForeground: Boolean,
+    suppressedForStreaming: Boolean,
+): ReverseForegroundAction = when {
+    isForeground -> ReverseForegroundAction.NONE
+    suppressedForStreaming -> ReverseForegroundAction.START_THEN_RELEASE
+    else -> ReverseForegroundAction.START
+}
+
 class ReverseConnectionService : Service() {
 
     companion object {
         private const val TAG = "ReverseConnService"
         private const val CHANNEL_ID = "reverse_connection_channel"
         private const val NOTIFICATION_ID = 2002
-        internal const val RECONNECT_DELAY_MS = 3000L
-        internal const val RECONNECT_GIVE_UP_MS = 30 * 60 * 1000L // 30 minutes
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
+        private val RECONNECT_TOKEN = Any()
         const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
         const val ACTION_RECONNECT = "com.mobilerun.portal.action.REVERSE_RECONNECT"
+
+        /** Sent with startForegroundService(); stops the service in order after any queued start. */
+        internal const val ACTION_STOP = "com.mobilerun.portal.action.REVERSE_STOP"
 
         @Volatile
         private var instance: ReverseConnectionService? = null
 
         fun getInstance(): ReverseConnectionService? = instance
-
-        /** Returns true if reconnection attempts have exceeded the give-up timeout. */
-        internal fun shouldGiveUpReconnecting(reconnectStartedAtMs: Long, nowMs: Long): Boolean {
-            if (reconnectStartedAtMs <= 0L) return false
-            return nowMs - reconnectStartedAtMs >= RECONNECT_GIVE_UP_MS
-        }
 
         internal fun shouldNotifyStreamStoppedAfterReconnect(
             captureActive: Boolean,
@@ -97,6 +128,17 @@ class ReverseConnectionService : Service() {
     @Volatile
     private var foregroundSuppressed = false
 
+    private val reconnectBackoff = ReverseReconnectBackoff()
+
+    @Volatile
+    private var lastStartId = -1
+
+    @Volatile
+    private var terminalState: ConnectionState? = null
+
+    @Volatile
+    private var reverseMediaReleased = false
+
     inner class LocalBinder : Binder() {
         fun getService(): ReverseConnectionService = this@ReverseConnectionService
     }
@@ -126,13 +168,22 @@ class ReverseConnectionService : Service() {
             TAG,
             "onStartCommand: intent=$intent, action=${intent?.action}, flags=$flags, startId=$startId"
         )
+        lastStartId = startId
         if (intent?.action == ACTION_DISCONNECT) {
-            Log.i(TAG, "onStartCommand: Disconnect requested via notification")
-            disconnectByUser()
+            Log.i(TAG, "onStartCommand: Disconnect requested")
+            disconnectByUser(startId)
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "onStartCommand: Stop requested")
+            ensureForeground(deferNotification = true)
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
+        terminalState = null
+        reverseMediaReleased = false
         val explicitReconnect = intent?.action == ACTION_RECONNECT
         if (explicitReconnect) {
             Log.i(TAG, "onStartCommand: Reconnect requested with latest cloud config")
@@ -141,10 +192,11 @@ class ReverseConnectionService : Service() {
         }
         when (val startDecision = retryController.onStart(explicitReconnect)) {
             is ReverseConnectionStartDecision.RestoreHttp402Block -> {
-                Log.i(TAG, "onStartCommand: HTTP 402 block is active; skipping automatic connect")
-                isServiceRunning.set(true)
+                Log.i(TAG, "onStartCommand: HTTP 402 block is active; stopping without connecting")
                 restoreHttp402BlockedState(startDecision.state)
-                return START_STICKY
+                terminalState = startDecision.state
+                stopSelf(startId)
+                return START_NOT_STICKY
             }
 
             ReverseConnectionStartDecision.Connect -> Unit
@@ -176,11 +228,15 @@ class ReverseConnectionService : Service() {
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         reverseDeviceEventRelay.stop()
+        if (!reverseMediaReleased) {
+            releaseReverseMedia("service_destroyed")
+        }
         disconnect()
         actionDispatcherCache.clear()
         headlessActionDispatcher = null
         ConnectionStateManager.setState(
             retryController.blockedPresentationStateOrNull()
+                ?: terminalState
                 ?: ConnectionState.DISCONNECTED,
         )
         try {
@@ -307,7 +363,8 @@ class ReverseConnectionService : Service() {
                         "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
                     )
                     retryController.onConnected()
-                    reconnectStartedAtMs = 0L
+                    reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
+                    reverseMediaReleased = false
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
                     WebRtcManager.getExistingInstance()?.let { manager ->
@@ -337,10 +394,10 @@ class ReverseConnectionService : Service() {
                             }
                             Log.w(
                                 TAG,
-                                "onClose: Terminal error ($state), tearing down media",
+                                "onClose: Terminal error ($state), stopping service",
                             )
                             ConnectionStateManager.setState(state)
-                            handleWsDisconnected()
+                            stopAfterTerminalState(state, connectionGeneration)
                             return
                         }
 
@@ -378,9 +435,6 @@ class ReverseConnectionService : Service() {
 
     private var isReconnecting = AtomicBoolean(false)
 
-    @Volatile
-    private var reconnectStartedAtMs = 0L
-
     private fun scheduleReconnect(connectionGeneration: Long = webSocketGeneration.current()) {
         retryController.blockedPresentationStateOrNull()?.let { blockedState ->
             Log.i(TAG, "Ignoring reconnect request while HTTP 402 block is active")
@@ -394,35 +448,30 @@ class ReverseConnectionService : Service() {
         clearStaleQueuedReconnectOwner()
         if (!isServiceRunning.get()) return
         if (isReconnecting.getAndSet(true)) return // Already scheduled
+
+        val step = reconnectBackoff.nextRetry(SystemClock.elapsedRealtime())
+        if (step.releaseMedia) {
+            Log.w(
+                TAG,
+                "No stable connection for ${ReverseReconnectBackoff.LONG_OUTAGE_MS / 60_000}min, releasing media",
+            )
+            releaseReverseMedia("ws_disconnected")
+        }
         webSocketGeneration.markReconnectScheduled(connectionGeneration)
 
-        val now = SystemClock.elapsedRealtime()
-        if (reconnectStartedAtMs <= 0L) {
-            reconnectStartedAtMs = now
-        }
-
-        if (shouldGiveUpReconnecting(reconnectStartedAtMs, now)) {
-            Log.w(TAG, "Reconnect attempts exceeded ${RECONNECT_GIVE_UP_MS / 60_000}min, giving up")
-            isReconnecting.set(false)
-            reconnectStartedAtMs = 0L
-            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-            handleWsDisconnected()
-            return
-        }
-
         ConnectionStateManager.setState(ConnectionState.RECONNECTING)
-        Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
-        handler.postDelayed({
+        Log.d(TAG, "Scheduling reconnect in ${step.delayMs}ms")
+        val reconnect = Runnable {
             retryController.blockedPresentationStateOrNull()?.let { blockedState ->
                 Log.i(TAG, "Skipping delayed reconnect while HTTP 402 block is active")
                 clearQueuedReconnectIfOwnedBy(connectionGeneration)
                 ConnectionStateManager.setState(blockedState)
-                return@postDelayed
+                return@Runnable
             }
             if (!webSocketGeneration.isCurrent(connectionGeneration)) {
                 Log.d(TAG, "Ignoring stale delayed reconnect for generation $connectionGeneration")
                 clearQueuedReconnectIfOwnedBy(connectionGeneration)
-                return@postDelayed
+                return@Runnable
             }
             if (isServiceRunning.get()) {
                 clearQueuedReconnectIfOwnedBy(connectionGeneration)
@@ -432,7 +481,8 @@ class ReverseConnectionService : Service() {
                 clearQueuedReconnectIfOwnedBy(connectionGeneration)
                 ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             }
-        }, RECONNECT_DELAY_MS)
+        }
+        handler.postAtTime(reconnect, RECONNECT_TOKEN, SystemClock.uptimeMillis() + step.delayMs)
     }
 
     private fun clearStaleQueuedReconnectOwner() {
@@ -451,8 +501,8 @@ class ReverseConnectionService : Service() {
     private fun cancelPendingReconnects() {
         isReconnecting.set(false)
         webSocketGeneration.clearReconnect()
-        reconnectStartedAtMs = 0L
-        handler.removeCallbacksAndMessages(null)
+        reconnectBackoff.reset()
+        handler.removeCallbacksAndMessages(RECONNECT_TOKEN)
     }
 
     private fun restoreHttp402BlockedState(state: ConnectionState) {
@@ -481,30 +531,64 @@ class ReverseConnectionService : Service() {
         return false
     }
 
-    private fun disconnectByUser() {
-        configManager.reverseConnectionEnabled = false
+    private fun disconnectByUser(startId: Int) {
         retryController.onExplicitDisconnect()
         isServiceRunning.set(false)
         isReconnecting.set(false)
         webSocketGeneration.clearReconnect()
-        reconnectStartedAtMs = 0L
+        reconnectBackoff.reset()
         handler.removeCallbacksAndMessages(null)
         ScreenCaptureService.requestStop("user_disconnect")
+        reverseMediaReleased = true
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-        stopSelf()
+        // A newer queued start must still reach onStartCommand, and its sender owns the enabled flag.
+        if (stopSelfResult(startId)) {
+            configManager.reverseConnectionEnabled = false
+        }
     }
 
-    /** Called only for terminal disconnects (auth errors, user action). Tears down media. */
-    private fun handleWsDisconnected() {
-        val manager = WebRtcManager.getExistingInstance()
-        if (manager != null) {
-            if (manager.isStreamActive()) {
-                manager.notifyStreamStoppedAsync("ws_disconnected")
+    /** Stops the service after a terminal close so it is not left sticky in the foreground. */
+    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long) {
+        handler.post {
+            if (!webSocketGeneration.isCurrent(connectionGeneration)) {
+                Log.d(TAG, "Skipping stale terminal stop for generation $connectionGeneration")
+                return@post
             }
-            manager.requestGracefulStop("ws_disconnected")
-        } else {
-            ScreenCaptureService.requestStop("ws_disconnected")
+            terminalState = state
+            isServiceRunning.set(false)
+            cancelPendingReconnects()
+            releaseReverseMedia("ws_disconnected")
+            disconnect()
+            stopSelf(lastStartId)
+        }
+    }
+
+    private fun releaseReverseMedia(reason: String) {
+        reverseMediaReleased = true
+        val manager = WebRtcManager.getExistingInstance()
+        if (manager == null) {
+            ScreenCaptureService.requestStop(reason)
+            return
+        }
+        val release = reverseMediaReleaseFor(
+            captureServiceRunning = ScreenCaptureService.getInstance() != null,
+            captureSessionMode = manager.getCaptureFastStateSnapshot().captureSessionMode,
+            streamActive = manager.isStreamActive(),
+        )
+        Log.i(TAG, "Releasing reverse media ($reason): $release")
+        when (release) {
+            ReverseMediaRelease.STOP_CAPTURE -> ScreenCaptureService.requestStop(reason)
+            ReverseMediaRelease.STOP_SESSIONS -> {
+                manager.notifyStreamStoppedAsync(reason)
+                manager.requestGracefulStop(reason)
+            }
+
+            ReverseMediaRelease.NONE -> {
+                // Drop a stream request still waiting on the MediaProjection dialog.
+                manager.setStreamRequestId(null)
+                manager.consumePendingIceServers()
+            }
         }
     }
 
@@ -544,10 +628,21 @@ class ReverseConnectionService : Service() {
         Log.d(TAG, "$prefix network=${transports.joinToString(",")} validated=$validated")
     }
 
-    private fun ensureForeground() {
-        if (isForeground || foregroundSuppressed) return
-        try {
-            val notification = createNotification()
+    /** [deferNotification] keeps an answer-only startForeground() from flashing the notification. */
+    private fun ensureForeground(deferNotification: Boolean = false) {
+        when (reverseForegroundActionFor(isForeground, foregroundSuppressed)) {
+            ReverseForegroundAction.NONE -> Unit
+            ReverseForegroundAction.START -> startForegroundNotification(deferNotification)
+            ReverseForegroundAction.START_THEN_RELEASE -> {
+                // Answer startForegroundService() even while capture owns the foreground.
+                if (startForegroundNotification(deferred = true)) suspendForegroundForStreaming()
+            }
+        }
+    }
+
+    private fun startForegroundNotification(deferred: Boolean): Boolean {
+        return try {
+            val notification = createNotification(deferred)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID,
@@ -558,8 +653,10 @@ class ReverseConnectionService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
             isForeground = true
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
+            false
         }
     }
 
@@ -590,7 +687,7 @@ class ReverseConnectionService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification(deferred: Boolean): Notification {
         val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -620,6 +717,13 @@ class ReverseConnectionService : Service() {
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setForegroundServiceBehavior(
+                if (deferred) {
+                    NotificationCompat.FOREGROUND_SERVICE_DEFERRED
+                } else {
+                    NotificationCompat.FOREGROUND_SERVICE_DEFAULT
+                },
+            )
             .build()
     }
 

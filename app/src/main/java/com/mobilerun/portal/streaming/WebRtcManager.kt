@@ -1682,7 +1682,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun requestGracefulStop(reason: String = "cloud_stop") {
-        stopAllSessions(reason)
+        stopHandler.post { stopAllSessions(reason) }
     }
 
     internal fun onSharedCaptureScreenshotCompleted(usedSharedCaptureSession: Boolean) {
