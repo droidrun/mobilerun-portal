@@ -61,6 +61,22 @@ internal fun reverseMediaReleaseFor(
     else -> ReverseMediaRelease.NONE
 }
 
+internal enum class ReverseForegroundAction {
+    NONE,
+    START,
+    START_THEN_RELEASE,
+}
+
+/** A start while capture owns the foreground still has to call startForeground() before releasing it. */
+internal fun reverseForegroundActionFor(
+    isForeground: Boolean,
+    suppressedForStreaming: Boolean,
+): ReverseForegroundAction = when {
+    isForeground -> ReverseForegroundAction.NONE
+    suppressedForStreaming -> ReverseForegroundAction.START_THEN_RELEASE
+    else -> ReverseForegroundAction.START
+}
+
 class ReverseConnectionService : Service() {
 
     companion object {
@@ -152,7 +168,7 @@ class ReverseConnectionService : Service() {
         lastStartId = startId
         if (intent?.action == ACTION_DISCONNECT) {
             Log.i(TAG, "onStartCommand: Disconnect requested via notification")
-            disconnectByUser()
+            disconnectByUser(startId)
             return START_NOT_STICKY
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
@@ -506,7 +522,7 @@ class ReverseConnectionService : Service() {
         return false
     }
 
-    private fun disconnectByUser() {
+    private fun disconnectByUser(startId: Int) {
         configManager.reverseConnectionEnabled = false
         retryController.onExplicitDisconnect()
         isServiceRunning.set(false)
@@ -518,7 +534,8 @@ class ReverseConnectionService : Service() {
         reverseMediaReleased = true
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-        stopSelf()
+        // A newer queued startForegroundService() must still reach onStartCommand.
+        stopSelf(startId)
     }
 
     /** Stops the service after a terminal close so it is not left sticky in the foreground. */
@@ -602,8 +619,18 @@ class ReverseConnectionService : Service() {
     }
 
     private fun ensureForeground() {
-        if (isForeground || foregroundSuppressed) return
-        try {
+        when (reverseForegroundActionFor(isForeground, foregroundSuppressed)) {
+            ReverseForegroundAction.NONE -> Unit
+            ReverseForegroundAction.START -> startForegroundNotification()
+            ReverseForegroundAction.START_THEN_RELEASE -> {
+                // Answer startForegroundService() even while capture owns the foreground.
+                if (startForegroundNotification()) suspendForegroundForStreaming()
+            }
+        }
+    }
+
+    private fun startForegroundNotification(): Boolean {
+        return try {
             val notification = createNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -615,8 +642,10 @@ class ReverseConnectionService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
             isForeground = true
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
+            false
         }
     }
 
