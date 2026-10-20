@@ -1053,7 +1053,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
 
         val fingerprint = "$restBaseUrl|$authToken"
-        if (!taskDetailsRetryGate.canLoad(record.taskId, fingerprint, SystemClock.elapsedRealtime())) {
+        val connectionEpoch = ConnectionStateManager.connectedEpoch
+        if (!taskDetailsRetryGate.canLoad(record.taskId, fingerprint, connectionEpoch, SystemClock.elapsedRealtime())) {
             return
         }
 
@@ -1090,7 +1091,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     }
 
                     is PortalTaskDetailsResult.Error -> {
-                        taskDetailsRetryGate.onFailure(record.taskId, fingerprint, SystemClock.elapsedRealtime())
+                        taskDetailsRetryGate.onFailure(
+                            record.taskId,
+                            fingerprint,
+                            connectionEpoch,
+                            SystemClock.elapsedRealtime(),
+                        )
                         activeTaskDetails = null
                         updateTaskPromptStatus(
                             result.message,
@@ -1711,9 +1717,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun setupConnectionStateObserver() {
         ConnectionStateManager.connectionState.observe(this) { state ->
-            if (state == ConnectionState.CONNECTED && currentConnectionState != ConnectionState.CONNECTED) {
-                taskDetailsRetryGate.reset()
-            }
             currentConnectionState = state
             binding.layoutDisconnected.visibility = View.GONE
             binding.layoutConnecting.visibility = View.GONE
