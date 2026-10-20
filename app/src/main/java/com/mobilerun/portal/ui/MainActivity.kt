@@ -910,7 +910,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
         refreshTaskPromptUi()
         if (activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
-            syncTaskPromptPolling(immediate = true)
+            // The broadcast follows a fresh poll; polling again immediately would loop.
+            syncTaskPromptPolling()
         } else {
             stopTaskPromptPolling()
         }

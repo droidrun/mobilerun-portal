@@ -141,6 +141,7 @@ object PortalTaskStateMonitor {
 
         val updatedRecord = PortalTaskTracking.withUpdatedStatus(currentRecord, status)
         var finalRecord = updatedRecord
+        val stateChanged = finalRecord != currentRecord
         if (finalRecord != currentRecord) {
             configManager.saveActivePortalTask(finalRecord)
         }
@@ -152,7 +153,9 @@ object PortalTaskStateMonitor {
 
         finalRecord = maybeShowStartedToast(finalRecord)
         TaskPromptNotificationManager.showActiveTask(appContext, finalRecord)
-        TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
+        if (stateChanged || finalRecord != updatedRecord) {
+            TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
+        }
         schedulePoll(POLL_INTERVAL_MS)
     }
 
