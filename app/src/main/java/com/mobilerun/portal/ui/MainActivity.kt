@@ -96,6 +96,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isTaskPromptStatusRequestInFlight = false
     private var isTaskPromptDetailsRequestInFlight = false
     private val taskDetailsRetryGate = PortalTaskDetailsRetryGate()
+    private val taskDetailsRetryRunnable = Runnable { refreshTaskPromptUi() }
     private var isTaskPromptCancelInFlight = false
     private var currentConnectionState = ConnectionStateManager.getState()
     private var taskPromptStatusMessage: String? = null
@@ -364,6 +365,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         super.onStop()
         isTaskPromptVisible = false
         stopTaskPromptPolling()
+        taskPromptPollHandler.removeCallbacks(taskDetailsRetryRunnable)
         unregisterTaskPromptStateReceiver()
         unregisterInstallResultReceiver()
         unregisterSignatureConflictReceiver()
@@ -1054,7 +1056,17 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         val fingerprint = "$restBaseUrl|$authToken"
         val connectionEpoch = ConnectionStateManager.connectedEpoch
-        if (!taskDetailsRetryGate.canLoad(record.taskId, fingerprint, connectionEpoch, SystemClock.elapsedRealtime())) {
+        val retryDelayMs = taskDetailsRetryGate.remainingDelayMs(
+            record.taskId,
+            fingerprint,
+            connectionEpoch,
+            SystemClock.elapsedRealtime(),
+        )
+        if (retryDelayMs > 0L) {
+            taskPromptPollHandler.removeCallbacks(taskDetailsRetryRunnable)
+            if (isTaskPromptVisible) {
+                taskPromptPollHandler.postDelayed(taskDetailsRetryRunnable, retryDelayMs)
+            }
             return
         }
 

@@ -1,5 +1,6 @@
 package com.mobilerun.portal.taskprompt
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -65,5 +66,15 @@ class PortalTaskDetailsRetryGateTest {
         gate.reset()
 
         assertTrue(gate.canLoad("task-1", "url|key", 1L, 1_000L))
+    }
+
+    @Test
+    fun remainingDelayMs_countsDownAfterFailure() {
+        gate.onFailure("task-1", "url|key", 1L, 1_000L)
+
+        assertEquals(60_000L, gate.remainingDelayMs("task-1", "url|key", 1L, 1_000L))
+        assertEquals(15_000L, gate.remainingDelayMs("task-1", "url|key", 1L, 46_000L))
+        assertEquals(0L, gate.remainingDelayMs("task-1", "url|key", 1L, 61_000L))
+        assertEquals(0L, gate.remainingDelayMs("task-1", "url|key", 2L, 1_000L))
     }
 }

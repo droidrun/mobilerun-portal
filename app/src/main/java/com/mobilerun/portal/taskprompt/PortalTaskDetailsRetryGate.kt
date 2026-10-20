@@ -8,7 +8,12 @@ internal class PortalTaskDetailsRetryGate(
     private var failedAtMs = 0L
 
     fun canLoad(taskId: String, fingerprint: String, connectionEpoch: Long, nowMs: Long): Boolean {
-        return failedKey != Triple(taskId, fingerprint, connectionEpoch) || nowMs - failedAtMs >= retryDelayMs
+        return remainingDelayMs(taskId, fingerprint, connectionEpoch, nowMs) == 0L
+    }
+
+    fun remainingDelayMs(taskId: String, fingerprint: String, connectionEpoch: Long, nowMs: Long): Long {
+        if (failedKey != Triple(taskId, fingerprint, connectionEpoch)) return 0L
+        return (retryDelayMs - (nowMs - failedAtMs)).coerceAtLeast(0L)
     }
 
     /** [connectionEpoch] is the one the request started in, so any reconnect since then lifts the delay. */
