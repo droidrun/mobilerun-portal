@@ -85,6 +85,15 @@ class ScrcpyScrollInputTest {
     }
 
     @Test
+    fun planner_verticalScrollIgnoresHorizontalJitterNearSideEdge() {
+        // 0.3 ticks = 30 px, under the 40 px minimum swipe distance.
+        val swipe = plan(anchor = ScreenPoint(50f, 1_200f), hTicks = 0.3f, vTicks = -3f)
+
+        assertEquals(50f, swipe!!.start.x, 0f)
+        assertEquals(50f, swipe.end.x, 0f)
+    }
+
+    @Test
     fun planner_horizontalScrollMovesOffBottomGestureBar() {
         val swipe = plan(anchor = ScreenPoint(540f, 2_390f), hTicks = 3f)
 

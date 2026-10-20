@@ -77,11 +77,13 @@ internal object ScrollSwipePlanner {
     ): ScrollSwipe? {
         if (screenWidth <= 0 || screenHeight <= 0) return null
 
+        // Horizontal noise below the minimum swipe distance is no horizontal scroll.
+        val hDelta = hScrollTicks * pixelsPerTick
         val (startX, endX) =
-            if (hScrollTicks == 0f) {
+            if (abs(hDelta) < minDistancePx) {
                 Pair(anchor.x, anchor.x)
             } else {
-                planAxis(anchor.x, hScrollTicks * pixelsPerTick, screenWidth)
+                planAxis(anchor.x, hDelta, screenWidth)
             }
         val (startY, endY) = planAxis(anchor.y, vScrollTicks * pixelsPerTick, screenHeight)
         if (max(abs(endX - startX), abs(endY - startY)) < minDistancePx) return null
