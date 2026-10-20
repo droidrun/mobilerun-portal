@@ -3,6 +3,7 @@ package com.mobilerun.portal.streaming
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -109,6 +110,60 @@ class ScrcpyScrollInputTest {
     }
 
     @Test
+    fun planner_mostlyVerticalScrollDropsSidewaysPart() {
+        // 100 px sideways against 300 px down: over the minimum, under half the vertical.
+        val swipe = plan(anchor = ScreenPoint(50f, 1_200f), hTicks = 1f, vTicks = -3f)
+
+        assertEquals(50f, swipe!!.start.x, 0f)
+        assertEquals(50f, swipe.end.x, 0f)
+        assertEquals(300f, swipe.start.y - swipe.end.y, 1e-3f)
+    }
+
+    @Test
+    fun planner_mostlySidewaysScrollDropsVerticalPart() {
+        val swipe = plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, vTicks = 1f)
+
+        assertEquals(300f, swipe!!.end.x - swipe.start.x, 1e-3f)
+        assertEquals(swipe.start.y, swipe.end.y, 0f)
+    }
+
+    @Test
+    fun planner_sidewaysScrollWithoutTargetDoesNotSwipe() {
+        assertNull(plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, allowHorizontal = false))
+
+        // Mostly sideways: the minor vertical part is jitter whether or not a target exists.
+        assertNull(plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, vTicks = 1f, allowHorizontal = false))
+
+        val diagonal = plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, vTicks = -2f, allowHorizontal = false)
+        assertEquals(diagonal!!.start.x, diagonal.end.x, 0f)
+        assertEquals(200f, diagonal.start.y - diagonal.end.y, 1e-3f)
+    }
+
+    @Test
+    fun planner_wantsHorizontalOnlyForMaterialSidewaysScroll() {
+        assertTrue(ScrollSwipePlanner.wantsHorizontal(3f, 0f, PIXELS_PER_TICK, MIN_DISTANCE_PX))
+        assertTrue(ScrollSwipePlanner.wantsHorizontal(-1f, -2f, PIXELS_PER_TICK, MIN_DISTANCE_PX))
+        assertFalse(ScrollSwipePlanner.wantsHorizontal(0.3f, 0f, PIXELS_PER_TICK, MIN_DISTANCE_PX))
+        assertFalse(ScrollSwipePlanner.wantsHorizontal(1f, -3f, PIXELS_PER_TICK, MIN_DISTANCE_PX))
+    }
+
+    @Test
+    fun target_acceptsNodesThatScrollSideways() {
+        assertTrue(HorizontalScrollTarget.qualifies(listOf(android.R.id.accessibilityActionScrollRight), null, null, "android.view.View"))
+        assertTrue(HorizontalScrollTarget.qualifies(listOf(SCROLL_FORWARD), 1, 12, "androidx.recyclerview.widget.RecyclerView"))
+        assertTrue(HorizontalScrollTarget.qualifies(listOf(SCROLL_BACKWARD), null, null, "android.widget.HorizontalScrollView"))
+        assertTrue(HorizontalScrollTarget.qualifies(listOf(SCROLL_FORWARD), null, null, "androidx.viewpager.widget.ViewPager"))
+    }
+
+    @Test
+    fun target_rejectsVerticalListsAndPlainViews() {
+        assertFalse(HorizontalScrollTarget.qualifies(listOf(SCROLL_FORWARD), 30, 1, "androidx.recyclerview.widget.RecyclerView"))
+        assertFalse(HorizontalScrollTarget.qualifies(listOf(SCROLL_FORWARD, SCROLL_BACKWARD), null, null, "android.widget.ScrollView"))
+        assertFalse(HorizontalScrollTarget.qualifies(listOf(CLICK), 1, 12, "android.widget.LinearLayout"))
+        assertFalse(HorizontalScrollTarget.qualifies(emptyList(), null, null, "android.widget.HorizontalScrollView"))
+    }
+
+    @Test
     fun accumulator_sumsTicksAndFollowsLatestPointer() {
         val ticks = ScrollTickAccumulator(idleResetMs = 500L)
 
@@ -139,6 +194,7 @@ class ScrcpyScrollInputTest {
         anchor: ScreenPoint,
         hTicks: Float = 0f,
         vTicks: Float = 0f,
+        allowHorizontal: Boolean = true,
     ): ScrollSwipe? =
         ScrollSwipePlanner.plan(
             anchor,
@@ -146,8 +202,9 @@ class ScrcpyScrollInputTest {
             vTicks,
             screenWidth = SCREEN_WIDTH,
             screenHeight = SCREEN_HEIGHT,
-            pixelsPerTick = 100f,
-            minDistancePx = 40f,
+            pixelsPerTick = PIXELS_PER_TICK,
+            minDistancePx = MIN_DISTANCE_PX,
+            allowHorizontal = allowHorizontal,
         )
 
     private fun assertInsideBand(swipe: ScrollSwipe) {
@@ -181,5 +238,10 @@ class ScrcpyScrollInputTest {
     private companion object {
         const val SCREEN_WIDTH = 1_080
         const val SCREEN_HEIGHT = 2_400
+        const val PIXELS_PER_TICK = 100f
+        const val MIN_DISTANCE_PX = 40f
+        const val CLICK = 0x10
+        const val SCROLL_FORWARD = 0x1000
+        const val SCROLL_BACKWARD = 0x2000
     }
 }
