@@ -59,12 +59,24 @@ internal data class ScrollSwipe(
 
 /**
  * Turns wheel ticks into a swipe that stays inside the screen and away from
- * the edges, where swipes open system gestures (shade, home, back). A vertical
- * scroll keeps the pointer's x so it still lands on the control under it; a
- * sideways swipe along the bottom edge would switch apps, so y always moves in.
+ * the edges, where swipes open system gestures (shade, home, back). A mostly
+ * vertical scroll drops its sideways part and keeps the pointer's x, so it
+ * still lands on the control under it; y always moves in, because a sideways
+ * swipe along the bottom edge would switch apps.
  */
 internal object ScrollSwipePlanner {
     const val EDGE_INSET_FRACTION = 0.1f
+    const val CROSS_AXIS_RATIO = 0.5f
+
+    fun wantsHorizontal(
+        hScrollTicks: Float,
+        vScrollTicks: Float,
+        pixelsPerTick: Float,
+        minDistancePx: Float,
+    ): Boolean {
+        val hDelta = abs(hScrollTicks * pixelsPerTick)
+        return hDelta >= minDistancePx && hDelta >= abs(vScrollTicks * pixelsPerTick) * CROSS_AXIS_RATIO
+    }
 
     fun plan(
         anchor: ScreenPoint,
@@ -74,18 +86,19 @@ internal object ScrollSwipePlanner {
         screenHeight: Int,
         pixelsPerTick: Float,
         minDistancePx: Float,
+        allowHorizontal: Boolean = true,
     ): ScrollSwipe? {
         if (screenWidth <= 0 || screenHeight <= 0) return null
 
-        // Horizontal noise below the minimum swipe distance is no horizontal scroll.
-        val hDelta = hScrollTicks * pixelsPerTick
+        val horizontal =
+            allowHorizontal && wantsHorizontal(hScrollTicks, vScrollTicks, pixelsPerTick, minDistancePx)
+        val hDelta = if (horizontal) hScrollTicks * pixelsPerTick else 0f
+        var vDelta = vScrollTicks * pixelsPerTick
+        if (horizontal && abs(vDelta) < abs(hDelta) * CROSS_AXIS_RATIO) vDelta = 0f
+
         val (startX, endX) =
-            if (abs(hDelta) < minDistancePx) {
-                Pair(anchor.x, anchor.x)
-            } else {
-                planAxis(anchor.x, hDelta, screenWidth)
-            }
-        val (startY, endY) = planAxis(anchor.y, vScrollTicks * pixelsPerTick, screenHeight)
+            if (horizontal) planAxis(anchor.x, hDelta, screenWidth) else Pair(anchor.x, anchor.x)
+        val (startY, endY) = planAxis(anchor.y, vDelta, screenHeight)
         if (max(abs(endX - startX), abs(endY - startY)) < minDistancePx) return null
 
         return ScrollSwipe(ScreenPoint(startX, startY), ScreenPoint(endX, endY))
@@ -97,6 +110,31 @@ internal object ScrollSwipePlanner {
         val delta = requestedDelta.coerceIn(low - high, high - low)
         val start = anchor.coerceIn(low - min(delta, 0f), high - max(delta, 0f))
         return Pair(start, start + delta)
+    }
+}
+
+/**
+ * A sideways swipe over a view that only scrolls vertically (a list row)
+ * lands as a click, so sideways scrolls need a horizontally scrollable view
+ * under the pointer.
+ */
+internal object HorizontalScrollTarget {
+    private const val ACTION_SCROLL_LEFT = android.R.id.accessibilityActionScrollLeft
+    private const val ACTION_SCROLL_RIGHT = android.R.id.accessibilityActionScrollRight
+    private const val ACTION_SCROLL_FORWARD = 0x1000
+    private const val ACTION_SCROLL_BACKWARD = 0x2000
+
+    fun qualifies(
+        actionIds: Collection<Int>,
+        collectionRowCount: Int?,
+        collectionColumnCount: Int?,
+        className: CharSequence?,
+    ): Boolean {
+        if (ACTION_SCROLL_LEFT in actionIds || ACTION_SCROLL_RIGHT in actionIds) return true
+        if (ACTION_SCROLL_FORWARD !in actionIds && ACTION_SCROLL_BACKWARD !in actionIds) return false
+        if (collectionRowCount == 1 && (collectionColumnCount ?: 0) > 1) return true
+        val name = className?.toString() ?: return false
+        return name.endsWith("HorizontalScrollView") || name.endsWith("ViewPager")
     }
 }
 
@@ -124,6 +162,10 @@ internal class ScrollTickAccumulator(
         hScrollTicks += hTicks
         vScrollTicks += vTicks
         lastAddMs = nowMs
+    }
+
+    fun clearHorizontal() {
+        hScrollTicks = 0f
     }
 
     fun clear() {
