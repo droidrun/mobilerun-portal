@@ -25,6 +25,7 @@ import android.provider.Settings
 import android.view.View
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.net.Uri
 import org.json.JSONObject
 import androidx.appcompat.app.AlertDialog
@@ -40,6 +41,7 @@ import com.mobilerun.portal.taskprompt.PortalBalanceRepository
 import com.mobilerun.portal.taskprompt.PortalTaskCancelResult
 import com.mobilerun.portal.taskprompt.PortalTaskDetails
 import com.mobilerun.portal.taskprompt.PortalTaskDetailsResult
+import com.mobilerun.portal.taskprompt.PortalTaskDetailsRetryGate
 import com.mobilerun.portal.taskprompt.PortalTaskLaunchCoordinator
 import com.mobilerun.portal.taskprompt.PortalTaskLaunchMetadata
 import com.mobilerun.portal.taskprompt.PortalTaskStateMonitor
@@ -93,6 +95,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isTaskPromptVisible = false
     private var isTaskPromptStatusRequestInFlight = false
     private var isTaskPromptDetailsRequestInFlight = false
+    private val taskDetailsRetryGate = PortalTaskDetailsRetryGate()
     private var isTaskPromptCancelInFlight = false
     private var currentConnectionState = ConnectionStateManager.getState()
     private var taskPromptStatusMessage: String? = null
@@ -1049,6 +1052,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             return
         }
 
+        val fingerprint = "$restBaseUrl|$authToken"
+        if (!taskDetailsRetryGate.canLoad(record.taskId, fingerprint, SystemClock.elapsedRealtime())) {
+            return
+        }
+
         isTaskPromptDetailsRequestInFlight = true
         portalCloudClient.getTask(restBaseUrl, authToken, record.taskId) { result ->
             runOnUiThread {
@@ -1062,6 +1070,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 when (result) {
                     is PortalTaskDetailsResult.Success -> {
+                        taskDetailsRetryGate.reset()
                         activeTaskDetails = result.value
                         var finalRecord = currentRecord
                         if (result.value.status.isNotBlank() && result.value.status != currentRecord.lastStatus) {
@@ -1081,6 +1090,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     }
 
                     is PortalTaskDetailsResult.Error -> {
+                        taskDetailsRetryGate.onFailure(record.taskId, fingerprint, SystemClock.elapsedRealtime())
                         activeTaskDetails = null
                         updateTaskPromptStatus(
                             result.message,
@@ -1701,6 +1711,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun setupConnectionStateObserver() {
         ConnectionStateManager.connectionState.observe(this) { state ->
+            if (state == ConnectionState.CONNECTED && currentConnectionState != ConnectionState.CONNECTED) {
+                taskDetailsRetryGate.reset()
+            }
             currentConnectionState = state
             binding.layoutDisconnected.visibility = View.GONE
             binding.layoutConnecting.visibility = View.GONE
