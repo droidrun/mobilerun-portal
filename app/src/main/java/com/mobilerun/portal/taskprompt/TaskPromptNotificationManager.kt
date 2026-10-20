@@ -23,6 +23,17 @@ object TaskPromptNotificationManager {
     private const val NOTIFICATION_ID = 3101
     private const val TAG = "TaskPromptNotif"
 
+    private data class NotificationSignature(
+        val title: String,
+        val message: String,
+        val ongoing: Boolean,
+        val includeCancelAction: Boolean,
+        val taskId: String,
+    )
+
+    @Volatile
+    private var lastNotificationSignature: NotificationSignature? = null
+
     fun showActiveTask(context: Context, record: PortalActiveTaskRecord) {
         val phase = PortalTaskTracking.notificationPhaseForStatus(record.lastStatus)
         if (phase == PortalTaskNotificationPhase.NONE || phase == PortalTaskNotificationPhase.TERMINAL) {
@@ -74,9 +85,11 @@ object TaskPromptNotificationManager {
         )
     }
 
+    @Synchronized
     fun cancel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         Log.d(TAG, "Cancelling task notification")
+        lastNotificationSignature = null
         manager.cancel(NOTIFICATION_ID)
     }
 
@@ -86,6 +99,7 @@ object TaskPromptNotificationManager {
         )
     }
 
+    @Synchronized
     private fun notify(
         context: Context,
         title: String,
@@ -96,6 +110,22 @@ object TaskPromptNotificationManager {
     ) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         createNotificationChannel(manager)
+
+        val signature = NotificationSignature(
+            title = title,
+            message = message,
+            ongoing = ongoing,
+            includeCancelAction = includeCancelAction,
+            taskId = taskId,
+        )
+        // An ongoing one that was dismissed, blocked or removed is posted again; a dismissed finished one is not.
+        if (lastNotificationSignature == signature &&
+            (!ongoing || manager.activeNotifications.any { it.id == NOTIFICATION_ID })
+        ) {
+            Log.d(TAG, "Skipping duplicate task notification for taskId=$taskId")
+            return
+        }
+        lastNotificationSignature = signature
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)

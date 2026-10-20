@@ -17,8 +17,21 @@ enum class ConnectionState {
 object ConnectionStateManager {
     private val _connectionState = MutableLiveData(ConnectionState.DISCONNECTED)
     val connectionState: LiveData<ConnectionState> = _connectionState
+    private val epochLock = Any()
+    private var lastSetState = ConnectionState.DISCONNECTED
+    private var connectedEpochValue = 0L
+
+    /** Advances on every move to CONNECTED, including ones an observer missed or saw coalesced. */
+    val connectedEpoch: Long
+        get() = synchronized(epochLock) { connectedEpochValue }
 
     fun setState(state: ConnectionState) {
+        synchronized(epochLock) {
+            if (state == ConnectionState.CONNECTED && lastSetState != ConnectionState.CONNECTED) {
+                connectedEpochValue++
+            }
+            lastSetState = state
+        }
         // Use postValue to allow calling from background threads
         _connectionState.postValue(state)
     }

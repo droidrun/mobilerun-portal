@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import com.mobilerun.portal.R
@@ -24,10 +25,20 @@ object PortalTaskStateMonitor {
     @Volatile
     private var statusRequestInFlight = false
     private var pollRunnable: Runnable? = null
+    private var cancellingSince: Pair<String, Long>? = null
 
     fun initialize(context: Context) {
         if (::appContext.isInitialized) return
         appContext = context.applicationContext
+    }
+
+    /** Starts the poll grace window for a cancel the user just requested. */
+    fun onCancelRequested(taskId: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { onCancelRequested(taskId) }
+            return
+        }
+        cancellingSince = taskId to SystemClock.elapsedRealtime()
     }
 
     fun reconcileActiveTask(immediate: Boolean = false) {
@@ -139,8 +150,21 @@ object PortalTaskStateMonitor {
             return
         }
 
-        val updatedRecord = PortalTaskTracking.withUpdatedStatus(currentRecord, status)
+        val nowMs = SystemClock.elapsedRealtime()
+        cancellingSince = when {
+            currentRecord.lastStatus != PortalTaskTracking.STATUS_CANCELLING -> null
+            cancellingSince?.first == currentRecord.taskId -> cancellingSince
+            else -> currentRecord.taskId to nowMs
+        }
+        val cancellingForMs = cancellingSince?.let { nowMs - it.second } ?: 0L
+        val resolvedStatus =
+            PortalTaskTracking.resolvePolledStatus(currentRecord.lastStatus, status, cancellingForMs)
+        if (resolvedStatus != PortalTaskTracking.STATUS_CANCELLING) {
+            cancellingSince = null
+        }
+        val updatedRecord = PortalTaskTracking.withUpdatedStatus(currentRecord, resolvedStatus)
         var finalRecord = updatedRecord
+        val stateChanged = finalRecord != currentRecord
         if (finalRecord != currentRecord) {
             configManager.saveActivePortalTask(finalRecord)
         }
@@ -152,7 +176,9 @@ object PortalTaskStateMonitor {
 
         finalRecord = maybeShowStartedToast(finalRecord)
         TaskPromptNotificationManager.showActiveTask(appContext, finalRecord)
-        TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
+        if (stateChanged || finalRecord != updatedRecord) {
+            TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
+        }
         schedulePoll(POLL_INTERVAL_MS)
     }
 

@@ -106,6 +106,24 @@ sealed class PortalTaskCancelResult {
 class PortalCloudClient(
     private val okHttpClient: OkHttpClient = OkHttpClient(),
 ) {
+
+    // OkHttp only logs an IOException thrown from onResponse (e.g. while reading the body), so the
+    // request's callback would never run; report it through onFailure instead.
+    private fun okhttp3.Call.enqueueSafely(callback: okhttp3.Callback) {
+        enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) = callback.onFailure(call, e)
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                try {
+                    callback.onResponse(call, response)
+                } catch (e: IOException) {
+                    response.close()
+                    callback.onFailure(call, e)
+                }
+            }
+        })
+    }
+
     companion object {
         private const val TAG = "PortalCloudClient"
         private const val MODELS_LOAD_WARNING_MESSAGE = "Couldn't load models from Mobilerun. Try again."
@@ -851,7 +869,7 @@ class PortalCloudClient(
         callback: (PortalModelsLoadResult) -> Unit,
     ) {
         val request = buildModelsRequest(restBaseUrl, authToken)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(
                     PortalModelsLoadResult(
@@ -905,7 +923,7 @@ class PortalCloudClient(
         callback: (PortalBalanceResult) -> Unit,
     ) {
         val request = buildBalanceRequest(cloudBaseUrl, authToken)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(
                     PortalBalanceResult.Error(
@@ -968,7 +986,7 @@ class PortalCloudClient(
     ) {
         val completionGate = AtomicBoolean(false)
         val request = buildLaunchTaskRequest(restBaseUrl, authToken, deviceId, draft)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 Log.w(TAG, "Task launch request failed before a usable response. Starting recovery.", e)
                 recoverLaunchTask(
@@ -1078,7 +1096,7 @@ class PortalCloudClient(
             page = 1,
             pageSize = 20,
         )
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 Log.w(TAG, "Launch recovery list request failed. Retrying if time remains.", e)
                 scheduleLaunchRecoveryRetry(
@@ -1205,7 +1223,7 @@ class PortalCloudClient(
         callback: (PortalTaskStatusResult) -> Unit,
     ) {
         val request = buildTaskStatusRequest(restBaseUrl, authToken, taskId)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskStatusResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }
@@ -1244,7 +1262,7 @@ class PortalCloudClient(
         callback: (PortalTaskDetailsResult) -> Unit,
     ) {
         val request = buildTaskDetailsRequest(restBaseUrl, authToken, taskId)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskDetailsResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }
@@ -1285,7 +1303,7 @@ class PortalCloudClient(
         callback: (PortalTaskHistoryResult) -> Unit,
     ) {
         val request = buildListTasksRequest(restBaseUrl, authToken, query, page, pageSize)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskHistoryResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }
@@ -1323,7 +1341,7 @@ class PortalCloudClient(
         callback: (PortalTaskScreenshotResult) -> Unit,
     ) {
         val request = buildTaskScreenshotsRequest(restBaseUrl, authToken, taskId)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskScreenshotResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }
@@ -1362,7 +1380,7 @@ class PortalCloudClient(
         callback: (PortalTaskTrajectoryResult) -> Unit,
     ) {
         val request = buildTaskTrajectoryRequest(restBaseUrl, authToken, taskId)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskTrajectoryResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }
@@ -1401,7 +1419,7 @@ class PortalCloudClient(
         callback: (PortalTaskCancelResult) -> Unit,
     ) {
         val request = buildCancelTaskRequest(restBaseUrl, authToken, taskId)
-        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+        okHttpClient.newCall(request).enqueueSafely(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 callback(PortalTaskCancelResult.Error("Could not reach Mobilerun. Check the connection and try again."))
             }

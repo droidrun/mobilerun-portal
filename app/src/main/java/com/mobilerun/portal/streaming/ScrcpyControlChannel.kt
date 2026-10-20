@@ -4,7 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.res.Resources
 import android.graphics.Path
+import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.GestureController
@@ -17,7 +23,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
         private const val TYPE_INJECT_KEYCODE = 0
         private const val TYPE_INJECT_TEXT = 1
         private const val TYPE_INJECT_TOUCH_EVENT = ScrcpyTouchPacketDecoder.MESSAGE_TYPE
-        private const val TYPE_INJECT_SCROLL_EVENT = 3
+        private const val TYPE_INJECT_SCROLL_EVENT = ScrcpyScrollPacketDecoder.MESSAGE_TYPE
         private const val TYPE_BACK_OR_SCREEN_ON = 4
         private const val TYPE_EXPAND_NOTIFICATION_PANEL = 5
         private const val TYPE_EXPAND_SETTINGS_PANEL = 6
@@ -27,11 +33,23 @@ class ScrcpyControlChannel : DataChannel.Observer {
         private const val ACTION_DOWN = 0
         private const val MIN_GESTURE_DURATION_MS = 50L
         private const val MAX_GESTURE_DURATION_MS = 5000L
+
+        // Android's default wheel scroll factor is 64dp per tick.
+        private const val SCROLL_DP_PER_TICK = 64f
+        private const val SCROLL_MIN_DISTANCE_DP = 16f
+        private const val SCROLL_FLUSH_INTERVAL_MS = 120L
+        private const val SCROLL_SWIPE_DURATION_MS = 100
+        private const val SCROLL_IDLE_RESET_MS = 500L
+        private const val MAX_SCROLL_TARGET_DEPTH = 64
     }
 
     private val touchPath = mutableListOf<Pair<Float, Float>>()
     private val touchState = SinglePointerGestureState()
     private var touchStartTime = 0L
+
+    private val scrollHandler = Handler(Looper.getMainLooper())
+    private val scrollTicks = ScrollTickAccumulator(SCROLL_IDLE_RESET_MS)
+    private var scrollFlushScheduled = false
 
     override fun onBufferedAmountChange(previousAmount: Long) {}
 
@@ -92,32 +110,118 @@ class ScrcpyControlChannel : DataChannel.Observer {
     }
 
     private fun handleScroll(data: ByteArray) {
-        if (data.size < 21) return
-
-        val buffer = ByteBuffer.wrap(data)
-        buffer.order(ByteOrder.LITTLE_ENDIAN)
-
-        buffer.get()
-        val x = buffer.int
-        val y = buffer.int
-        val videoWidth = buffer.short.toInt() and 0xFFFF
-        val videoHeight = buffer.short.toInt() and 0xFFFF
-        val hScroll = buffer.short.toInt()
-        val vScroll = buffer.short.toInt()
-
-        val (scaledX, scaledY) =
-            scaleCoordinates(x, y, videoWidth, videoHeight)?.let { Pair(it.x, it.y) }
+        val packet = ScrcpyScrollPacketDecoder.decode(data) ?: return
+        val point =
+            scaleCoordinates(packet.x, packet.y, packet.videoWidth, packet.videoHeight)
                 ?: return
 
-        val scrollDistance = 200
-        val endY = scaledY + (vScroll * scrollDistance)
-        val endX = scaledX + (hScroll * scrollDistance)
+        scrollHandler.post {
+            scrollTicks.add(point, packet.hScrollTicks, packet.vScrollTicks, SystemClock.uptimeMillis())
+            if (!scrollFlushScheduled) {
+                scrollFlushScheduled = true
+                scrollHandler.postDelayed(::flushScroll, SCROLL_FLUSH_INTERVAL_MS)
+            }
+        }
+    }
 
+    private fun flushScroll() {
+        scrollFlushScheduled = false
+        val anchor = scrollTicks.anchor ?: return
+        val (screenW, screenH) = screenSize()
+        val density = Resources.getSystem().displayMetrics.density
+        val pixelsPerTick = SCROLL_DP_PER_TICK * density
+        val minDistancePx = SCROLL_MIN_DISTANCE_DP * density
+        val wantsHorizontal =
+            ScrollSwipePlanner.wantsHorizontal(
+                scrollTicks.hScrollTicks,
+                scrollTicks.vScrollTicks,
+                pixelsPerTick,
+                minDistancePx,
+            )
+        val allowHorizontal = wantsHorizontal && hasHorizontalScrollTargetAt(anchor)
+
+        val swipe =
+            ScrollSwipePlanner.plan(
+                anchor,
+                scrollTicks.hScrollTicks,
+                scrollTicks.vScrollTicks,
+                screenW,
+                screenH,
+                pixelsPerTick = pixelsPerTick,
+                minDistancePx = minDistancePx,
+                allowHorizontal = allowHorizontal,
+            )
+        if (swipe == null) {
+            // A sideways scroll with nothing to scroll sideways is dropped whole.
+            if (wantsHorizontal && !allowHorizontal) scrollTicks.clear()
+            return
+        }
+
+        scrollTicks.clear()
         GestureController.swipe(
-            scaledX.toInt(), scaledY.toInt(),
-            endX.toInt(), endY.toInt(),
-            200
+            swipe.start.x.toInt(), swipe.start.y.toInt(),
+            swipe.end.x.toInt(), swipe.end.y.toInt(),
+            SCROLL_SWIPE_DURATION_MS,
         )
+    }
+
+    private fun hasHorizontalScrollTargetAt(point: ScreenPoint): Boolean {
+        val service = MobilerunAccessibilityService.getInstance() ?: return false
+        val x = point.x.toInt()
+        val y = point.y.toInt()
+        val bounds = Rect()
+        val windows =
+            try {
+                service.windows
+            } catch (_: RuntimeException) {
+                emptyList()
+            }
+        var root: AccessibilityNodeInfo? = null
+        return try {
+            val window =
+                windows
+                    .filter {
+                        it.getBoundsInScreen(bounds)
+                        it.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && bounds.contains(x, y)
+                    }
+                    .maxByOrNull { it.layer }
+            root = window?.root ?: service.rootInActiveWindow
+            root != null && containsHorizontalScrollTarget(root, x, y, bounds, depth = 0)
+        } catch (_: RuntimeException) {
+            false
+        } finally {
+            root?.recycle()
+            windows.forEach { it.recycle() }
+        }
+    }
+
+    private fun containsHorizontalScrollTarget(
+        node: AccessibilityNodeInfo,
+        x: Int,
+        y: Int,
+        bounds: Rect,
+        depth: Int,
+    ): Boolean {
+        node.getBoundsInScreen(bounds)
+        if (!bounds.contains(x, y)) return false
+        val collection = node.collectionInfo
+        val qualifies =
+            HorizontalScrollTarget.qualifies(
+                node.actionList.map { it.id },
+                collection?.rowCount,
+                collection?.columnCount,
+                node.className,
+            )
+        if (qualifies) return true
+        if (depth >= MAX_SCROLL_TARGET_DEPTH) return false
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = containsHorizontalScrollTarget(child, x, y, bounds, depth + 1)
+            child.recycle()
+            if (found) return true
+        }
+        return false
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -265,10 +369,15 @@ class ScrcpyControlChannel : DataChannel.Observer {
     }
 
     private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): ScreenPoint? {
+        val (screenW, screenH) = screenSize()
+        return FrameToScreenMapper.map(x, y, videoW, videoH, screenW, screenH)
+    }
+
+    private fun screenSize(): Pair<Int, Int> {
         val service = MobilerunAccessibilityService.getInstance()
         val wm = service?.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager
 
-        val (screenW, screenH) = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             val bounds = wm?.maximumWindowMetrics?.bounds
             Pair(bounds?.width() ?: Resources.getSystem().displayMetrics.widthPixels,
                  bounds?.height() ?: Resources.getSystem().displayMetrics.heightPixels)
@@ -278,8 +387,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
             wm?.defaultDisplay?.getRealMetrics(metrics)
             Pair(metrics.widthPixels, metrics.heightPixels)
         }
-
-        return FrameToScreenMapper.map(x, y, videoW, videoH, screenW, screenH)
     }
 
     private fun dispatchPath(points: List<Pair<Float, Float>>, durationMs: Long) {
