@@ -59,6 +59,7 @@ class TaskHistoryActivity : AppCompatActivity() {
     private var hasNextPage = false
     private var isInitialLoading = false
     private var isLoadingMore = false
+    private var isLoadMorePausedAfterFailure = false
     private var requestToken = 0
     private var errorMessage: String? = null
     private var hasLoadedHistory = false
@@ -154,6 +155,7 @@ class TaskHistoryActivity : AppCompatActivity() {
 
         items.clear()
         items.addAll(cached.items)
+        isLoadMorePausedAfterFailure = false
         currentPage = (cached.items.size + PAGE_SIZE - 1) / PAGE_SIZE
         hasNextPage = cached.total > cached.items.size
         hasLoadedHistory = true
@@ -377,10 +379,22 @@ class TaskHistoryActivity : AppCompatActivity() {
                 visibleItemCount: Int,
                 totalItemCount: Int,
             ) {
-                if (!hasNextPage || isInitialLoading || isLoadingMore || totalItemCount == 0) {
-                    return
+                if (
+                    isLoadMorePausedAfterFailure &&
+                    !TaskHistoryLoadMoreState.isNearEnd(firstVisibleItem, visibleItemCount, totalItemCount)
+                ) {
+                    isLoadMorePausedAfterFailure = false
                 }
-                if (firstVisibleItem + visibleItemCount >= totalItemCount - 2) {
+                if (
+                    TaskHistoryLoadMoreState.shouldLoadMore(
+                        hasNextPage = hasNextPage,
+                        isLoading = isInitialLoading || isLoadingMore,
+                        isPausedAfterFailure = isLoadMorePausedAfterFailure,
+                        firstVisibleItem = firstVisibleItem,
+                        visibleItemCount = visibleItemCount,
+                        totalItemCount = totalItemCount,
+                    )
+                ) {
                     loadTasks(reset = false)
                 }
             }
@@ -413,6 +427,7 @@ class TaskHistoryActivity : AppCompatActivity() {
         if (reset) {
             isInitialLoading = true
             isLoadingMore = false
+            isLoadMorePausedAfterFailure = false
             currentPage = 0
             hasNextPage = false
             errorMessage = null
@@ -472,6 +487,8 @@ class TaskHistoryActivity : AppCompatActivity() {
 
                     is PortalTaskHistoryResult.Error -> {
                         if (!reset) {
+                            // Relayout calls onScroll again at the end; retry only after scrolling away.
+                            isLoadMorePausedAfterFailure = true
                             Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
                         } else {
                             items.clear()
