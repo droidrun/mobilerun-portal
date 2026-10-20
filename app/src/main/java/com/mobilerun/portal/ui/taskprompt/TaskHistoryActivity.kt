@@ -69,6 +69,7 @@ class TaskHistoryActivity : AppCompatActivity() {
     private var isDataLoading = false
     private var hasLoadedData = false
     private var dashboardStats: PortalDashboardStats? = null
+    private var hasBoundDashboardStats = false
     private var cachedTaskPage: PortalTaskHistoryPage? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -264,11 +265,13 @@ class TaskHistoryActivity : AppCompatActivity() {
         if (binding.taskTabs.selectedTabPosition != 0) return
 
         if (isDataLoading) {
-            if (!binding.taskDashboardSwipeRefresh.isRefreshing) {
+            if (binding.taskDashboardSwipeRefresh.isRefreshing && hasBoundDashboardStats) {
+                // Keep the refreshing content visible; the History tab may have hidden it.
+                binding.taskDashboardSwipeRefresh.visibility = View.VISIBLE
+                binding.taskDashboardLoading.visibility = View.GONE
+            } else {
                 binding.taskDashboardSwipeRefresh.visibility = View.GONE
                 binding.taskDashboardLoading.visibility = View.VISIBLE
-            } else {
-                binding.taskDashboardLoading.visibility = View.GONE
             }
             binding.taskDashboardError.visibility = View.GONE
             return
@@ -287,6 +290,7 @@ class TaskHistoryActivity : AppCompatActivity() {
         binding.taskDashboardSwipeRefresh.visibility = View.VISIBLE
         binding.taskDashboardLoading.visibility = View.GONE
         binding.taskDashboardError.visibility = View.GONE
+        hasBoundDashboardStats = true
 
         val na = getString(R.string.dashboard_not_available)
 
