@@ -47,7 +47,6 @@ import com.mobilerun.portal.taskprompt.PortalTaskLaunchMetadata
 import com.mobilerun.portal.taskprompt.PortalTaskStateMonitor
 import com.mobilerun.portal.taskprompt.PortalTaskStatusAppearance
 import com.mobilerun.portal.taskprompt.PortalTaskDraft
-import com.mobilerun.portal.taskprompt.PortalTaskStatusResult
 import com.mobilerun.portal.taskprompt.PortalTaskTracking
 import com.mobilerun.portal.taskprompt.PortalTaskUiSupport
 import com.mobilerun.portal.taskprompt.TaskPromptNotificationManager
@@ -93,7 +92,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isTaskPromptModelsLoading = false
     private var isTaskPromptSubmitting = false
     private var isTaskPromptVisible = false
-    private var isTaskPromptStatusRequestInFlight = false
     private var isTaskPromptDetailsRequestInFlight = false
     private val taskDetailsRetryGate = PortalTaskDetailsRetryGate()
     private val taskDetailsRetryRunnable = Runnable { refreshTaskPromptUi() }
@@ -102,7 +100,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var taskPromptStatusMessage: String? = null
     private var taskPromptStatusKind = TaskPromptCardController.StatusKind.INFO
     private val taskPromptPollHandler = Handler(Looper.getMainLooper())
-    private var taskPromptPollRunnable: Runnable? = null
     private var isTaskPromptStateReceiverRegistered = false
     private var activeTaskDetails: PortalTaskDetails? = null
 
@@ -153,7 +150,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         private const val MIN_OFFSET = -256
         private const val MAX_OFFSET = 256
         private const val SLIDER_RANGE = MAX_OFFSET - MIN_OFFSET
-        private const val TASK_PROMPT_POLL_INTERVAL_MS = 2000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -333,7 +329,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     override fun onDestroy() {
-        stopTaskPromptPolling()
         unregisterTaskPromptStateReceiver()
         super.onDestroy()
         ConfigManager.getInstance(this).removeListener(this)
@@ -364,7 +359,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onStop() {
         super.onStop()
         isTaskPromptVisible = false
-        stopTaskPromptPolling()
         taskPromptPollHandler.removeCallbacks(taskDetailsRetryRunnable)
         unregisterTaskPromptStateReceiver()
         unregisterInstallResultReceiver()
@@ -573,7 +567,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             taskPromptCardController.setModelRetryVisible(false)
             taskPromptCardController.setFormEnabled(false)
             updateTaskPromptStatus(null)
-            stopTaskPromptPolling()
             return
         }
 
@@ -621,7 +614,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 getString(R.string.task_prompt_missing_api_key),
                 TaskPromptCardController.StatusKind.ERROR,
             )
-            stopTaskPromptPolling()
             return
         }
 
@@ -634,7 +626,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 getString(R.string.task_prompt_unsupported_custom_url),
                 TaskPromptCardController.StatusKind.ERROR,
             )
-            stopTaskPromptPolling()
             return
         }
 
@@ -848,6 +839,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val cancellingRecord =
             PortalTaskTracking.withUpdatedStatus(activeTask, PortalTaskTracking.STATUS_CANCELLING)
         configManager.saveActivePortalTask(cancellingRecord)
+        PortalTaskStateMonitor.onCancelRequested(cancellingRecord.taskId)
         updateTaskPromptStatus(null)
         TaskPromptNotificationManager.showActiveTask(this, cancellingRecord)
         PortalTaskStateMonitor.reconcileActiveTask(immediate = true)
@@ -864,12 +856,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     }
 
                     is PortalTaskCancelResult.Error -> {
-                        configManager.saveActivePortalTask(activeTask)
+                        if (
+                            PortalTaskTracking.shouldRestoreAfterFailedCancel(
+                                configManager.activePortalTask,
+                                activeTask.taskId,
+                            )
+                        ) {
+                            configManager.saveActivePortalTask(activeTask)
+                            TaskPromptNotificationManager.showActiveTask(this, activeTask)
+                        }
                         updateTaskPromptStatus(
                             result.message,
                             TaskPromptCardController.StatusKind.ERROR,
                         )
-                        TaskPromptNotificationManager.showActiveTask(this, activeTask)
                         refreshTaskPromptUi()
                     }
                 }
@@ -909,136 +908,22 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             activeTaskDetails = null
         }
         refreshTaskPromptUi()
-        if (activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
-            // The broadcast follows a fresh poll; polling again immediately would loop.
-            syncTaskPromptPolling()
-        } else {
-            stopTaskPromptPolling()
-        }
+        // The broadcast follows a fresh poll; polling again immediately would loop.
+        syncTaskPromptPolling()
     }
 
     private fun syncTaskPromptPolling(immediate: Boolean = false) {
         val activeTask = ConfigManager.getInstance(this).activePortalTask
         if (!isTaskPromptVisible || activeTask == null) {
-            stopTaskPromptPolling()
             return
         }
 
         if (!PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
-            stopTaskPromptPolling()
             return
         }
 
         PortalTaskStateMonitor.initialize(this)
         PortalTaskStateMonitor.reconcileActiveTask(immediate = immediate)
-    }
-
-    private fun scheduleTaskPromptPoll(delayMs: Long) {
-        taskPromptPollRunnable?.let(taskPromptPollHandler::removeCallbacks)
-        taskPromptPollRunnable = Runnable {
-            taskPromptPollRunnable = null
-            pollActiveTaskStatus()
-        }
-        taskPromptPollHandler.postDelayed(taskPromptPollRunnable!!, delayMs)
-    }
-
-    private fun stopTaskPromptPolling() {
-        taskPromptPollRunnable?.let(taskPromptPollHandler::removeCallbacks)
-        taskPromptPollRunnable = null
-    }
-
-    private fun pollActiveTaskStatus() {
-        val configManager = ConfigManager.getInstance(this)
-        val activeTask = configManager.activePortalTask ?: run {
-            stopTaskPromptPolling()
-            return
-        }
-
-        if (!isTaskPromptVisible || !PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
-            stopTaskPromptPolling()
-            return
-        }
-
-        if (PortalTaskTracking.hasReachedPollingDeadline(activeTask, System.currentTimeMillis())) {
-            updateTrackingTimeoutState(activeTask, showToast = true)
-            refreshTaskPromptUi()
-            return
-        }
-
-        val authToken = configManager.reverseConnectionToken.trim()
-        if (authToken.isBlank()) {
-            updateTaskPromptStatus(
-                getString(R.string.task_prompt_missing_api_key),
-                TaskPromptCardController.StatusKind.ERROR,
-            )
-            stopTaskPromptPolling()
-            refreshTaskPromptUi()
-            return
-        }
-
-        val restBaseUrl =
-            PortalCloudClient.deriveRestBaseUrl(configManager.reverseConnectionUrlOrDefault)
-        if (restBaseUrl == null) {
-            updateTaskPromptStatus(
-                getString(R.string.task_prompt_unsupported_custom_url),
-                TaskPromptCardController.StatusKind.ERROR,
-            )
-            stopTaskPromptPolling()
-            refreshTaskPromptUi()
-            return
-        }
-
-        isTaskPromptStatusRequestInFlight = true
-        portalCloudClient.getTaskStatus(restBaseUrl, authToken, activeTask.taskId) { result ->
-            runOnUiThread {
-                isTaskPromptStatusRequestInFlight = false
-                when (result) {
-                    is PortalTaskStatusResult.Success -> {
-                        handleTaskStatusUpdate(activeTask, result.value.status, restBaseUrl, authToken)
-                    }
-
-                    is PortalTaskStatusResult.Error -> {
-                        updateTaskPromptStatus(
-                            result.message,
-                            TaskPromptCardController.StatusKind.ERROR,
-                        )
-                        refreshTaskPromptUi()
-                        syncTaskPromptPolling()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun handleTaskStatusUpdate(
-        previousRecord: PortalActiveTaskRecord,
-        status: String,
-        restBaseUrl: String,
-        authToken: String,
-    ) {
-        val configManager = ConfigManager.getInstance(this)
-        val currentRecord = configManager.activePortalTask ?: previousRecord
-        if (currentRecord.taskId != previousRecord.taskId) {
-            refreshTaskPromptUi()
-            return
-        }
-
-        val updatedRecord = PortalTaskTracking.withUpdatedStatus(currentRecord, status)
-
-        if (updatedRecord != currentRecord) {
-            configManager.saveActivePortalTask(updatedRecord)
-        }
-
-        if (PortalTaskTracking.isTerminalStatus(updatedRecord.lastStatus)) {
-            stopTaskPromptPolling()
-            refreshTaskPromptUi()
-            loadTerminalTaskDetails(updatedRecord, restBaseUrl, authToken)
-            return
-        }
-
-        TaskPromptNotificationManager.showActiveTask(this, updatedRecord)
-        refreshTaskPromptUi()
-        syncTaskPromptPolling()
     }
 
     private fun loadTerminalTaskDetails(
@@ -1126,48 +1011,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 refreshTaskPromptUi()
             }
         }
-    }
-
-    private fun updateTrackingTimeoutState(
-        record: PortalActiveTaskRecord,
-        showToast: Boolean,
-    ): PortalActiveTaskRecord {
-        stopTaskPromptPolling()
-        TaskPromptNotificationManager.cancel(this)
-
-        var finalRecord =
-            PortalTaskTracking.withUpdatedStatus(
-                record,
-                PortalTaskTracking.STATUS_TRACKING_TIMEOUT,
-            )
-
-        if (showToast && !finalRecord.terminalToastShown) {
-            Toast.makeText(this, getString(R.string.task_prompt_timeout_toast), Toast.LENGTH_SHORT)
-                .show()
-            finalRecord = finalRecord.copy(terminalToastShown = true)
-        }
-
-        ConfigManager.getInstance(this).saveActivePortalTask(finalRecord)
-        return finalRecord
-    }
-
-    private fun showTerminalToastIfNeeded(record: PortalActiveTaskRecord): PortalActiveTaskRecord {
-        if (!PortalTaskTracking.shouldShowTerminalToast(record)) {
-            return record
-        }
-
-        val messageRes = when (record.lastStatus) {
-            PortalTaskTracking.STATUS_COMPLETED -> R.string.task_prompt_completed_toast
-            PortalTaskTracking.STATUS_FAILED -> R.string.task_prompt_failed_toast
-            PortalTaskTracking.STATUS_CANCELLED -> R.string.task_prompt_cancelled_toast
-            PortalTaskTracking.STATUS_TRACKING_TIMEOUT -> R.string.task_prompt_timeout_toast
-            else -> return record
-        }
-
-        Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show()
-        val updatedRecord = record.copy(terminalToastShown = true)
-        ConfigManager.getInstance(this).saveActivePortalTask(updatedRecord)
-        return updatedRecord
     }
 
     private fun buildTaskStateViewModel(

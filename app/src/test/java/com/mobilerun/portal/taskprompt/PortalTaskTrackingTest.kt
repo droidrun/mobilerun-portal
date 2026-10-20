@@ -201,4 +201,66 @@ class PortalTaskTrackingTest {
         assertFalse(completedAgain.terminalReturnHandled)
         assertFalse(completedAgain.terminalTransitionHandled)
     }
+
+    @Test
+    fun resolvePolledStatus_keepsCancellingDuringGrace() {
+        val cancelling = PortalTaskTracking.STATUS_CANCELLING
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_RUNNING, 0L))
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_CREATED, 5_000L))
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_PAUSED, 19_999L))
+        assertEquals(
+            PortalTaskTracking.STATUS_CANCELLED,
+            PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_CANCELLED, 0L),
+        )
+        assertEquals(
+            PortalTaskTracking.STATUS_COMPLETED,
+            PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_COMPLETED, 0L),
+        )
+    }
+
+    @Test
+    fun resolvePolledStatus_acceptsServerStatusAfterGrace() {
+        assertEquals(
+            PortalTaskTracking.STATUS_RUNNING,
+            PortalTaskTracking.resolvePolledStatus(
+                PortalTaskTracking.STATUS_CANCELLING,
+                PortalTaskTracking.STATUS_RUNNING,
+                PortalTaskTracking.CANCEL_POLL_GRACE_MS,
+            ),
+        )
+    }
+
+    @Test
+    fun resolvePolledStatus_usesPolledStatusWhenNotCancelling() {
+        assertEquals(
+            PortalTaskTracking.STATUS_PAUSED,
+            PortalTaskTracking.resolvePolledStatus(PortalTaskTracking.STATUS_RUNNING, PortalTaskTracking.STATUS_PAUSED, 0L),
+        )
+        assertEquals(
+            PortalTaskTracking.STATUS_CANCELLING,
+            PortalTaskTracking.resolvePolledStatus(PortalTaskTracking.STATUS_RUNNING, PortalTaskTracking.STATUS_CANCELLING, 0L),
+        )
+    }
+
+    @Test
+    fun shouldRestoreAfterFailedCancel_onlyWhileStillCancelling() {
+        val record = PortalActiveTaskRecord(
+            taskId = "task-123",
+            promptPreview = "Prompt",
+            startedAtMs = 1_000L,
+            executionTimeoutSec = 5,
+            pollDeadlineMs = 6_000L,
+            lastStatus = PortalTaskTracking.STATUS_CANCELLING,
+        )
+
+        assertTrue(PortalTaskTracking.shouldRestoreAfterFailedCancel(record, "task-123"))
+        assertFalse(
+            PortalTaskTracking.shouldRestoreAfterFailedCancel(
+                record.copy(lastStatus = PortalTaskTracking.STATUS_COMPLETED),
+                "task-123",
+            ),
+        )
+        assertFalse(PortalTaskTracking.shouldRestoreAfterFailedCancel(record, "task-456"))
+        assertFalse(PortalTaskTracking.shouldRestoreAfterFailedCancel(null, "task-123"))
+    }
 }
