@@ -90,11 +90,11 @@ internal object ScrollSwipePlanner {
     ): ScrollSwipe? {
         if (screenWidth <= 0 || screenHeight <= 0) return null
 
-        val horizontal =
-            allowHorizontal && wantsHorizontal(hScrollTicks, vScrollTicks, pixelsPerTick, minDistancePx)
+        val mostlyHorizontal = wantsHorizontal(hScrollTicks, vScrollTicks, pixelsPerTick, minDistancePx)
+        val horizontal = allowHorizontal && mostlyHorizontal
         val hDelta = if (horizontal) hScrollTicks * pixelsPerTick else 0f
         var vDelta = vScrollTicks * pixelsPerTick
-        if (horizontal && abs(vDelta) < abs(hDelta) * CROSS_AXIS_RATIO) vDelta = 0f
+        if (mostlyHorizontal && abs(vDelta) < abs(hScrollTicks * pixelsPerTick) * CROSS_AXIS_RATIO) vDelta = 0f
 
         val (startX, endX) =
             if (horizontal) planAxis(anchor.x, hDelta, screenWidth) else Pair(anchor.x, anchor.x)
@@ -162,10 +162,6 @@ internal class ScrollTickAccumulator(
         hScrollTicks += hTicks
         vScrollTicks += vTicks
         lastAddMs = nowMs
-    }
-
-    fun clearHorizontal() {
-        hScrollTicks = 0f
     }
 
     fun clear() {

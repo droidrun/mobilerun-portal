@@ -131,6 +131,9 @@ class ScrcpyScrollInputTest {
     fun planner_sidewaysScrollWithoutTargetDoesNotSwipe() {
         assertNull(plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, allowHorizontal = false))
 
+        // Mostly sideways: the minor vertical part is jitter whether or not a target exists.
+        assertNull(plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, vTicks = 1f, allowHorizontal = false))
+
         val diagonal = plan(anchor = ScreenPoint(540f, 1_200f), hTicks = 3f, vTicks = -2f, allowHorizontal = false)
         assertEquals(diagonal!!.start.x, diagonal.end.x, 0f)
         assertEquals(200f, diagonal.start.y - diagonal.end.y, 1e-3f)
@@ -180,11 +183,6 @@ class ScrcpyScrollInputTest {
         ticks.add(ScreenPoint(10f, 20f), 0f, -0.1f, nowMs = 0L)
         ticks.add(ScreenPoint(10f, 20f), 0f, 1f, nowMs = 600L)
 
-        assertEquals(1f, ticks.vScrollTicks, 1e-6f)
-
-        ticks.add(ScreenPoint(10f, 20f), 0.5f, 0f, nowMs = 700L)
-        ticks.clearHorizontal()
-        assertEquals(0f, ticks.hScrollTicks, 0f)
         assertEquals(1f, ticks.vScrollTicks, 1e-6f)
 
         ticks.clear()

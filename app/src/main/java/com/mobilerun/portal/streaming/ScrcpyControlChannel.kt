@@ -131,14 +131,14 @@ class ScrcpyControlChannel : DataChannel.Observer {
         val density = Resources.getSystem().displayMetrics.density
         val pixelsPerTick = SCROLL_DP_PER_TICK * density
         val minDistancePx = SCROLL_MIN_DISTANCE_DP * density
-        val allowHorizontal =
+        val wantsHorizontal =
             ScrollSwipePlanner.wantsHorizontal(
                 scrollTicks.hScrollTicks,
                 scrollTicks.vScrollTicks,
                 pixelsPerTick,
                 minDistancePx,
-            ) && hasHorizontalScrollTargetAt(anchor)
-        if (!allowHorizontal) scrollTicks.clearHorizontal()
+            )
+        val allowHorizontal = wantsHorizontal && hasHorizontalScrollTargetAt(anchor)
 
         val swipe =
             ScrollSwipePlanner.plan(
@@ -150,7 +150,12 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 pixelsPerTick = pixelsPerTick,
                 minDistancePx = minDistancePx,
                 allowHorizontal = allowHorizontal,
-            ) ?: return
+            )
+        if (swipe == null) {
+            // A sideways scroll with nothing to scroll sideways is dropped whole.
+            if (wantsHorizontal && !allowHorizontal) scrollTicks.clear()
+            return
+        }
 
         scrollTicks.clear()
         GestureController.swipe(
