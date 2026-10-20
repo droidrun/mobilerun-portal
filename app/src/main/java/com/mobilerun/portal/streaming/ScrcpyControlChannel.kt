@@ -165,20 +165,28 @@ class ScrcpyControlChannel : DataChannel.Observer {
         val x = point.x.toInt()
         val y = point.y.toInt()
         val bounds = Rect()
-        val window =
-            service.windows
-                .filter {
-                    it.getBoundsInScreen(bounds)
-                    it.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && bounds.contains(x, y)
-                }
-                .maxByOrNull { it.layer }
-        val root = window?.root ?: service.rootInActiveWindow ?: return false
+        val windows =
+            try {
+                service.windows
+            } catch (_: RuntimeException) {
+                emptyList()
+            }
+        var root: AccessibilityNodeInfo? = null
         return try {
-            containsHorizontalScrollTarget(root, x, y, bounds, depth = 0)
-        } catch (_: Exception) {
+            val window =
+                windows
+                    .filter {
+                        it.getBoundsInScreen(bounds)
+                        it.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && bounds.contains(x, y)
+                    }
+                    .maxByOrNull { it.layer }
+            root = window?.root ?: service.rootInActiveWindow
+            root != null && containsHorizontalScrollTarget(root, x, y, bounds, depth = 0)
+        } catch (_: RuntimeException) {
             false
         } finally {
-            root.recycle()
+            root?.recycle()
+            windows.forEach { it.recycle() }
         }
     }
 
