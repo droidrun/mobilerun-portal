@@ -137,6 +137,21 @@ object PortalTaskTracking {
             !record.startedToastShown
     }
 
+    const val CANCEL_POLL_GRACE_MS = 20_000L
+
+    /** For a short time after a cancel, only a terminal or cancelling poll result replaces the local status. */
+    fun resolvePolledStatus(currentStatus: String, polledStatus: String, cancellingForMs: Long): String {
+        if (
+            currentStatus == STATUS_CANCELLING &&
+            cancellingForMs < CANCEL_POLL_GRACE_MS &&
+            polledStatus != STATUS_CANCELLING &&
+            !isTerminalStatus(polledStatus)
+        ) {
+            return currentStatus
+        }
+        return polledStatus
+    }
+
     fun withUpdatedStatus(record: PortalActiveTaskRecord, status: String): PortalActiveTaskRecord {
         if (record.lastStatus == status) return record
 

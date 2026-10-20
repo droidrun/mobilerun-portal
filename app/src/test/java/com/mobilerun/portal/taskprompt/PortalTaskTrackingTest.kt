@@ -201,4 +201,44 @@ class PortalTaskTrackingTest {
         assertFalse(completedAgain.terminalReturnHandled)
         assertFalse(completedAgain.terminalTransitionHandled)
     }
+
+    @Test
+    fun resolvePolledStatus_keepsCancellingDuringGrace() {
+        val cancelling = PortalTaskTracking.STATUS_CANCELLING
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_RUNNING, 0L))
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_CREATED, 5_000L))
+        assertEquals(cancelling, PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_PAUSED, 19_999L))
+        assertEquals(
+            PortalTaskTracking.STATUS_CANCELLED,
+            PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_CANCELLED, 0L),
+        )
+        assertEquals(
+            PortalTaskTracking.STATUS_COMPLETED,
+            PortalTaskTracking.resolvePolledStatus(cancelling, PortalTaskTracking.STATUS_COMPLETED, 0L),
+        )
+    }
+
+    @Test
+    fun resolvePolledStatus_acceptsServerStatusAfterGrace() {
+        assertEquals(
+            PortalTaskTracking.STATUS_RUNNING,
+            PortalTaskTracking.resolvePolledStatus(
+                PortalTaskTracking.STATUS_CANCELLING,
+                PortalTaskTracking.STATUS_RUNNING,
+                PortalTaskTracking.CANCEL_POLL_GRACE_MS,
+            ),
+        )
+    }
+
+    @Test
+    fun resolvePolledStatus_usesPolledStatusWhenNotCancelling() {
+        assertEquals(
+            PortalTaskTracking.STATUS_PAUSED,
+            PortalTaskTracking.resolvePolledStatus(PortalTaskTracking.STATUS_RUNNING, PortalTaskTracking.STATUS_PAUSED, 0L),
+        )
+        assertEquals(
+            PortalTaskTracking.STATUS_CANCELLING,
+            PortalTaskTracking.resolvePolledStatus(PortalTaskTracking.STATUS_RUNNING, PortalTaskTracking.STATUS_CANCELLING, 0L),
+        )
+    }
 }

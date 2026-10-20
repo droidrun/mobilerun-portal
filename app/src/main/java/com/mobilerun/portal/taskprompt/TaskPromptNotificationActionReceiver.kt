@@ -52,6 +52,7 @@ class TaskPromptNotificationActionReceiver : BroadcastReceiver() {
             PortalTaskTracking.withUpdatedStatus(activeTask, PortalTaskTracking.STATUS_CANCELLING)
         Log.i(TAG, "Starting notification cancel flow for taskId=$taskId")
         configManager.saveActivePortalTask(cancellingRecord)
+        PortalTaskStateMonitor.onCancelRequested(taskId)
         TaskPromptNotificationManager.showActiveTask(appContext, cancellingRecord)
         TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
         PortalTaskStateMonitor.reconcileActiveTask(immediate = true)

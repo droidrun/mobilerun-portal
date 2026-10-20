@@ -839,6 +839,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val cancellingRecord =
             PortalTaskTracking.withUpdatedStatus(activeTask, PortalTaskTracking.STATUS_CANCELLING)
         configManager.saveActivePortalTask(cancellingRecord)
+        PortalTaskStateMonitor.onCancelRequested(cancellingRecord.taskId)
         updateTaskPromptStatus(null)
         TaskPromptNotificationManager.showActiveTask(this, cancellingRecord)
         PortalTaskStateMonitor.reconcileActiveTask(immediate = true)
