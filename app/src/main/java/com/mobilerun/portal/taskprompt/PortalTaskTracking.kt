@@ -152,6 +152,11 @@ object PortalTaskTracking {
         return polledStatus
     }
 
+    /** A failed cancel restores the previous record only if the task is still the one being cancelled. */
+    fun shouldRestoreAfterFailedCancel(current: PortalActiveTaskRecord?, taskId: String): Boolean {
+        return current?.taskId == taskId && current.lastStatus == STATUS_CANCELLING
+    }
+
     fun withUpdatedStatus(record: PortalActiveTaskRecord, status: String): PortalActiveTaskRecord {
         if (record.lastStatus == status) return record
 

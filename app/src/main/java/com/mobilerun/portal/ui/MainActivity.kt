@@ -856,12 +856,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     }
 
                     is PortalTaskCancelResult.Error -> {
-                        configManager.saveActivePortalTask(activeTask)
+                        if (
+                            PortalTaskTracking.shouldRestoreAfterFailedCancel(
+                                configManager.activePortalTask,
+                                activeTask.taskId,
+                            )
+                        ) {
+                            configManager.saveActivePortalTask(activeTask)
+                            TaskPromptNotificationManager.showActiveTask(this, activeTask)
+                        }
                         updateTaskPromptStatus(
                             result.message,
                             TaskPromptCardController.StatusKind.ERROR,
                         )
-                        TaskPromptNotificationManager.showActiveTask(this, activeTask)
                         refreshTaskPromptUi()
                     }
                 }
