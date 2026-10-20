@@ -77,6 +77,23 @@ class ScrcpyScrollInputTest {
     }
 
     @Test
+    fun planner_verticalScrollKeepsPointerColumnNearSideEdge() {
+        val swipe = plan(anchor = ScreenPoint(50f, 1_200f), vTicks = -3f)
+
+        assertEquals(50f, swipe!!.start.x, 0f)
+        assertEquals(50f, swipe.end.x, 0f)
+    }
+
+    @Test
+    fun planner_horizontalScrollMovesOffBottomGestureBar() {
+        val swipe = plan(anchor = ScreenPoint(540f, 2_390f), hTicks = 3f)
+
+        assertEquals(2_160f, swipe!!.start.y, 1e-3f)
+        assertEquals(swipe.start.y, swipe.end.y, 0f)
+        assertInsideBand(swipe)
+    }
+
+    @Test
     fun planner_keepsTinyScrollsPendingInsteadOfTapping() {
         assertNull(plan(anchor = ScreenPoint(540f, 1_200f), vTicks = 0.3f))
         assertNull(plan(anchor = ScreenPoint(540f, 1_200f), vTicks = 0f))

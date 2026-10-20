@@ -59,7 +59,9 @@ internal data class ScrollSwipe(
 
 /**
  * Turns wheel ticks into a swipe that stays inside the screen and away from
- * the edges, where swipes open system gestures (shade, home, back).
+ * the edges, where swipes open system gestures (shade, home, back). A vertical
+ * scroll keeps the pointer's x so it still lands on the control under it; a
+ * sideways swipe along the bottom edge would switch apps, so y always moves in.
  */
 internal object ScrollSwipePlanner {
     const val EDGE_INSET_FRACTION = 0.1f
@@ -75,7 +77,12 @@ internal object ScrollSwipePlanner {
     ): ScrollSwipe? {
         if (screenWidth <= 0 || screenHeight <= 0) return null
 
-        val (startX, endX) = planAxis(anchor.x, hScrollTicks * pixelsPerTick, screenWidth)
+        val (startX, endX) =
+            if (hScrollTicks == 0f) {
+                Pair(anchor.x, anchor.x)
+            } else {
+                planAxis(anchor.x, hScrollTicks * pixelsPerTick, screenWidth)
+            }
         val (startY, endY) = planAxis(anchor.y, vScrollTicks * pixelsPerTick, screenHeight)
         if (max(abs(endX - startX), abs(endY - startY)) < minDistancePx) return null
 
