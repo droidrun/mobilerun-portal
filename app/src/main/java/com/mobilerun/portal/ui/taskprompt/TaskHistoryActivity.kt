@@ -153,6 +153,11 @@ class TaskHistoryActivity : AppCompatActivity() {
         val query = currentHistoryQuery()
         if (query.isNotBlank()) return false
 
+        // The seeded page replaces any history request still in flight.
+        requestToken++
+        isInitialLoading = false
+        isLoadingMore = false
+        binding.taskHistorySwipeRefresh.isRefreshing = false
         items.clear()
         items.addAll(cached.items)
         isLoadMorePausedAfterFailure = false
