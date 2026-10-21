@@ -301,7 +301,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
                     }
                 }
 
-                typeText("\n")
+                if (service?.inputText("\n", false) != true) {
+                    com.mobilerun.portal.service.DpadController.activate()
+                }
                 return
 
             }
@@ -327,6 +329,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
         if (unicodeChar > 0) {
             val char = unicodeChar.toChar()
             typeText(char.toString())
+        } else {
+            val service = MobilerunAccessibilityService.getInstance() ?: return
+            com.mobilerun.portal.service.DpadController.handleKey(service, keycode)
         }
     }
 
