@@ -1268,7 +1268,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     }
 
     private fun createLocalWebSocketNotification(): Notification {
-        val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
+        val intent = com.mobilerun.portal.ui.PortalEntry.mainIntent(this)
         val pendingIntent = PendingIntent.getActivity(
             this,
             2,

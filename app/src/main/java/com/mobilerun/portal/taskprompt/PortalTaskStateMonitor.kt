@@ -10,7 +10,7 @@ import android.widget.Toast
 import com.mobilerun.portal.R
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.MobilerunAccessibilityService
-import com.mobilerun.portal.ui.MainActivity
+import com.mobilerun.portal.ui.PortalEntry
 
 object PortalTaskStateMonitor {
     private const val TAG = "PortalTaskMonitor"
@@ -272,7 +272,7 @@ object PortalTaskStateMonitor {
     }
 
     private fun launchPortalToForeground(): Boolean {
-        val intent = Intent(appContext, MainActivity::class.java).apply {
+        val intent = PortalEntry.mainIntent(appContext).apply {
             flags =
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or

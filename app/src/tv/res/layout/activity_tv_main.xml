@@ -1,0 +1,30 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="40dp">
+        <TextView style="@style/TVText" android:text="@string/tv_title" android:textSize="36sp" android:textStyle="bold" />
+        <TextView style="@style/TVText" android:text="@string/tv_setup" />
+        <TextView android:id="@+id/setupStatus" style="@style/TVText" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/accessibility" style="@style/TVButton" android:text="@string/tv_accessibility" />
+            <Button android:id="@+id/capture" style="@style/TVButton" android:text="@string/tv_capture" />
+            <Button android:id="@+id/notifications" style="@style/TVButton" android:text="@string/tv_notifications" />
+        </LinearLayout>
+        <TextView android:id="@+id/fallback" style="@style/TVText" android:textSize="18sp" android:visibility="gone" />
+        <LinearLayout android:id="@+id/signIn" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="24dp">
+            <ImageView android:id="@+id/qr" android:layout_width="220dp" android:layout_height="220dp" android:layout_marginEnd="28dp" android:contentDescription="@string/tv_qr" />
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView style="@style/TVText" android:text="@string/tv_phone" />
+                <TextView android:id="@+id/userCode" style="@style/TVText" android:textSize="48sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/countdown" style="@style/TVText" />
+                <Button android:id="@+id/newCode" style="@style/TVButton" android:text="@string/tv_new_code" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/home" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone" android:paddingTop="24dp">
+            <TextView android:id="@+id/account" style="@style/TVText" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <Button android:id="@+id/updates" style="@style/TVButton" android:text="@string/tv_updates" />
+                <Button android:id="@+id/signOut" style="@style/TVButton" android:text="@string/tv_sign_out" />
+            </LinearLayout>
+        </LinearLayout>
+        <TextView android:id="@+id/message" style="@style/TVText" android:accessibilityLiveRegion="polite" />
+    </LinearLayout>
+</ScrollView>

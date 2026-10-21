@@ -276,6 +276,11 @@ class ConfigManager private constructor(private val context: Context) {
             }
         }
 
+    /** Existing credentials remain API keys; TV sessions opt into session validation. */
+    var reverseConnectionCredentialType: String
+        get() = secretsPrefs.getString("reverse_connection_credential_type", "api_key") ?: "api_key"
+        set(value) { secretsPrefs.edit { putString("reverse_connection_credential_type", value) } }
+
     // Reverse Connection Service Key (Header: X-Remote-Device-Key)
     var reverseConnectionServiceKey: String
         get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""

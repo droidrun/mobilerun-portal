@@ -262,9 +262,25 @@ internal fun handleCloudConnectInsert(
         return ApiResponse.Error("Cloud connection URL must end in /v1/providers/personal/join")
     }
 
+    return connectCloudCredential(appContext, configManager, apiKey, url, beforeEnable,
+        startReverseConnectionService)
+}
+
+/** Shared connection path; callers select credential semantics without changing API-key defaults. */
+internal fun connectCloudCredential(
+    appContext: Context,
+    configManager: ConfigManager,
+    token: String,
+    url: String = configManager.defaultReverseConnectionUrl,
+    beforeEnable: () -> Unit = {},
+    startReverseConnectionService: (Context, String) -> Unit = { context, action ->
+        context.startForegroundService(Intent(action, null, context, ReverseConnectionService::class.java))
+    },
+): ApiResponse {
     return try {
         configManager.reverseConnectionUrl = url
-        configManager.reverseConnectionToken = apiKey
+        configManager.reverseConnectionToken = token
+        configManager.reverseConnectionCredentialType = "api_key"
         configManager.forceLoginOnNextConnect = false
         beforeEnable()
         configManager.reverseConnectionEnabled = true

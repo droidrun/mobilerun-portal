@@ -1,4 +1,45 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Mobilerun Portal TV</string>
+    <string name="tv_title">Portal TV</string>
+    <string name="tv_setup">Setup</string>
+    <string name="tv_accessibility">Accessibility settings</string>
+    <string name="tv_capture">Allow screen capture</string>
+    <string name="tv_notifications">Notification access</string>
+    <string name="tv_sign_in">Sign in</string>
+    <string name="tv_phone">Open cloud.mobilerun.ai/device on your phone</string>
+    <string name="tv_new_code">Get a new code</string>
+    <string name="tv_qr">Scan to sign in to Mobilerun</string>
+    <string name="tv_updates">Check for updates</string>
+    <string name="tv_sign_out">Sign out</string>
+    <string name="tv_status">Accessibility: %1$s · Screen capture: %2$s · Notifications: %3$s</string>
+    <string name="tv_on">Ready</string>
+    <string name="tv_off">Needed</string>
+    <string name="tv_countdown">Code expires in %1$d:%2$02d</string>
+    <string name="tv_loading">Requesting sign-in code…</string>
+    <string name="tv_denied">Sign-in was denied. Select Get a new code to try again.</string>
+    <string name="tv_error">Could not sign in. Select Get a new code to try again.</string>
+    <string name="tv_home">%1$s\nWorkspace: %2$s\nDevice: %3$s\nConnection: %4$s</string>
+    <string name="tv_session_saved">Session saved · checking account…</string>
+    <string name="tv_workspace_unknown">Unavailable · retry when online</string>
+    <string name="tv_no_updates">Portal TV is up to date.</string>
+    <string name="tv_install">Install update</string>
+    <string name="tv_install_permission">Allow update installation</string>
+    <string name="tv_update_progress">Downloading update: %1$d%%</string>
+    <string name="tv_a11y_fallback">Settings unavailable. Use adb and append to the existing value; never replace other services:\nadb shell settings put secure enabled_accessibility_services EXISTING:%1$s/%2$s</string>
+    <string name="tv_listener_fallback">Settings unavailable. Use:\nadb shell cmd notification allow_listener %1$s/%2$s</string>
+    <style name="Theme.PortalTV" parent="Theme.Mobilerun">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="TVText">
+        <item name="android:layout_width">match_parent</item><item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">24sp</item><item name="android:paddingBottom">12dp</item>
+    </style>
+    <style name="TVButton" parent="Widget.AppCompat.Button">
+        <item name="android:layout_width">wrap_content</item><item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">56dp</item><item name="android:layout_margin">6dp</item>
+        <item name="android:paddingHorizontal">20dp</item><item name="android:textSize">22sp</item>
+        <item name="android:textColor">#191919</item><item name="android:textAllCaps">false</item>
+        <item name="android:background">@drawable/tv_button</item><item name="android:focusable">true</item>
+    </style>
 </resources>

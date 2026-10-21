@@ -1,0 +1,4 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><solid android:color="@color/mobilerun_background" /></shape></item>
+    <item android:drawable="@drawable/mobilerun_logo_square" android:insetLeft="32dp" android:insetTop="32dp" android:insetRight="32dp" android:insetBottom="32dp" />
+</layer-list>
