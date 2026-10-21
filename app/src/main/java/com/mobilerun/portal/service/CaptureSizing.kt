@@ -134,7 +134,7 @@ internal object CaptureSizing {
         val capWidth = if (swapped) maxHeight else maxWidth
         val capHeight = if (swapped) maxWidth else maxHeight
         // The TV upper bound follows screen orientation too, preserving portrait cap behavior.
-        val orientedTvBox = if (tvBox != null && screenWidth < screenHeight) tvBox.second to tvBox.first else tvBox
+        val orientedTvBox = if (tvBox != null && screenWidth < screenHeight && tvBox.first > tvBox.second) tvBox.second to tvBox.first else tvBox
         val boxWidth = orientedTvBox?.let { minOf(capWidth, it.first) } ?: capWidth
         val boxHeight = orientedTvBox?.let { minOf(capHeight, it.second) } ?: capHeight
         return fitCaptureSizeToScreen(screenWidth, screenHeight, boxWidth, boxHeight)
