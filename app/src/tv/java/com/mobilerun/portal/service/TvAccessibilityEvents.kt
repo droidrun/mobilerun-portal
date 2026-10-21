@@ -73,9 +73,6 @@ class TvAccessibilityEvents(
         val event = pending.event
         val foreground = ForegroundApplicationWindowResolver.resolve(event) { service.windows }
         if (closed) return
-        if (foreground != null && foreground.packageName != MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE) {
-            windowRecovery.onFocusedApplication()
-        }
         transitions.advance(foreground?.packageName)
         val candidate = activityTracker.matching(foreground?.packageName)
         if (candidate != null) main.post {
@@ -135,11 +132,11 @@ class TvAccessibilityEvents(
         ) PackageInstallerAutoAccept.tryAutoAccept(root, pending.eventClass)
     }
 
-    override fun onProjectionStarted() = windowRecovery.afterProjectionConsent()
+    override fun onProjectionStarted() = windowRecovery.afterProjectionStarted()
 
     override fun recoverEmptyRoot() = windowRecovery.recoverEmptyRoot()
 
-    override fun probeWindowHealth(focusedApp: Boolean) = windowRecovery.requestProbe(focusedApp)
+    override fun probeWindowHealth(focusedApp: Boolean) = windowRecovery.requestProbe()
 
     override fun close() {
         closed = true

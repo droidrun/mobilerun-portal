@@ -77,7 +77,6 @@ internal class TvUpdateFlow(
     private fun getString(id: Int, vararg args: Any) = activity.getString(id, *args)
 
     private fun setUpdateLoading(loading: Boolean, label: String = getString(R.string.tv_update_checking)) {
-        val finished = updateBusy && !loading
         updateBusy = loading
         // Keep D-pad focus here; checkUpdates ignores repeat clicks while busy.
         binding.updates.text = if (loading) label else getString(R.string.tv_updates)
@@ -86,7 +85,6 @@ internal class TvUpdateFlow(
             binding.updates.paddingTop,
             activity.resources.getDimensionPixelSize(R.dimen.tv_button_padding), binding.updates.paddingBottom)
         binding.updateSpinner.visibility = if (loading) View.VISIBLE else View.GONE
-        if (finished && binding.updates.isShown) binding.updates.requestFocus()
     }
 
     private fun showUpdateMessage(text: String, temporary: Boolean = true) {
