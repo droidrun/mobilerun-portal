@@ -11,6 +11,7 @@ on:
 
 env:
   PORTAL_ARTIFACT_PREFIX: com.mobilerun.portal
+  TV_ARTIFACT_PREFIX: com.mobilerun.portal.tv
 
 jobs:
   build:
@@ -65,9 +66,9 @@ jobs:
           VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
           VERSION_CODE="${{ steps.version.outputs.VERSION_CODE }}"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            ./gradlew assembleRelease --no-daemon -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}"
+            ./gradlew assemblePhoneRelease assembleTvRelease --no-daemon -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}"
           else
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assemblePhoneDebug assembleTvDebug --no-daemon
           fi
 
       - name: Verify APK version metadata
@@ -96,20 +97,29 @@ jobs:
           fi
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n1)"
+            BUILD_TYPE=release
           else
-            APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n1)"
+            BUILD_TYPE=debug
           fi
-          [[ -n "${APK}" ]]
-          BADGING="$("${AAPT_BIN}" dump badging "${APK}")"
-          ACTUAL_VERSION_NAME="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p" | head -n1)"
-          ACTUAL_VERSION_CODE="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p" | head -n1)"
+          for FLAVOR in phone tv; do
+            APK="$(find "app/build/outputs/apk/${FLAVOR}/${BUILD_TYPE}" -maxdepth 1 -name '*.apk')"
+            [[ -f "${APK}" ]]
+            BADGING="$("${AAPT_BIN}" dump badging "${APK}")"
+            ACTUAL_VERSION_NAME="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p" | head -n1)"
+            ACTUAL_VERSION_CODE="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p" | head -n1)"
+            ACTUAL_PACKAGE="$(printf '%s\n' "${BADGING}" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+            EXPECTED_PACKAGE="${PORTAL_ARTIFACT_PREFIX}"
+            if [[ "${FLAVOR}" == tv ]]; then
+              EXPECTED_PACKAGE="${TV_ARTIFACT_PREFIX}"
+            fi
 
-          echo "Expected versionName=${EXPECTED_VERSION_NAME} versionCode=${EXPECTED_VERSION_CODE}"
-          echo "Actual versionName=${ACTUAL_VERSION_NAME} versionCode=${ACTUAL_VERSION_CODE}"
+            echo "${FLAVOR}: expected versionName=${EXPECTED_VERSION_NAME} versionCode=${EXPECTED_VERSION_CODE} package=${EXPECTED_PACKAGE}"
+            echo "${FLAVOR}: actual versionName=${ACTUAL_VERSION_NAME} versionCode=${ACTUAL_VERSION_CODE} package=${ACTUAL_PACKAGE}"
 
-          [[ "${ACTUAL_VERSION_NAME}" == "${EXPECTED_VERSION_NAME}" ]]
-          [[ "${ACTUAL_VERSION_CODE}" == "${EXPECTED_VERSION_CODE}" ]]
+            [[ "${ACTUAL_VERSION_NAME}" == "${EXPECTED_VERSION_NAME}" ]]
+            [[ "${ACTUAL_VERSION_CODE}" == "${EXPECTED_VERSION_CODE}" ]]
+            [[ "${ACTUAL_PACKAGE}" == "${EXPECTED_PACKAGE}" ]]
+          done
 
       - name: Verify release APK signature
         if: startsWith(github.ref, 'refs/tags/')
@@ -119,12 +129,12 @@ jobs:
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           BUILD_TOOLS_DIR="$(find "${SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
           APKSIGNER_BIN="${BUILD_TOOLS_DIR}/apksigner"
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n1)"
-
           [[ -x "${APKSIGNER_BIN}" ]]
-          [[ -n "${APK}" ]]
-
-          "${APKSIGNER_BIN}" verify --print-certs "${APK}"
+          for FLAVOR in phone tv; do
+            APK="$(find "app/build/outputs/apk/${FLAVOR}/release" -maxdepth 1 -name '*.apk')"
+            [[ -f "${APK}" ]]
+            "${APKSIGNER_BIN}" verify --print-certs "${APK}"
+          done
 
       - name: Copy release APK to workspace root
         if: startsWith(github.ref, 'refs/tags/')
@@ -132,12 +142,15 @@ jobs:
           set -euo pipefail
 
           VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
-          ARTIFACT_PREFIX="${PORTAL_ARTIFACT_PREFIX}"
-          RELEASE_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n1)"
-
-          [[ -n "${RELEASE_APK}" ]]
-
-          cp "${RELEASE_APK}" "${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
+          for FLAVOR in phone tv; do
+            ARTIFACT_PREFIX="${PORTAL_ARTIFACT_PREFIX}"
+            if [[ "${FLAVOR}" == tv ]]; then
+              ARTIFACT_PREFIX="${TV_ARTIFACT_PREFIX}"
+            fi
+            RELEASE_APK="$(find "app/build/outputs/apk/${FLAVOR}/release" -maxdepth 1 -name '*.apk')"
+            [[ -f "${RELEASE_APK}" ]]
+            cp "${RELEASE_APK}" "${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
+          done
 
       - name: Generate update feed
         if: startsWith(github.ref, 'refs/tags/')
@@ -146,14 +159,20 @@ jobs:
 
           VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
           VERSION_CODE="${{ steps.version.outputs.VERSION_CODE }}"
-          ARTIFACT_PREFIX="${PORTAL_ARTIFACT_PREFIX}"
-          RELEASE_APK="${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
-          APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION_NAME}/${RELEASE_APK}"
+          for FLAVOR in phone tv; do
+            ARTIFACT_PREFIX="${PORTAL_ARTIFACT_PREFIX}"
+            FEED=latest.json
+            if [[ "${FLAVOR}" == tv ]]; then
+              ARTIFACT_PREFIX="${TV_ARTIFACT_PREFIX}"
+              FEED=latest-tv.json
+            fi
+            RELEASE_APK="${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
+            APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION_NAME}/${RELEASE_APK}"
 
-          [[ -f "${RELEASE_APK}" ]]
+            [[ -f "${RELEASE_APK}" ]]
 
-          SHA256="$(sha256sum "${RELEASE_APK}" | awk '{print $1}')"
-          cat > latest.json <<EOF
+            SHA256="$(sha256sum "${RELEASE_APK}" | awk '{print $1}')"
+            cat > "${FEED}" <<EOF
           {
             "version": "${VERSION_NAME}",
             "versionCode": ${VERSION_CODE},
@@ -162,6 +181,7 @@ jobs:
             "sha256": "${SHA256}"
           }
           EOF
+          done
 
       - name: Upload release files
         if: startsWith(github.ref, 'refs/tags/')
@@ -170,7 +190,9 @@ jobs:
           name: app-release
           path: |
             ${{ env.PORTAL_ARTIFACT_PREFIX }}-*.apk
+            ${{ env.TV_ARTIFACT_PREFIX }}-*.apk
             latest.json
+            latest-tv.json
           retention-days: 1
 
       - name: Upload debug APK
@@ -178,7 +200,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/phone/debug/*.apk
+            app/build/outputs/apk/tv/debug/*.apk
 
   release:
     needs: build
@@ -199,6 +223,7 @@ jobs:
           files: |
             artifacts/*.apk
             artifacts/latest.json
+            artifacts/latest-tv.json
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -211,6 +236,21 @@ jobs:
       artifact-name: app-release
       file-prefix: com.mobilerun.portal
       tag: ${{ needs.build.outputs.version-name }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+  deploy-r2-tv:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/deploy-r2.yml
+    with:
+      artifact-name: app-release
+      file-prefix: com.mobilerun.portal.tv
+      tag: ${{ needs.build.outputs.version-name }}
+      r2-destination-prefix: portal-tv
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

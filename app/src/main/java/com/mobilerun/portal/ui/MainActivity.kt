@@ -1879,7 +1879,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun fetchElementData() {
         try {
             // Use ContentProvider to get combined state (a11y tree + phone state)
-            val uri = Uri.parse("content://com.mobilerun.portal/state")
+            val uri = Uri.parse("content://$packageName/state")
 
             val cursor = contentResolver.query(
                 uri,

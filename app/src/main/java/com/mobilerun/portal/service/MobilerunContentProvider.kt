@@ -12,6 +12,7 @@ import android.os.Binder
 import android.util.Base64
 import android.util.Log
 import androidx.core.net.toUri
+import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.CloudTokenNormalizer
@@ -526,7 +527,7 @@ private fun buildCloudTaskSettings(
 class MobilerunContentProvider : ContentProvider() {
     companion object {
         private const val TAG = "MobilerunContentProvider"
-        private const val AUTHORITY = "com.mobilerun.portal"
+        private const val AUTHORITY = BuildConfig.APPLICATION_ID
         private const val A11Y_TREE = 1
         private const val PHONE_STATE = 2
         private const val PING = 3
