@@ -155,9 +155,26 @@ class DpadControllerTest {
 
         val audio = mockk<AudioManager>(relaxed = true)
         every { context.getSystemService(Context.AUDIO_SERVICE) } returns audio
-        for ((key, adjustment) in listOf(KeyEvent.KEYCODE_VOLUME_UP to AudioManager.ADJUST_RAISE, KeyEvent.KEYCODE_VOLUME_DOWN to AudioManager.ADJUST_LOWER, KeyEvent.KEYCODE_VOLUME_MUTE to AudioManager.ADJUST_TOGGLE_MUTE)) {
+        for ((key, adjustment) in listOf(KeyEvent.KEYCODE_VOLUME_UP to AudioManager.ADJUST_RAISE, KeyEvent.KEYCODE_VOLUME_DOWN to AudioManager.ADJUST_LOWER, KeyEvent.KEYCODE_VOLUME_MUTE to AudioManager.ADJUST_MUTE)) {
             assertTrue(DpadController.handleKey(context, key)!!.success)
             verify { audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjustment, AudioManager.FLAG_SHOW_UI) }
+        }
+    }
+
+    @Test
+    fun volumeMuteReadsStreamStateToMuteAndUnmuteExplicitly() {
+        val audio = mockk<AudioManager>(relaxed = true)
+        every { context.getSystemService(Context.AUDIO_SERVICE) } returns audio
+        every { audio.isStreamMute(AudioManager.STREAM_MUSIC) } returnsMany listOf(false, true)
+
+        assertTrue(DpadController.handleKey(context, KeyEvent.KEYCODE_VOLUME_MUTE)!!.success)
+        assertTrue(DpadController.handleKey(context, KeyEvent.KEYCODE_VOLUME_MUTE)!!.success)
+
+        verifySequence {
+            audio.isStreamMute(AudioManager.STREAM_MUSIC)
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
+            audio.isStreamMute(AudioManager.STREAM_MUSIC)
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, AudioManager.FLAG_SHOW_UI)
         }
     }
 

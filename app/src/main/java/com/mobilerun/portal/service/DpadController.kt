@@ -150,7 +150,12 @@ internal object DpadController {
     private fun volume(context: Context, adjustment: Int): DpadKeyResult {
         val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             ?: return DpadKeyResult(false, "Audio service not available")
-        manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjustment, AudioManager.FLAG_SHOW_UI)
+        val direction = if (adjustment == AudioManager.ADJUST_TOGGLE_MUTE) {
+            if (manager.isStreamMute(AudioManager.STREAM_MUSIC)) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE
+        } else {
+            adjustment
+        }
+        manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
         return result(true)
     }
 
