@@ -10,13 +10,12 @@ internal object TvStreamPolicy {
             BuildConfig.TV_CAPTURE_BOX_WIDTH to BuildConfig.TV_CAPTURE_BOX_HEIGHT
         } else null
         TvEncoderCapabilities.select(TvEncoderCapabilities.probe(), upperBound).also {
-            log(null, "encoder=${it.encoder?.name ?: "none"} hw=${it.h264Only} box=${it.box.first}x${it.box.second} reason=${it.reason}")
-            if (!it.h264Only) Log.w("TvStreamDiag", "no hw avc encoder — VP8 allowed")
+            log(null, "encoder=${it.encoder?.name ?: "none"} hw=${it.encoder != null} box=${it.box.first}x${it.box.second} reason=${it.reason}")
+            if (it.encoder == null) Log.w("TvStreamDiag", "no hw avc encoder — VP8 allowed")
         }
     }
     val autoCaptureBox: Pair<Int, Int> get() = decision.box
-    val h264Only: Boolean get() = decision.h264Only
-    val allowedVideoCodecs: Set<String> get() = decision.allowedVideoCodecs
+    val selectedEncoderName: String? get() = decision.encoder?.name
 
     fun log(sessionId: String?, event: String) {
         // Only opaque short IDs and selected numeric/codec fields: never SDP, ICE or request JSON.

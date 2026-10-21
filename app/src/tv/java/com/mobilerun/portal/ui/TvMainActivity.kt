@@ -59,7 +59,10 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             if (!started) return
             // Cloud consent can complete after onResume, without a connection-state change.
             val active = WebRtcManager.getExistingInstance()?.isCaptureActive() == true
-            if (active != displayedCaptureActive) renderSetup()
+            if (active != displayedCaptureActive) {
+                displayedCaptureActive = active
+                renderSetup()
+            }
             main.postDelayed(this, CAPTURE_STATUS_INTERVAL_MS)
         }
     }
@@ -258,7 +261,6 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding.accessibility.setText(if (health == TvAccessibilityHealthState.NOT_RESPONDING) R.string.tv_fix else R.string.tv_open_settings)
         val captureActive = WebRtcManager.getExistingInstance()?.isCaptureActive() == true
         row(binding.captureStatus, binding.capture, captureActive)
-        displayedCaptureActive = captureActive
         row(binding.notificationStatus, binding.notifications,
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName))
         if (health == TvAccessibilityHealthState.READY) binding.accessibilityHint.visibility = View.GONE
