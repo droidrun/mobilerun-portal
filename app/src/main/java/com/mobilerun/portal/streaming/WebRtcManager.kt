@@ -1180,38 +1180,48 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     // A new primary (fresh or stale takeover) must fit under the limit next to the existing secondaries.
-    // Secondaries are only counted here; a FAILED one may still be in its ICE restart.
+    // Gone peers are dropped only when they would block it; a FAILED one may still be in its ICE restart.
     private fun admitIncomingSession(sessionId: String): Pair<IncomingSessionRoute, String?> {
         val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
-        val promotedSecondary: SecondarySession?
+        var promotedSecondary: SecondarySession? = null
+        val goneSessions = mutableListOf<SecondarySession>()
         val admission =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
-                    return resolvedRoute to null
+            try {
+                synchronized(streamLock) {
+                    val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                    if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
+                        return resolvedRoute to null
+                    }
+                    val replacesExistingSession =
+                        primarySessionId == sessionId || secondarySessions.containsKey(sessionId)
+                    val limitReached = {
+                        isStreamSessionLimitReached(
+                            hasPrimary = false,
+                            secondarySessionCount = secondarySessions.size,
+                            replacesExistingSession = replacesExistingSession,
+                            sessionLimit = sessionLimit,
+                        )
+                    }
+                    if (limitReached()) {
+                        goneSessions += reapDisconnectedSecondarySessionsLocked(includeFailed = false)
+                    }
+                    if (limitReached()) {
+                        Log.w(
+                            TAG,
+                            "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
+                        )
+                        throw IllegalStateException("max_concurrent_stream_sessions_reached")
+                    }
+                    // A secondary restarting as the new primary must not keep its old peer.
+                    promotedSecondary = secondarySessions.remove(sessionId)
+                    if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
+                        IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
+                    } else {
+                        resolvedRoute to null
+                    }
                 }
-                if (
-                    isStreamSessionLimitReached(
-                        hasPrimary = false,
-                        secondarySessionCount = secondarySessions.size,
-                        replacesExistingSession =
-                            primarySessionId == sessionId || secondarySessions.containsKey(sessionId),
-                        sessionLimit = sessionLimit,
-                    )
-                ) {
-                    Log.w(
-                        TAG,
-                        "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
-                    )
-                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
-                }
-                // A secondary restarting as the new primary must not keep its old peer.
-                promotedSecondary = secondarySessions.remove(sessionId)
-                if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
-                    IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
-                } else {
-                    resolvedRoute to null
-                }
+            } finally {
+                goneSessions.forEach { cleanupSecondarySession(it) }
             }
         promotedSecondary?.let { cleanupSecondarySession(it) }
         return admission
@@ -1496,7 +1506,9 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private fun reapDisconnectedSecondarySessionsLocked(): List<SecondarySession> {
+    private fun reapDisconnectedSecondarySessionsLocked(
+        includeFailed: Boolean = true,
+    ): List<SecondarySession> {
         if (secondarySessions.isEmpty()) return emptyList()
         val staleSessions = mutableListOf<SecondarySession>()
         val iterator = secondarySessions.entries.iterator()
@@ -1505,7 +1517,7 @@ class WebRtcManager private constructor(private val context: Context) {
             val state = session.peerConnection.iceConnectionState()
             if (state == PeerConnection.IceConnectionState.DISCONNECTED ||
                 state == PeerConnection.IceConnectionState.CLOSED ||
-                state == PeerConnection.IceConnectionState.FAILED
+                (includeFailed && state == PeerConnection.IceConnectionState.FAILED)
             ) {
                 staleSessions += session
                 iterator.remove()
