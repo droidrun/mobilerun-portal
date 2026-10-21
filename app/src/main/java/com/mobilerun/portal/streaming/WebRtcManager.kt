@@ -22,6 +22,7 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -821,6 +822,7 @@ class WebRtcManager private constructor(private val context: Context) {
         return object : CapturerObserver {
             override fun onCapturerStarted(success: Boolean) {
                 delegate.onCapturerStarted(success)
+                if (success) MobilerunAccessibilityService.getInstance()?.onMediaProjectionStarted()
             }
 
             override fun onCapturerStopped() {

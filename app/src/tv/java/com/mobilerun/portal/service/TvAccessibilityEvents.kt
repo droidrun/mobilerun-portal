@@ -35,6 +35,7 @@ class TvAccessibilityEvents(
         main.post { if (!closed) EventHub.emit(event) }
     }
     private val activityTracker = TvForegroundActivityTracker()
+    private val windowRecovery = TvWindowStateRecovery(service, worker)
     private var projectionDeclinedLogged = false
     private val events = coalescer("Accessibility event", ::process)
     private val dialogs = coalescer("Permission dialog", ::processDialog)
@@ -72,6 +73,9 @@ class TvAccessibilityEvents(
         val event = pending.event
         val foreground = ForegroundApplicationWindowResolver.resolve(event) { service.windows }
         if (closed) return
+        if (foreground != null && foreground.packageName != MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE) {
+            windowRecovery.onFocusedApplication()
+        }
         transitions.advance(foreground?.packageName)
         val candidate = activityTracker.matching(foreground?.packageName)
         if (candidate != null) main.post {
@@ -103,6 +107,7 @@ class TvAccessibilityEvents(
             AutoAcceptGate.disarmMediaProjection()
             projectionDeclinedLogged = false
             Log.i(TAG, "tv projection consent accepted")
+            windowRecovery.afterProjectionConsent()
         } else {
             if (!projectionDeclinedLogged) {
                 projectionDeclinedLogged = true
@@ -113,6 +118,10 @@ class TvAccessibilityEvents(
                 TvMediaProjectionAutoAccept.hasShareModeUi(root)
             ) {
                 val result = MediaProjectionAutoAccept.tryAutoAccept(root, pending.eventClass)
+                if (result == MediaProjectionAutoAccept.AutoAcceptResult.ActionPerformed) {
+                    // This may be an intermediate share-mode choice; actual capture start schedules the refresh.
+                    windowRecovery.requestProbe()
+                }
                 if (result is MediaProjectionAutoAccept.AutoAcceptResult.Failed) {
                     main.post { if (!closed) onAutoAcceptFailed() }
                 }
@@ -126,8 +135,15 @@ class TvAccessibilityEvents(
         ) PackageInstallerAutoAccept.tryAutoAccept(root, pending.eventClass)
     }
 
+    override fun onProjectionStarted() = windowRecovery.afterProjectionConsent()
+
+    override fun recoverEmptyRoot() = windowRecovery.recoverEmptyRoot()
+
+    override fun probeWindowHealth(focusedApp: Boolean) = windowRecovery.requestProbe(focusedApp)
+
     override fun close() {
         closed = true
+        windowRecovery.close()
         events.close()
         dialogs.close()
         worker.shutdownNow() // Never wait for a blocked binder call on main.

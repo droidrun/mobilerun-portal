@@ -57,4 +57,7 @@
     <string name="tv_update_check_error">Could not check for updates. Try again later.</string>
     <string name="tv_update_install_error">Could not install the update. Try again later.</string>
     <string name="tv_update_installed">Portal TV update installed</string>
+    <string name="tv_a11y_reconnecting">Reconnecting…</string>
+    <string name="tv_a11y_not_responding">Not responding</string>
+    <string name="tv_fix">Fix</string>
 </resources>

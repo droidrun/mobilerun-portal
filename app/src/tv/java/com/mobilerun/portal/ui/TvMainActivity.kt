@@ -27,6 +27,8 @@ import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivityTvMainBinding
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.MobilerunNotificationListener
+import com.mobilerun.portal.service.TvAccessibilityHealth
+import com.mobilerun.portal.service.TvAccessibilityHealthState
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
@@ -39,6 +41,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         const val FOCUS_DURATION_MS = 120L
         const val COUNTDOWN_TICK_MS = 1_000L
         const val EXPIRY_PROGRESS_MAX = 1_000
+        const val HEALTH_PROBE_INTERVAL_MS = 10_000L
     }
     private lateinit var binding: ActivityTvMainBinding
     private lateinit var controller: TvSignInController
@@ -49,6 +52,13 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
     private var displayedQr: String? = null
     private lateinit var updates: TvUpdateFlow
     private var started = false
+    private val healthTick = object : Runnable {
+        override fun run() {
+            if (!started) return
+            MobilerunAccessibilityService.getInstance()?.probeTvWindowHealth(hasWindowFocus())
+            main.postDelayed(this, HEALTH_PROBE_INTERVAL_MS)
+        }
+    }
     private val tick = object : Runnable {
         override fun run() {
             if (!started || signedIn || deadline <= 0) return
@@ -73,7 +83,11 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding.footer.text = getString(R.string.tv_footer, BuildConfig.VERSION_NAME)
         binding.deviceName.text = ConfigManager.getInstance(this).deviceName
         binding.homeDeviceName.text = binding.deviceName.text
-        MobilerunAccessibilityService.isConnected.observe(this) { renderSetup() }
+        MobilerunAccessibilityService.isConnected.observe(this) {
+            renderSetup()
+            if (started) MobilerunAccessibilityService.getInstance()?.probeTvWindowHealth(hasWindowFocus())
+        }
+        TvAccessibilityHealth.state.observe(this) { renderSetup() }
         binding.accessibility.setOnClickListener {
             openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, binding.accessibilityHint,
                 getString(R.string.tv_a11y_fallback, packageName, MobilerunAccessibilityService::class.java.name))
@@ -115,12 +129,20 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding.homeDeviceName.text = deviceName
         updates.onResume()
         renderSetup()
+        main.removeCallbacks(healthTick)
+        main.post(healthTick)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (started && hasFocus) MobilerunAccessibilityService.getInstance()?.probeTvWindowHealth(focusedApp = true)
     }
 
     override fun onStop() {
         started = false
         controller.setForeground(false)
         main.removeCallbacks(tick)
+        main.removeCallbacks(healthTick)
         super.onStop() // Approval polling intentionally continues while Settings is in front.
     }
 
@@ -201,11 +223,29 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             status.setBackgroundResource(if (ready) R.drawable.tv_chip_ready else R.drawable.tv_chip_needed)
             button.visibility = if (ready) View.GONE else View.VISIBLE
         }
-        row(binding.accessibilityStatus, binding.accessibility, MobilerunAccessibilityService.isConnected.value == true)
+        val bound = MobilerunAccessibilityService.isConnected.value == true
+        val health = if (bound) {
+            TvAccessibilityHealth.state.value?.takeUnless { it == TvAccessibilityHealthState.NEEDED }
+                ?: TvAccessibilityHealthState.RECONNECTING
+        } else TvAccessibilityHealthState.NEEDED
+        row(binding.accessibilityStatus, binding.accessibility, health == TvAccessibilityHealthState.READY)
+        when (health) {
+            TvAccessibilityHealthState.RECONNECTING -> {
+                binding.accessibilityStatus.setText(R.string.tv_a11y_reconnecting)
+                binding.accessibility.visibility = View.GONE
+            }
+            TvAccessibilityHealthState.NOT_RESPONDING -> {
+                binding.accessibilityStatus.setText(R.string.tv_a11y_not_responding)
+                binding.accessibilityStatus.setTextColor(getColor(R.color.tv_destructive))
+                binding.accessibilityStatus.setBackgroundResource(R.drawable.tv_chip_error)
+            }
+            else -> Unit
+        }
+        binding.accessibility.setText(if (health == TvAccessibilityHealthState.NOT_RESPONDING) R.string.tv_fix else R.string.tv_open_settings)
         row(binding.captureStatus, binding.capture, WebRtcManager.getExistingInstance()?.isCaptureActive() == true)
         row(binding.notificationStatus, binding.notifications,
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName))
-        if (binding.accessibility.visibility == View.GONE) binding.accessibilityHint.visibility = View.GONE
+        if (health == TvAccessibilityHealthState.READY) binding.accessibilityHint.visibility = View.GONE
         if (binding.notifications.visibility == View.GONE) binding.notificationHint.visibility = View.GONE
         updateFocus()
     }

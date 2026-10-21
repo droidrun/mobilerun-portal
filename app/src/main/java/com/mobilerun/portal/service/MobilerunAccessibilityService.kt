@@ -211,9 +211,24 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     // The implementation is loaded only in the TV flavor; phone has no TV dependency.
     interface TvEventHandler : AutoCloseable {
         fun onEvent(event: AccessibilityEvent?)
+        fun onProjectionStarted()
+        fun recoverEmptyRoot(): Boolean
+        fun probeWindowHealth(focusedApp: Boolean)
     }
 
-    private var tvEventHandler: TvEventHandler? = null
+    @Volatile private var tvEventHandler: TvEventHandler? = null
+
+    override fun getRootInActiveWindow(): AccessibilityNodeInfo? {
+        val root = super.getRootInActiveWindow()
+        if (root != null || tvEventHandler?.recoverEmptyRoot() != true) return root
+        return super.getRootInActiveWindow() // TV repairs permit one raw retry, never recursive healing.
+    }
+
+    internal fun readRootWithoutTvRecovery(): AccessibilityNodeInfo? = super.getRootInActiveWindow()
+
+    fun onMediaProjectionStarted() { tvEventHandler?.onProjectionStarted() }
+
+    fun probeTvWindowHealth(focusedApp: Boolean = false) { tvEventHandler?.probeWindowHealth(focusedApp) }
 
     private lateinit var overlayManager: OverlayManager
     private val screenBounds = Rect()
