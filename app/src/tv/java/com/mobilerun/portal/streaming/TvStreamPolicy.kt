@@ -5,7 +5,18 @@ import com.mobilerun.portal.BuildConfig
 
 internal object TvStreamPolicy {
     const val enabled = true
-    val autoCaptureBox = BuildConfig.TV_CAPTURE_BOX_WIDTH to BuildConfig.TV_CAPTURE_BOX_HEIGHT
+    private val decision by lazy {
+        val upperBound = if (BuildConfig.TV_CAPTURE_BOX_WIDTH > 0 && BuildConfig.TV_CAPTURE_BOX_HEIGHT > 0) {
+            BuildConfig.TV_CAPTURE_BOX_WIDTH to BuildConfig.TV_CAPTURE_BOX_HEIGHT
+        } else null
+        TvEncoderCapabilities.select(TvEncoderCapabilities.probe(), upperBound).also {
+            log(null, "encoder=${it.encoder?.name ?: "none"} hw=${it.h264Only} box=${it.box.first}x${it.box.second} reason=${it.reason}")
+            if (!it.h264Only) Log.w("TvStreamDiag", "no hw avc encoder — VP8 allowed")
+        }
+    }
+    val autoCaptureBox: Pair<Int, Int> get() = decision.box
+    val h264Only: Boolean get() = decision.h264Only
+    val allowedVideoCodecs: Set<String> get() = decision.allowedVideoCodecs
 
     fun log(sessionId: String?, event: String) {
         // Only opaque short IDs and selected numeric/codec fields: never SDP, ICE or request JSON.

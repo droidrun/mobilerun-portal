@@ -44,17 +44,22 @@ android {
         create("tv") {
             dimension = "form"
             applicationId = "com.mobilerun.portal.tv"
-            val captureBox = (project.findProperty("tvCaptureBox") as String?) ?: "1280x720"
-            val dimensions = Regex("([0-9]+)x([0-9]+)").matchEntire(captureBox)
-                ?: error("tvCaptureBox must be WIDTHxHEIGHT")
-            val (boxWidth, boxHeight) = dimensions.destructured
-            require(boxWidth.toInt() in 144..1920 && boxHeight.toInt() in 256..3840 &&
-                boxWidth.toInt() >= boxHeight.toInt() &&
-                boxWidth.toInt() % 2 == 0 && boxHeight.toInt() % 2 == 0) {
-                "tvCaptureBox must be an even landscape box within capture bounds"
+            val captureBox = project.findProperty("tvCaptureBox") as String?
+            val dimensions = captureBox?.let {
+                Regex("([0-9]+)x([0-9]+)").matchEntire(it)
+                    ?: error("tvCaptureBox must be WIDTHxHEIGHT")
             }
-            buildConfigField("int", "TV_CAPTURE_BOX_WIDTH", boxWidth.toInt().toString())
-            buildConfigField("int", "TV_CAPTURE_BOX_HEIGHT", boxHeight.toInt().toString())
+            val boxWidth = dimensions?.groupValues?.get(1)?.toInt() ?: 0
+            val boxHeight = dimensions?.groupValues?.get(2)?.toInt() ?: 0
+            if (dimensions != null) {
+                require(boxWidth in 144..1920 && boxHeight in 256..3840 &&
+                    boxWidth >= boxHeight && boxWidth % 2 == 0 && boxHeight % 2 == 0) {
+                    "tvCaptureBox must be an even landscape box within capture bounds"
+                }
+            }
+            // Zero means no extra bound: the TV encoder's capabilities choose the box.
+            buildConfigField("int", "TV_CAPTURE_BOX_WIDTH", boxWidth.toString())
+            buildConfigField("int", "TV_CAPTURE_BOX_HEIGHT", boxHeight.toString())
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             configureUpdateFeed(
                 "tvUpdateFeedUrl",

@@ -1035,7 +1035,7 @@ class WebRtcManager private constructor(private val context: Context) {
                 val filteredEncoderFactory =
                     FilteringVideoEncoderFactory(
                         encoderFactory,
-                        if (TvStreamPolicy.enabled) setOf("H264") else setOf("H264", "VP8"),
+                        TvStreamPolicy.allowedVideoCodecs,
                     )
                 Log.i(TAG, "Enabled video encoders: ${filteredEncoderFactory.codecListLabel()}")
                 PeerConnectionFactory.builder()
@@ -1645,7 +1645,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             if (current == null || current.streamId != streamId) null else current
                         }
                             ?: return
-                    val mungedSdp = preferH264(desc.description)
+                    val mungedSdp = if (!TvStreamPolicy.enabled || TvStreamPolicy.h264Only) preferH264(desc.description) else desc.description
                     val offer =
                         if (mungedSdp == desc.description) desc
                         else SessionDescription(desc.type, mungedSdp)
@@ -2482,12 +2482,12 @@ class WebRtcManager private constructor(private val context: Context) {
                     Log.i(TAG, "Created primary answer: session=$sessionId gen=$generation")
                     if (TvStreamPolicy.enabled) {
                         TvStreamPolicy.log(sessionId, "generatedAnswerCodecs=${TvStreamPolicy.codecs(desc.description)}")
-                        if (!TvStreamPolicy.codecs(desc.description).contains(":H264")) {
+                        if (TvStreamPolicy.h264Only && !TvStreamPolicy.codecs(desc.description).contains(":H264")) {
                             failTvNegotiation(sessionId, connection, "no_h264_answer")
                             return
                         }
                     }
-                    val forcedH264 = forceH264(desc.description)
+                    val forcedH264 = if (!TvStreamPolicy.enabled || TvStreamPolicy.h264Only) forceH264(desc.description) else null
                     val answer =
                         if (forcedH264 == null) {
                             desc
@@ -2726,12 +2726,12 @@ class WebRtcManager private constructor(private val context: Context) {
                     if (!isCurrentSecondary(sessionId, streamId)) return
                     if (TvStreamPolicy.enabled) {
                         TvStreamPolicy.log(sessionId, "generatedAnswerCodecs=${TvStreamPolicy.codecs(desc.description)}")
-                        if (!TvStreamPolicy.codecs(desc.description).contains(":H264")) {
+                        if (TvStreamPolicy.h264Only && !TvStreamPolicy.codecs(desc.description).contains(":H264")) {
                             failTvNegotiation(sessionId, connection, "no_h264_answer")
                             return
                         }
                     }
-                    val forcedH264 = forceH264(desc.description)
+                    val forcedH264 = if (!TvStreamPolicy.enabled || TvStreamPolicy.h264Only) forceH264(desc.description) else null
                     val answer =
                         if (forcedH264 == null) desc
                         else SessionDescription(desc.type, forcedH264)
@@ -3164,7 +3164,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         }
                             ?: return
 
-                    val mungedSdp = preferH264(desc.description)
+                    val mungedSdp = if (!TvStreamPolicy.enabled || TvStreamPolicy.h264Only) preferH264(desc.description) else desc.description
                     val offer =
                         if (mungedSdp == desc.description) {
                             desc
@@ -4003,7 +4003,7 @@ class WebRtcManager private constructor(private val context: Context) {
         if (!TvStreamPolicy.enabled) return false
         val codecs = TvStreamPolicy.codecs(sdp)
         TvStreamPolicy.log(sessionId, "remoteAnswerCodecs=$codecs")
-        if (codecs.contains(":H264")) return false
+        if (!TvStreamPolicy.h264Only || codecs.contains(":H264")) return false
         failTvNegotiation(sessionId, connection, "no_h264_remote_answer")
         return true
     }
@@ -4013,7 +4013,7 @@ class WebRtcManager private constructor(private val context: Context) {
         TvStreamPolicy.log(sessionId, "negotiationFailure stage=$stage")
         stopHandler.post {
             if (stopStream(sessionId, "tv_negotiation_failed", expectedConnection = connection)) {
-                sendStreamError("stream_negotiation_failed", "TV requires H.264 ($stage)", sessionId)
+                sendStreamError("stream_negotiation_failed", "TV stream negotiation failed ($stage)", sessionId)
             }
         }
     }

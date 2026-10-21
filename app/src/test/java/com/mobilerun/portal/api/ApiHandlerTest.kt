@@ -46,6 +46,7 @@ class ApiHandlerTest {
     fun mockTvDiagnosticsLog() {
         mockkStatic(android.util.Log::class)
         every { android.util.Log.i("TvStreamDiag", any()) } returns 0
+        every { android.util.Log.w("TvStreamDiag", any<String>()) } returns 0
     }
 
     @After
