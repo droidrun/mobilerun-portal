@@ -548,8 +548,11 @@ class ApiHandler(
             // Fallback: some multiline fields accept newline via ACTION_SET_TEXT
             return if (stateRepo.inputText("\n", clear = false))
                 ApiResponse.Success("Newline inserted via Accessibility")
-            else
-                ApiResponse.Success("Enter handled (no focused element)")
+            else {
+                val result = com.mobilerun.portal.service.DpadController.activate()
+                if (result.success) ApiResponse.Success(result.message)
+                else ApiResponse.Success("Enter handled (no focused element)")
+            }
         }
 
         // DEL key: prefer IME direct dispatch, then fall back to accessibility
@@ -609,7 +612,9 @@ class ApiHandler(
                 ApiResponse.Error("Failed to insert character")
         }
 
-        return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
+        val result = com.mobilerun.portal.service.DpadController.handleKey(applicationContext, keyCode)
+            ?: return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
+        return if (result.success) ApiResponse.Success(result.message) else ApiResponse.Error(result.message)
     }
 
     // Overlay
