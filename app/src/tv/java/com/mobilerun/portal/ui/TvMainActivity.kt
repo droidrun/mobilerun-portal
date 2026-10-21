@@ -79,7 +79,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding = ActivityTvMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         controller = TvSignInController(this, this)
-        updates = TvUpdateFlow(this, binding, { reset -> updateFocus(reset) }, { it.showTvDialog() })
+        updates = TvUpdateFlow(this, binding, { it.showTvDialog() })
         binding.footer.text = getString(R.string.tv_footer, BuildConfig.VERSION_NAME)
         binding.deviceName.text = ConfigManager.getInstance(this).deviceName
         binding.homeDeviceName.text = binding.deviceName.text
