@@ -19,6 +19,9 @@ import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
+import com.mobilerun.portal.auth.SessionCredential
+import com.mobilerun.portal.auth.SessionResult
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
@@ -122,6 +125,27 @@ class ReverseConnectionService : Service() {
     private val lightweightExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val sessionExecutor = Executors.newSingleThreadExecutor()
+    private val sessionCheck = object : Runnable {
+        override fun run() {
+            if (isServiceRunning.get() && configManager.reverseConnectionCredentialType == SessionCredential.TYPE) {
+                val checkedToken = configManager.reverseConnectionToken
+                if (checkedToken.isNotBlank()) sessionExecutor.execute {
+                    if (DeviceCodeAuthClient().session(checkedToken) == SessionResult.Invalid) {
+                        handler.post {
+                            if (SessionCredential.clear(this@ReverseConnectionService, checkedToken)) {
+                                terminalState = ConnectionState.UNAUTHORIZED
+                                isServiceRunning.set(false)
+                                cancelPendingReconnects()
+                                ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
+                            }
+                        }
+                    }
+                }
+            }
+            handler.postDelayed(this, 24 * 60 * 60 * 1000L)
+        }
+    }
     private var lastReverseToastAtMs = 0L
     private var isForeground = false
 
@@ -160,6 +184,7 @@ class ReverseConnectionService : Service() {
         reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
         reverseDeviceEventRelay.start()
         createNotificationChannel()
+        handler.postDelayed(sessionCheck, 24 * 60 * 60 * 1000L)
         Log.d(TAG, "Service Created")
     }
 
@@ -182,6 +207,11 @@ class ReverseConnectionService : Service() {
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
+        if (configManager.reverseConnectionCredentialType == SessionCredential.TYPE &&
+            configManager.reverseConnectionToken.isBlank()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         terminalState = null
         reverseMediaReleased = false
         val explicitReconnect = intent?.action == ACTION_RECONNECT
@@ -225,6 +255,7 @@ class ReverseConnectionService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        sessionExecutor.shutdownNow()
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         reverseDeviceEventRelay.stop()
@@ -352,6 +383,7 @@ class ReverseConnectionService : Service() {
             val connectionGeneration = closeWebSocket() // Prevent resource leaks from zombie connections
             val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
             val uri = URI(finalUrl)
+            val checkedToken = configManager.reverseConnectionToken
             val headers = buildHeaders()
             logConnectionAttempt(uri, headers)
 
@@ -397,7 +429,7 @@ class ReverseConnectionService : Service() {
                                 "onClose: Terminal error ($state), stopping service",
                             )
                             ConnectionStateManager.setState(state)
-                            stopAfterTerminalState(state, connectionGeneration)
+                            stopAfterTerminalState(state, connectionGeneration, checkedToken)
                             return
                         }
 
@@ -549,11 +581,14 @@ class ReverseConnectionService : Service() {
     }
 
     /** Stops the service after a terminal close so it is not left sticky in the foreground. */
-    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long) {
+    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long, checkedToken: String) {
         handler.post {
             if (!webSocketGeneration.isCurrent(connectionGeneration)) {
                 Log.d(TAG, "Skipping stale terminal stop for generation $connectionGeneration")
                 return@post
+            }
+            if (state == ConnectionState.UNAUTHORIZED) {
+                SessionCredential.clear(this, checkedToken)
             }
             terminalState = state
             isServiceRunning.set(false)
@@ -688,7 +723,7 @@ class ReverseConnectionService : Service() {
     }
 
     private fun createNotification(deferred: Boolean): Notification {
-        val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
+        val intent = com.mobilerun.portal.ui.PortalEntry.mainIntent(this)
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,

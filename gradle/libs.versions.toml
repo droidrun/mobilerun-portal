@@ -16,6 +16,7 @@ recyclerview = "1.3.2"
 swiperefreshlayout = "1.1.0"
 
 [libraries]
+zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
