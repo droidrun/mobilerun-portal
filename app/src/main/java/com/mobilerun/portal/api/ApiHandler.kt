@@ -1656,7 +1656,7 @@ class ApiHandler(
             // bring the app to the foreground
             Log.i(TAG, "Bringing app to foreground for install prompt...")
             val foregroundIntent =
-                Intent(context, com.mobilerun.portal.ui.MainActivity::class.java).apply {
+                com.mobilerun.portal.ui.PortalEntry.mainIntent(context).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }

@@ -1,4 +1,9 @@
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><shape><solid android:color="@color/mobilerun_background" /></shape></item>
-    <item android:drawable="@drawable/mobilerun_logo_square" android:insetLeft="32dp" android:insetTop="32dp" android:insetRight="32dp" android:insetBottom="32dp" />
-</layer-list>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mobilerun mark, converted from the cloud brand SVG. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="293dp" android:height="249dp" android:viewportWidth="373" android:viewportHeight="329">
+    <path android:fillColor="@color/tv_primary" android:pathData="M0,0h373v329H0z"/>
+    <group android:translateX="40" android:translateY="40">
+    <path android:fillColor="@color/tv_on_primary" android:pathData="M233.97 248.554H292.757V186.799H233.97V248.554Z" />
+    <path android:fillColor="@color/tv_on_primary" android:pathData="M116.994 125.44V248.554L172.649 186.799V125.44H233.97V186.799L290.284 128.974C291.87 127.346 292.757 125.165 292.757 122.895V4.21573C292.757 0.317382 287.914 -1.48463 285.366 1.4657L233.97 60.9748H172.649L116.994 125.44Z" />
+    <path android:fillColor="@color/tv_on_primary" android:pathData="M0 125.44V248.554L55.6557 186.799V125.44H116.977V60.9746H55.6557L0 125.44Z" />
+</group></vector>

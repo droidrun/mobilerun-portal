@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" />
     <application android:banner="@drawable/tv_banner" android:icon="@drawable/tv_launcher" android:roundIcon="@drawable/tv_launcher" tools:replace="android:icon,android:roundIcon">
         <receiver android:name=".triggers.TriggerSmsReceiver" tools:node="remove" />
-        <activity android:name=".ui.MainActivity">
+        <activity android:name=".ui.MainActivity" android:exported="false" tools:replace="android:exported">
             <intent-filter tools:node="removeAll" />
         </activity>
         <activity android:name=".ui.TvMainActivity" android:exported="true" android:screenOrientation="landscape" android:theme="@style/Theme.PortalTV" android:launchMode="singleTask">

@@ -40,6 +40,35 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun typedCredentialsAndTimestampPersistAndLegacyWritersResetType() {
+        val config = ConfigManager.getInstance(context)
+        assertEquals(ConfigManager.CREDENTIAL_API_KEY, config.reverseConnectionCredentialType)
+        config.setReverseConnectionCredential("session-token", ConfigManager.CREDENTIAL_SESSION)
+        config.sessionCheckedAt = 1234L
+        clearSingleton()
+        val restored = ConfigManager.getInstance(context)
+        assertEquals("session-token", restored.reverseConnectionToken)
+        assertEquals(ConfigManager.CREDENTIAL_SESSION, restored.reverseConnectionCredentialType)
+        assertEquals(1234L, restored.sessionCheckedAt)
+        restored.reverseConnectionToken = "session-token" // Settings echoing a session must not relabel it.
+        assertEquals(ConfigManager.CREDENTIAL_SESSION, restored.reverseConnectionCredentialType)
+        assertEquals(1234L, restored.sessionCheckedAt)
+        restored.reverseConnectionToken = "new-api-key"
+        assertEquals(ConfigManager.CREDENTIAL_API_KEY, restored.reverseConnectionCredentialType)
+        assertEquals(0L, restored.sessionCheckedAt)
+        restored.setReverseConnectionCredential("session-token", ConfigManager.CREDENTIAL_SESSION)
+        restored.setReverseConnectionCredential("")
+        assertEquals("", restored.reverseConnectionToken)
+        assertEquals(ConfigManager.CREDENTIAL_API_KEY, restored.reverseConnectionCredentialType)
+        restored.setReverseConnectionCredential("another-session", ConfigManager.CREDENTIAL_SESSION)
+        restored.sessionCheckedAt = 5678L
+        restored.clearCloudCredentials()
+        assertEquals("", restored.reverseConnectionToken)
+        assertEquals(ConfigManager.CREDENTIAL_API_KEY, restored.reverseConnectionCredentialType)
+        assertEquals(0L, restored.sessionCheckedAt)
+    }
+
+    @Test
     fun taskPromptSettings_readsDefaults() {
         val configManager = ConfigManager.getInstance(context)
 
