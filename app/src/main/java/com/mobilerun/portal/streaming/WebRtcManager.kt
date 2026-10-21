@@ -1183,31 +1183,38 @@ class WebRtcManager private constructor(private val context: Context) {
     // Secondaries are only counted here; a FAILED one may still be in its ICE restart.
     private fun admitIncomingSession(sessionId: String): Pair<IncomingSessionRoute, String?> {
         val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
-        synchronized(streamLock) {
-            val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-            if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
-                return resolvedRoute to null
+        val promotedSecondary: SecondarySession?
+        val admission =
+            synchronized(streamLock) {
+                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
+                    return resolvedRoute to null
+                }
+                if (
+                    isStreamSessionLimitReached(
+                        hasPrimary = false,
+                        secondarySessionCount = secondarySessions.size,
+                        replacesExistingSession =
+                            primarySessionId == sessionId || secondarySessions.containsKey(sessionId),
+                        sessionLimit = sessionLimit,
+                    )
+                ) {
+                    Log.w(
+                        TAG,
+                        "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
+                    )
+                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
+                }
+                // A secondary restarting as the new primary must not keep its old peer.
+                promotedSecondary = secondarySessions.remove(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
+                    IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
+                } else {
+                    resolvedRoute to null
+                }
             }
-            if (
-                isStreamSessionLimitReached(
-                    hasPrimary = false,
-                    secondarySessionCount = secondarySessions.size,
-                    replacesExistingSession =
-                        primarySessionId == sessionId || secondarySessions.containsKey(sessionId),
-                    sessionLimit = sessionLimit,
-                )
-            ) {
-                Log.w(
-                    TAG,
-                    "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
-                )
-                throw IllegalStateException("max_concurrent_stream_sessions_reached")
-            }
-            if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
-                return IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
-            }
-            return resolvedRoute to null
-        }
+        promotedSecondary?.let { cleanupSecondarySession(it) }
+        return admission
     }
 
     private fun startSecondaryStreamWithExistingCapture(
