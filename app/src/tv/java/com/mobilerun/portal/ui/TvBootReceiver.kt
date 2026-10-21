@@ -11,7 +11,7 @@ class TvBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
         val config = ConfigManager.getInstance(context)
-        if (config.reverseConnectionCredentialType == SessionCredential.TYPE && config.reverseConnectionToken.isNotBlank()) {
+        if (SessionCredential.isActive(config)) {
             ReverseConnectionService.start(context)
         }
     }

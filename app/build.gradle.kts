@@ -36,7 +36,6 @@ android {
         create("phone") {
             dimension = "form"
             isDefault = true
-            buildConfigField("boolean", "TV_DEVICE", "false")
             configureUpdateFeed(
                 "updateFeedUrl",
                 "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json",
@@ -45,7 +44,6 @@ android {
         create("tv") {
             dimension = "form"
             applicationId = "com.mobilerun.portal.tv"
-            buildConfigField("boolean", "TV_DEVICE", "true")
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             configureUpdateFeed(
                 "tvUpdateFeedUrl",

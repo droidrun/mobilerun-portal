@@ -1,37 +1,54 @@
 <resources>
     <style name="Theme.PortalTV" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <item name="android:windowFullscreen">true</item><item name="android:windowBackground">@color/tv_background</item>
-        <item name="colorPrimary">@color/tv_primary</item><item name="colorOnPrimary">@color/tv_on_primary</item>
-        <item name="android:fontFamily">@font/geist_sans</item><item name="fontFamily">@font/geist_sans</item>
-        <item name="android:textColorPrimary">@color/tv_foreground</item><item name="android:textColorSecondary">@color/tv_muted_foreground</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/tv_background</item>
+        <item name="colorPrimary">@color/tv_primary</item>
+        <item name="colorOnPrimary">@color/tv_on_primary</item>
+        <item name="android:fontFamily">@font/geist_sans</item>
+        <item name="fontFamily">@font/geist_sans</item>
+        <item name="android:textColorPrimary">@color/tv_foreground</item>
+        <item name="android:textColorSecondary">@color/tv_muted_foreground</item>
         <item name="colorAccent">@color/tv_primary</item>
     </style>
     <style name="TVText">
-        <item name="android:layout_width">match_parent</item><item name="android:layout_height">wrap_content</item>
-        <item name="android:fontFamily">@font/geist_sans</item><item name="android:textSize">22sp</item>
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:fontFamily">@font/geist_sans</item>
+        <item name="android:textSize">22sp</item>
         <item name="android:textColor">@color/tv_foreground</item>
     </style>
     <style name="TVLabel" parent="TVText">
-        <item name="android:fontFamily">@font/ibm_plex_mono</item><item name="android:textSize">15sp</item>
-        <item name="android:letterSpacing">0.12</item><item name="android:textColor">@color/tv_muted_foreground</item>
+        <item name="android:fontFamily">@font/ibm_plex_mono</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:textColor">@color/tv_muted_foreground</item>
     </style>
     <style name="TVHint" parent="TVLabel">
-        <item name="android:textSize">10sp</item><item name="android:letterSpacing">0</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:letterSpacing">0</item>
         <item name="android:visibility">gone</item>
     </style>
     <style name="TVButton" parent="Widget.AppCompat.Button">
-        <item name="android:layout_width">wrap_content</item><item name="android:layout_height">66dp</item>
-        <item name="android:minHeight">66dp</item><item name="android:minWidth">0dp</item>
-        <item name="android:fontFamily">@font/geist_sans</item><item name="android:textFontWeight">500</item>
-        <item name="android:paddingHorizontal">18dp</item><item name="android:textSize">20sp</item>
-        <item name="android:textAllCaps">false</item><item name="android:textColor">@color/tv_button_text</item>
-        <item name="android:background">@drawable/tv_button</item><item name="android:focusable">true</item>
-        <item name="android:backgroundTint">@null</item><item name="backgroundTint">@null</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">66dp</item>
+        <item name="android:minHeight">66dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:fontFamily">@font/geist_sans_medium</item>
+        <item name="android:paddingHorizontal">18dp</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/tv_button_text</item>
+        <item name="android:background">@drawable/tv_button</item>
+        <item name="android:focusable">true</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="backgroundTint">@null</item>
     </style>
     <style name="TVButton.Primary" parent="TVButton">
-        <item name="android:background">@drawable/tv_button_primary</item><item name="android:textColor">@color/tv_on_primary</item>
+        <item name="android:background">@drawable/tv_button_primary</item>
+        <item name="android:textColor">@color/tv_on_primary</item>
     </style>
     <style name="TVButton.Ghost" parent="TVButton">
-        <item name="android:background">@drawable/tv_button_ghost</item><item name="android:textColor">@color/tv_destructive</item>
+        <item name="android:background">@drawable/tv_button_ghost</item>
+        <item name="android:textColor">@color/tv_destructive</item>
     </style>
 </resources>

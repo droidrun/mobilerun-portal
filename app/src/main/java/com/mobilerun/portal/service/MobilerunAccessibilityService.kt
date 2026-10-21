@@ -9,43 +9,44 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.os.SystemClock
 import android.widget.Toast
-import com.mobilerun.portal.BuildConfig
-import com.mobilerun.portal.R
-import com.mobilerun.portal.model.ElementNode
-import com.mobilerun.portal.model.PhoneState
-import com.mobilerun.portal.api.ApiHandler
-import com.mobilerun.portal.core.AccessibilityTraversalGuard
-import com.mobilerun.portal.core.AccessibilityRootResolver
-import com.mobilerun.portal.core.StateRepository
-import com.mobilerun.portal.config.ConfigManager
-import com.mobilerun.portal.input.MobilerunKeyboardIME
-import com.mobilerun.portal.ui.overlay.OverlayManager
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.RequiresApi
-import java.util.concurrent.atomic.AtomicBoolean
-import android.graphics.Bitmap
-import android.util.Base64
-import java.io.ByteArrayOutputStream
-import java.util.concurrent.CompletableFuture
+import androidx.core.app.NotificationCompat
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import com.mobilerun.portal.R
+import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.core.AccessibilityRootResolver
+import com.mobilerun.portal.core.AccessibilityTraversalGuard
+import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.events.PortalWebSocketServer
+import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveRecoveryActivity
+import com.mobilerun.portal.model.ElementNode
+import com.mobilerun.portal.model.PhoneState
 import com.mobilerun.portal.triggers.TriggerRuntime
-import androidx.core.app.NotificationCompat
+import com.mobilerun.portal.ui.overlay.OverlayManager
+import java.io.ByteArrayOutputStream
 import java.util.Collections
 import java.util.IdentityHashMap
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicBoolean
 
 @SuppressLint("AccessibilityPolicy")
 class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
@@ -56,6 +57,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             "com.mobilerun.portal.action.DISABLE_LOCAL_WS_SERVER"
         @Volatile
         private var instance: MobilerunAccessibilityService? = null
+        private val bound = MutableLiveData(false)
+        val connected: LiveData<Boolean> = bound
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
@@ -295,7 +298,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                     AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
 
             // Enable screenshot capability (API 34+)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_2_FINGER_PASSTHROUGH
             }
         }
@@ -314,33 +317,21 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             )
         }
 
-        if (BuildConfig.TV_DEVICE) {
-            tvEventHandler?.close()
-            tvEventHandler = try {
-                Class.forName("com.mobilerun.portal.service.TvAccessibilityEvents")
-                    .getConstructor(
-                        MobilerunAccessibilityService::class.java,
-                        java.util.function.BiConsumer::class.java,
-                        Runnable::class.java,
-                    )
-                    .newInstance(this, java.util.function.BiConsumer<String, String?> { pkg, activity ->
-                        // This callback is always on main; overlay/snapshot state stays main-confined.
-                        if (pkg.isNotEmpty() && pkg != currentPackageName && currentPackageName.isNotEmpty()) {
-                            resetOverlayState()
-                        }
-                        if (pkg.isNotEmpty()) currentPackageName = pkg
-                        if (activity != null) currentActivityName = activity
-                    }, Runnable { showAutoAcceptFailedToastIfEnoughTimeIsPassed() }) as TvEventHandler
-            } catch (error: Exception) {
-                Log.e(TAG, "Unable to initialize TV accessibility events", error)
-                null
+        tvEventHandler?.close()
+        tvEventHandler = TvEventHandlerFactory.create(this, { pkg, activity ->
+            // This callback is always on main; overlay/snapshot state stays main-confined.
+            if (pkg.isNotEmpty() && pkg != currentPackageName && currentPackageName.isNotEmpty()) {
+                resetOverlayState()
             }
-        }
+            if (pkg.isNotEmpty()) currentPackageName = pkg
+            if (activity != null) currentActivityName = activity
+        }, ::showAutoAcceptFailedToastIfEnoughTimeIsPassed)
+        bound.value = true
         Log.d(TAG, "Accessibility service connected and configured")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (BuildConfig.TV_DEVICE) {
+        if (tvEventHandler != null) {
             tvEventHandler?.onEvent(event)
             return
         }
@@ -1567,17 +1558,18 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         hideLocalWebSocketConnectionNotification()
     }
 
-    override fun onUnbind(intent: android.content.Intent?): Boolean {
+    override fun onUnbind(intent: Intent?): Boolean {
         // The framework unbinds when the service is disabled/torn down. Drop the
         // singleton so getInstance() can't hand callers a service whose a11y
         // connection is gone, and release the read-gate thread. (Do NOT do this
         // in onInterrupt — interrupt is not an unbind.)
         Log.d(TAG, "Accessibility service unbound")
-        if (BuildConfig.TV_DEVICE) {
-            tvEventHandler?.close()
-            tvEventHandler = null
+        tvEventHandler?.close()
+        tvEventHandler = null
+        if (instance === this) {
+            instance = null
+            bound.value = false
         }
-        if (instance === this) instance = null
         apiHandler?.close()
         return super.onUnbind(intent)
     }
@@ -1592,11 +1584,12 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         clearVisibleElementSnapshot()
         configManager.removeListener(this)
         apiHandler?.close()
-        if (BuildConfig.TV_DEVICE) {
-            tvEventHandler?.close()
-            tvEventHandler = null
+        tvEventHandler?.close()
+        tvEventHandler = null
+        if (instance === this) {
+            instance = null
+            bound.value = false
         }
-        if (instance === this) instance = null
         Log.d(TAG, "Accessibility service destroyed")
     }
 
