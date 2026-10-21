@@ -10,12 +10,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TvWindowRefreshPolicyTest {
-    @Test fun onlyAnEmptyWindowListAndMissingRootWithAppFocusPermitRepair() {
+    @Test fun onlyAnEmptyWindowListAndMissingRootOnAnInteractiveScreenPermitRepair() {
         for (windowsEmpty in listOf(false, true)) {
             for (rootMissing in listOf(false, true)) {
-                for (focusedApp in listOf(false, true)) {
-                    assertEquals(windowsEmpty && rootMissing && focusedApp,
-                        TvWindowRefreshPolicy().shouldRefresh(windowsEmpty, rootMissing, focusedApp, 0))
+                for (interactive in listOf(false, true)) {
+                    assertEquals(windowsEmpty && rootMissing && interactive,
+                        TvWindowRefreshPolicy().shouldRefresh(windowsEmpty, rootMissing, interactive, 0))
                 }
             }
         }

@@ -7,14 +7,9 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
-import android.view.accessibility.AccessibilityWindowInfo
 import com.mobilerun.portal.core.GenerationGate
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.FutureTask
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** One shared limit covers concurrent tree/key readers and background health probes. */
@@ -26,8 +21,8 @@ internal class TvWindowRefreshPolicy {
     private var lastRefresh: Long? = null
 
     @Synchronized
-    fun shouldRefresh(windowsEmpty: Boolean, rootMissing: Boolean, focusedApp: Boolean, now: Long): Boolean {
-        if (!windowsEmpty || !rootMissing || !focusedApp) return false
+    fun shouldRefresh(windowsEmpty: Boolean, rootMissing: Boolean, interactive: Boolean, now: Long): Boolean {
+        if (!windowsEmpty || !rootMissing || !interactive) return false
         val previous = lastRefresh
         if (previous != null && now - previous in 0 until SELF_HEAL_INTERVAL_MS) return false
         lastRefresh = now
@@ -46,7 +41,6 @@ internal class TvWindowStateRecovery(
     private companion object {
         const val TAG = "TvWindowStateRecovery"
         const val CONSENT_SETTLE_MS = 400L
-        const val MAIN_REFRESH_TIMEOUT_MS = 750L
     }
 
     private data class Probe(val windowsEmpty: Boolean?, val hasRoot: Boolean) {
@@ -60,48 +54,68 @@ internal class TvWindowStateRecovery(
     private val probeGeneration = GenerationGate()
     private val power = service.getSystemService(Context.POWER_SERVICE) as PowerManager
     @Volatile private var closed = false
-    @Volatile private var focusedAppObserved = false
     @Volatile private var lastWindowsEmpty: Boolean? = null
     private val healthTimeout = Runnable { if (!closed) publishHealth(usable = false) }
+    private val probeDeadline = Runnable {
+        if (!closed && probeInFlight.get()) publishHealth(usable = false)
+    }
+    private val projectionProbe = Runnable { requestProbe() }
     private val consentRefresh = Runnable {
         if (!closed) {
-            if (reapplyServiceInfo("consent")) refreshPolicy.consentRefreshed(SystemClock.uptimeMillis())
-            requestProbe()
+            try {
+                worker.execute {
+                    if (reapplyServiceInfo("consent")) refreshPolicy.consentRefreshed(SystemClock.uptimeMillis())
+                    requestProbe()
+                }
+            } catch (_: RejectedExecutionException) { /* Service closed while refresh was queued. */ }
         }
     }
 
-    init { requestProbe() }
-
-    fun onFocusedApplication() { focusedAppObserved = true }
+    init {
+        main.post {
+            if (!closed) {
+                publishHealth(usable = false) // Initial bound state; readiness needs the first probe.
+                requestProbe()
+            }
+        }
+    }
 
     fun afterProjectionConsent() {
         main.post {
             if (closed) return@post
             probeGeneration.advance() // A pre-consent probe cannot claim the post-consent service is healthy.
-            publishHealth(usable = false)
             main.removeCallbacks(consentRefresh)
             main.postDelayed(consentRefresh, CONSENT_SETTLE_MS)
         }
     }
 
-    fun requestProbe(focusedApp: Boolean = false) {
-        if (focusedApp) onFocusedApplication()
+    fun afterProjectionStarted() {
+        main.post {
+            if (closed) return@post
+            probeGeneration.advance() // Ensure an older in-flight probe is followed by a fresh capture probe.
+            main.removeCallbacks(projectionProbe)
+            main.postDelayed(projectionProbe, CONSENT_SETTLE_MS)
+        }
+    }
+
+    fun requestProbe() {
         main.post {
             if (closed) return@post
             if (!probeInFlight.compareAndSet(false, true)) return@post
-            publishHealth(usable = false) // A stuck probe must also reach the failure deadline.
+            // A routine probe must not flicker a healthy row to Reconnecting.
+            if (TvAccessibilityHealth.state.value == TvAccessibilityHealthState.RECONNECTING ||
+                TvAccessibilityHealth.state.value == TvAccessibilityHealthState.NOT_RESPONDING
+            ) publishHealth(usable = false)
+            main.postDelayed(probeDeadline, TvAccessibilityHealthPolicy.RECOVERY_TIMEOUT_MS)
             val generation = probeGeneration.current()
             try {
                 worker.execute {
-                    val probe = try {
-                        if (closed) return@execute
-                        var result = readProbe()
-                        if (!result.usable && trySelfHeal(result.windowsEmpty)) result = readProbe() // One retry.
-                        result
-                    } finally {
-                        probeInFlight.set(false)
-                    }
+                    if (closed) return@execute
+                    var probe = readProbe()
+                    if (!probe.usable && trySelfHeal(probe.windowsEmpty)) probe = readProbe() // One retry.
                     main.post result@{
+                        probeInFlight.set(false)
+                        main.removeCallbacks(probeDeadline)
                         if (closed) return@result
                         if (probeGeneration.isCurrent(generation)) publishHealth(probe.usable)
                         else requestProbe()
@@ -109,6 +123,7 @@ internal class TvWindowStateRecovery(
                 }
             } catch (_: RejectedExecutionException) {
                 probeInFlight.set(false) // Service was closed while the probe was queued.
+                main.removeCallbacks(probeDeadline)
             }
         }
     }
@@ -136,12 +151,6 @@ internal class TvWindowStateRecovery(
     private fun readWindowsEmpty(): Boolean? {
         val windows = try { service.windows } catch (_: RuntimeException) { null }
         return try {
-            val focused = try {
-                windows?.any { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isFocused } == true
-            } catch (_: RuntimeException) { false }
-            if (focused) {
-                onFocusedApplication()
-            }
             windows?.isEmpty().also { lastWindowsEmpty = it }
         } finally {
             windows?.forEach { window ->
@@ -154,26 +163,13 @@ internal class TvWindowStateRecovery(
         if (closed || !refreshPolicy.shouldRefresh(
                 windowsEmpty = windowsEmpty == true,
                 rootMissing = true,
-                focusedApp = focusedAppObserved && try { power.isInteractive } catch (_: RuntimeException) { false },
+                interactive = try { power.isInteractive } catch (_: RuntimeException) { false },
                 now = SystemClock.uptimeMillis(),
             )) return false
-        if (Looper.myLooper() == main.looper) return reapplyServiceInfo("self-heal")
-        val refresh = FutureTask { reapplyServiceInfo("self-heal") }
-        if (!main.post(refresh)) return false
-        return try {
-            refresh.get(MAIN_REFRESH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        } catch (_: TimeoutException) {
-            refresh.cancel(false)
-            false
-        } catch (_: ExecutionException) {
-            false
-        } catch (_: InterruptedException) {
-            refresh.cancel(false)
-            Thread.currentThread().interrupt()
-            false
-        }
+        return reapplyServiceInfo("self-heal")
     }
 
+    @Synchronized // Consent and concurrent root readers must not interleave flag changes.
     private fun reapplyServiceInfo(reason: String): Boolean {
         if (closed) return false
         return try {
