@@ -13,12 +13,15 @@ import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.mobilerun.portal.core.AccessibilityTraversalGuard
 import com.mobilerun.portal.input.MobilerunKeyboardIME
+import java.util.Locale
 
 internal data class DpadKeyResult(val success: Boolean, val message: String)
 
 /** Shared fallback for keys that cannot be delivered through the existing text input paths. */
 internal object DpadController {
     private const val TAG = "DpadController"
+    const val KEY_HANDLED = "Key handled"
+    const val UNSUPPORTED_KEY_MESSAGE = "Unsupported key code: %d (no unicode mapping and IME not available)"
 
     fun handleKey(context: Context, keyCode: Int): DpadKeyResult? {
         val action = DpadStrategyPolicy.actionFor(keyCode) ?: return null
@@ -26,7 +29,7 @@ internal object DpadController {
             when (action) {
                 DpadKeyAction.BACK -> {
                     val success = GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                    DpadKeyResult(success, if (success) "Key handled" else "Unable to perform Back")
+                    DpadKeyResult(success, if (success) KEY_HANDLED else "Unable to perform Back")
                 }
                 DpadKeyAction.PLAY_PAUSE -> media(context) {
                     if (it.playbackState?.state == PlaybackState.STATE_PLAYING) it.transportControls.pause()
@@ -38,7 +41,7 @@ internal object DpadController {
                 DpadKeyAction.PREVIOUS -> media(context) { it.transportControls.skipToPrevious() }
                 DpadKeyAction.VOLUME_UP -> volume(context, AudioManager.ADJUST_RAISE)
                 DpadKeyAction.VOLUME_DOWN -> volume(context, AudioManager.ADJUST_LOWER)
-                DpadKeyAction.VOLUME_MUTE -> volume(context, AudioManager.ADJUST_TOGGLE_MUTE)
+                DpadKeyAction.VOLUME_MUTE -> mute(context)
                 else -> navigate(context, action, keyCode)
             }
         } catch (e: RuntimeException) {
@@ -76,7 +79,7 @@ internal object DpadController {
                 }
                 if (handled) return@withFocusedNode result(true)
             }
-            DpadKeyResult(false, "Unsupported key code: $keyCode (no unicode mapping and IME not available)")
+            DpadKeyResult(false, UNSUPPORTED_KEY_MESSAGE.format(Locale.ROOT, keyCode))
         }
 
     private inline fun withFocusedNode(
@@ -150,14 +153,17 @@ internal object DpadController {
     private fun volume(context: Context, adjustment: Int): DpadKeyResult {
         val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             ?: return DpadKeyResult(false, "Audio service not available")
-        val direction = if (adjustment == AudioManager.ADJUST_TOGGLE_MUTE) {
-            if (manager.isStreamMute(AudioManager.STREAM_MUSIC)) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE
-        } else {
-            adjustment
-        }
+        manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjustment, AudioManager.FLAG_SHOW_UI)
+        return result(true)
+    }
+
+    private fun mute(context: Context): DpadKeyResult {
+        val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            ?: return DpadKeyResult(false, "Audio service not available")
+        val direction = if (manager.isStreamMute(AudioManager.STREAM_MUSIC)) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE
         manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
         return result(true)
     }
 
-    private fun result(success: Boolean) = DpadKeyResult(success, if (success) "Key handled" else "Unable to move or activate focus")
+    private fun result(success: Boolean) = DpadKeyResult(success, if (success) KEY_HANDLED else "Unable to move or activate focus")
 }

@@ -614,7 +614,7 @@ class ApiHandler(
         }
 
         val result = DpadController.handleKey(applicationContext, keyCode)
-            ?: return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
+            ?: return ApiResponse.Error(DpadController.UNSUPPORTED_KEY_MESSAGE.format(Locale.ROOT, keyCode))
         return if (result.success) ApiResponse.Success(result.message) else ApiResponse.Error(result.message)
     }
 
