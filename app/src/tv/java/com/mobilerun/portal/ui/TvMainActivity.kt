@@ -109,6 +109,9 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
 
     override fun onResume() {
         super.onResume()
+        val deviceName = ConfigManager.getInstance(this).deviceName
+        binding.deviceName.text = deviceName
+        binding.homeDeviceName.text = deviceName
         renderSetup()
     }
 

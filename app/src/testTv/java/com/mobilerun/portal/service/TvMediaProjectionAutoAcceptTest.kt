@@ -11,7 +11,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TvMediaProjectionAutoAcceptTest {
-    private val activity = "com.android.systemui.media.MediaProjectionPermissionActivity"
     private val label = "Mobilerun Portal TV"
     private val positive = node("Jetzt starten").also {
         every { it.isEnabled } returns true
@@ -34,8 +33,10 @@ class TvMediaProjectionAutoAcceptTest {
         every { recycle() } just runs
     }
 
-    @Test fun germanFireOsShapeClicksPositiveWithoutEnglishTextOrAlertTitle() {
-        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+    @Test fun alertDialogRootAcceptsWithoutActivityClassOrMatchingEventWindow() {
+        every { root.className } returns "android.app.AlertDialog"
+        // No event class or window ID is an input to recognition.
+        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
         verify(exactly = 1) { positive.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
         verify(exactly = 0) { negative.performAction(any()) }
         verify(exactly = 0) { root.findAccessibilityNodeInfosByViewId("android:id/alertTitle") }
@@ -44,38 +45,55 @@ class TvMediaProjectionAutoAcceptTest {
 
     @Test fun messageAloneCanIdentifyTheActualAppLabel() {
         every { title.text } returns "Bildschirm teilen"
-        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
     }
 
     @Test fun titleAloneCanIdentifyTheActualAppLabel() {
         every { root.findAccessibilityNodeInfosByViewId("android:id/message") } returns emptyList()
-        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
     }
 
     @Test fun otherAppLabelOrMissingPositiveNeverClicks() {
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, activity, "Another app"))
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, "Another app", armed = true))
         every { root.findAccessibilityNodeInfosByViewId("android:id/button1") } returns emptyList()
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
         verify(exactly = 0) { positive.performAction(any()) }
     }
 
-    @Test fun wrongPackageOrWrongWindowNeverClicks() {
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, "android.app.AlertDialog", label))
+    @Test fun wrongPackageNeverClicks() {
         every { root.packageName } returns "other.app"
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
         verify(exactly = 0) { positive.performAction(any()) }
     }
 
     @Test fun emptyLabelAndDisabledButtonNeverClick() {
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, activity, ""))
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, "", armed = true))
         every { positive.isEnabled } returns false
-        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, activity, label))
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
         verify(exactly = 0) { positive.performAction(any()) }
+    }
+
+    @Test fun disarmedGateNeverClicksOrTraversesTheRoot() {
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = false))
+        verify(exactly = 0) { root.findAccessibilityNodeInfosByViewId(any()) }
+        verify(exactly = 0) { positive.performAction(any()) }
+    }
+
+    @Test fun laterSystemUiEventCanRetryAfterADeclinedRoot() {
+        every { root.findAccessibilityNodeInfosByViewId("android:id/button1") } returns emptyList()
+        assertFalse(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
+        every { root.findAccessibilityNodeInfosByViewId("android:id/button1") } returns listOf(positive)
+        assertTrue(TvMediaProjectionAutoAccept.tryAccept(root, label, armed = true))
+        verify(exactly = 1) { positive.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+    }
+
+    @Test fun staticFireOsDialogCannotEnterTheLegacyFallback() {
+        assertFalse(TvMediaProjectionAutoAccept.hasShareModeUi(root))
     }
 
     @Test fun sharedHookConstructorIsAvailableInTvOnly() {
         TvAccessibilityEvents::class.java.getConstructor(
-            MobilerunAccessibilityService::class.java, java.util.function.BiConsumer::class.java,
+            MobilerunAccessibilityService::class.java, java.util.function.BiConsumer::class.java, Runnable::class.java,
         )
     }
 }

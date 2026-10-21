@@ -19,13 +19,14 @@ import java.util.function.BiConsumer
 class TvAccessibilityEvents(
     private val service: MobilerunAccessibilityService,
     private val updateUi: BiConsumer<String, String?>,
+    private val onAutoAcceptFailed: Runnable,
 ) : MobilerunAccessibilityService.TvEventHandler {
     companion object {
         private val bound = MutableLiveData(false)
         val connected: LiveData<Boolean> = bound
     }
 
-    private data class Pending(val event: AccessibilityEvent, val windowClass: String)
+    private data class Pending(val event: AccessibilityEvent, val eventClass: String)
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "tv-accessibility-events")
@@ -38,8 +39,8 @@ class TvAccessibilityEvents(
     private val transitions = ForegroundApplicationTransitionTracker { event ->
         main.post { if (!closed) EventHub.emit(event) }
     }
-    private var stateWindowId = -1
-    private var stateWindowClass = ""
+    private val activityTracker = TvForegroundActivityTracker()
+    private var projectionDeclinedLogged = false
     private val coalescer = LatestEventCoalescer<Pending>(
         nowMs = SystemClock::uptimeMillis,
         schedule = { delay, task -> worker.schedule({ task() }, delay, TimeUnit.MILLISECONDS) },
@@ -73,18 +74,14 @@ class TvAccessibilityEvents(
         val pkg = event.packageName?.toString().orEmpty()
         val className = event.className?.toString().orEmpty()
         updateUi.accept(pkg, null)
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            stateWindowId = event.windowId
-            stateWindowClass = className
-        }
-        val windowClass = if (stateWindowId == event.windowId) stateWindowClass else className
+        activityTracker.onEvent(event)
         // Only window events can replace foreground evidence; content storms cannot starve it.
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
-        ) coalescer.offer(Pending(AccessibilityEvent.obtain(event), windowClass))
-        if ((pkg == TvMediaProjectionAutoAccept.SYSTEM_UI && AutoAcceptGate.isMediaProjectionArmed()) ||
+        ) coalescer.offer(Pending(AccessibilityEvent.obtain(event), className))
+        if ((pkg == MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE && AutoAcceptGate.isMediaProjectionArmed()) ||
             (AutoAcceptGate.isInstallArmed() && PackageInstallerAutoAccept.isInstallDialog(event, className))
-        ) dialogs.offer(Pending(AccessibilityEvent.obtain(event), windowClass))
+        ) dialogs.offer(Pending(AccessibilityEvent.obtain(event), className))
     }
 
     private fun process(pending: Pending) {
@@ -93,40 +90,52 @@ class TvAccessibilityEvents(
         val foreground = ForegroundApplicationWindowResolver.resolve(event) { service.windows }
         if (closed) return
         transitions.advance(foreground?.packageName)
-        val activity = pending.windowClass.takeIf {
-            foreground != null && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-                it.isNotEmpty() && !it.startsWith("android.")
-        }
-        val pkg = event.packageName?.toString().orEmpty()
-        if (activity != null) main.post {
-            if (!closed) updateUi.accept(pkg, activity)
+        val candidate = activityTracker.matching(foreground?.packageName)
+        if (candidate != null) main.post {
+            if (!closed && activityTracker.matching(candidate.packageName) == candidate) {
+                updateUi.accept(candidate.packageName, candidate.className)
+            }
         }
     }
 
     private fun processDialog(pending: Pending) {
         if (closed) return
         val event = pending.event
-        val projection = MediaProjectionAutoAccept.isMediaProjectionDialog(event, pending.windowClass) &&
+        val projection = MediaProjectionAutoAccept.isMediaProjectionDialog(event, pending.eventClass) &&
             ReverseConnectionService.getInstance() != null && config.screenShareAutoAcceptEnabled &&
             AutoAcceptGate.isMediaProjectionArmed()
-        val install = PackageInstallerAutoAccept.isInstallDialog(event, pending.windowClass) &&
+        val install = PackageInstallerAutoAccept.isInstallDialog(event, pending.eventClass) &&
             config.installAutoAcceptEnabled && AutoAcceptGate.isInstallArmed()
         if (!projection && !install) return
-        val root = service.rootInActiveWindow ?: return
+        val root = service.rootInActiveWindow
         try {
-            if (closed || root.windowId != event.windowId) return
+            if (closed) return
             if (projection) {
-                if (TvMediaProjectionAutoAccept.isPermissionWindow(event.packageName?.toString(), pending.windowClass)) {
-                    if (TvMediaProjectionAutoAccept.tryAccept(root, pending.windowClass, appLabel)) {
-                        AutoAcceptGate.disarmMediaProjection()
-                    }
+                if (root != null && TvMediaProjectionAutoAccept.tryAccept(
+                        root, appLabel, AutoAcceptGate.isMediaProjectionArmed())) {
+                    AutoAcceptGate.disarmMediaProjection()
+                    projectionDeclinedLogged = false
+                    Log.i("TvAccessibilityEvents", "tv projection consent accepted")
                 } else {
-                    MediaProjectionAutoAccept.tryAutoAccept(root, pending.windowClass)
+                    if (!projectionDeclinedLogged) {
+                        projectionDeclinedLogged = true
+                        Log.w("TvAccessibilityEvents", "TV projection consent declined: eventClass=${pending.eventClass}, rootPackage=${root?.packageName}")
+                    }
+                    if (root != null && AutoAcceptGate.isMediaProjectionArmed() &&
+                        root.packageName?.toString() == MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE &&
+                        TvMediaProjectionAutoAccept.hasShareModeUi(root)) {
+                        val result = MediaProjectionAutoAccept.tryAutoAccept(root, pending.eventClass)
+                        if (result is MediaProjectionAutoAccept.AutoAcceptResult.Failed) {
+                            main.post { if (!closed) onAutoAcceptFailed.run() }
+                        }
+                    }
                 }
+            } else if (!AutoAcceptGate.isMediaProjectionArmed()) {
+                projectionDeclinedLogged = false
             }
-            if (install) PackageInstallerAutoAccept.tryAutoAccept(root, pending.windowClass)
+            if (install && root != null) PackageInstallerAutoAccept.tryAutoAccept(root, pending.eventClass)
         } finally {
-            root.recycle()
+            root?.recycle()
         }
     }
 
