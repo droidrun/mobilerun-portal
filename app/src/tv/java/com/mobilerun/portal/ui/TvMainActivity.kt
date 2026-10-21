@@ -42,6 +42,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         const val COUNTDOWN_TICK_MS = 1_000L
         const val EXPIRY_PROGRESS_MAX = 1_000
         const val HEALTH_PROBE_INTERVAL_MS = 10_000L
+        const val CAPTURE_STATUS_INTERVAL_MS = 1_000L
     }
     private lateinit var binding: ActivityTvMainBinding
     private lateinit var controller: TvSignInController
@@ -52,6 +53,16 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
     private var displayedQr: String? = null
     private lateinit var updates: TvUpdateFlow
     private var started = false
+    private var displayedCaptureActive: Boolean? = null
+    private val captureStatusTick = object : Runnable {
+        override fun run() {
+            if (!started) return
+            // Cloud consent can complete after onResume, without a connection-state change.
+            val active = WebRtcManager.getExistingInstance()?.isCaptureActive() == true
+            if (active != displayedCaptureActive) renderSetup()
+            main.postDelayed(this, CAPTURE_STATUS_INTERVAL_MS)
+        }
+    }
     private val healthTick = object : Runnable {
         override fun run() {
             if (!started) return
@@ -131,6 +142,8 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         renderSetup()
         main.removeCallbacks(healthTick)
         main.post(healthTick)
+        main.removeCallbacks(captureStatusTick)
+        main.post(captureStatusTick)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -143,6 +156,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         controller.setForeground(false)
         main.removeCallbacks(tick)
         main.removeCallbacks(healthTick)
+        main.removeCallbacks(captureStatusTick)
         super.onStop() // Approval polling intentionally continues while Settings is in front.
     }
 
@@ -242,7 +256,9 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             else -> Unit
         }
         binding.accessibility.setText(if (health == TvAccessibilityHealthState.NOT_RESPONDING) R.string.tv_fix else R.string.tv_open_settings)
-        row(binding.captureStatus, binding.capture, WebRtcManager.getExistingInstance()?.isCaptureActive() == true)
+        val captureActive = WebRtcManager.getExistingInstance()?.isCaptureActive() == true
+        row(binding.captureStatus, binding.capture, captureActive)
+        displayedCaptureActive = captureActive
         row(binding.notificationStatus, binding.notifications,
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName))
         if (health == TvAccessibilityHealthState.READY) binding.accessibilityHint.visibility = View.GONE
