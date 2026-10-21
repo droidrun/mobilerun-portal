@@ -194,6 +194,9 @@
     <string name="install_auto_accept_description">Automatically confirm install prompts</string>
     <string name="keep_screen_awake_label">Keep Screen Awake</string>
     <string name="keep_screen_awake_description">Hold the display awake and recover from OEM screen locks</string>
+    <string name="stream_session_limit_label">Max Concurrent Streams</string>
+    <string name="stream_session_limit_description">Viewers that can watch the screen at once (%1$d–%2$d)</string>
+    <string name="stream_session_limit_invalid">Enter %1$d–%2$d</string>
     <string name="keep_screen_awake_notification_title">Keep Screen Awake</string>
     <string name="keep_screen_awake_notification_text">Monitoring the device to prevent screen sleep</string>
     <string name="keep_screen_awake_notification_stop">Stop</string>

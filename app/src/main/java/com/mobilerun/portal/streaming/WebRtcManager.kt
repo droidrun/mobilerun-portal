@@ -19,6 +19,7 @@ import android.util.Log
 import android.widget.Toast
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -45,7 +46,6 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val KEYFRAME_REQUEST_MIN_INTERVAL_MS = 250L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
-        private const val MAX_CONCURRENT_SESSIONS = 3
         private const val FRAME_TAP_TIMEOUT_MS = 2_000L
 
         @Volatile
@@ -114,6 +114,17 @@ class WebRtcManager private constructor(private val context: Context) {
                 "keep_alive_timeout" -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
                 else -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
             }
+        }
+
+        internal fun isStreamSessionLimitReached(
+            hasPrimary: Boolean,
+            secondarySessionCount: Int,
+            replacesExistingSecondary: Boolean,
+            sessionLimit: Int,
+        ): Boolean {
+            if (replacesExistingSecondary) return false
+            val activeCount = (if (hasPrimary) 1 else 0) + secondarySessionCount
+            return activeCount >= sessionLimit
         }
 
         internal fun resolveIncomingSessionRoute(
@@ -1201,18 +1212,24 @@ class WebRtcManager private constructor(private val context: Context) {
         waitForOffer: Boolean,
     ) {
         cancelIdleStop()
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
         val staleSessions: List<SecondarySession>
         val staleSession =
             synchronized(streamLock) {
                 staleSessions = reapDisconnectedSecondarySessionsLocked()
                 val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
                 val existing = secondarySessions[sessionId]
-                val activeCount =
-                    (if (hasPrimary) 1 else 0) + secondarySessions.size - if (existing != null) 1 else 0
-                if (existing == null && activeCount >= MAX_CONCURRENT_SESSIONS) {
+                if (
+                    isStreamSessionLimitReached(
+                        hasPrimary = hasPrimary,
+                        secondarySessionCount = secondarySessions.size,
+                        replacesExistingSecondary = existing != null,
+                        sessionLimit = sessionLimit,
+                    )
+                ) {
                     Log.w(
                         TAG,
-                        "Rejecting secondary session $sessionId: max concurrent sessions reached (primary=$primarySessionId secondary=${secondarySessions.keys})",
+                        "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys})",
                     )
                     throw IllegalStateException("max_concurrent_stream_sessions_reached")
                 }

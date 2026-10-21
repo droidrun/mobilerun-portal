@@ -37,6 +37,7 @@ class ConfigManager private constructor(private val context: Context) {
         // WebSocket & Events
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
+        private const val KEY_STREAM_SESSION_LIMIT = "stream_session_limit"
         private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
@@ -100,6 +101,9 @@ class ConfigManager private constructor(private val context: Context) {
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
         private const val DEFAULT_WEBSOCKET_PORT = 8081
+        const val DEFAULT_STREAM_SESSION_LIMIT = 3
+        const val MIN_STREAM_SESSION_LIMIT = 1
+        const val MAX_STREAM_SESSION_LIMIT = 5
         private const val DEFAULT_REVERSE_CONNECTION_URL =
             "wss://api.mobilerun.ai/v1/providers/personal/join"
 
@@ -224,6 +228,19 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
         set(value) {
             sharedPrefs.edit { putInt(KEY_WEBSOCKET_PORT, value) }
+        }
+
+    // Max concurrent WebRTC stream sessions, the primary stream included
+    var streamSessionLimit: Int
+        get() = sharedPrefs.getInt(KEY_STREAM_SESSION_LIMIT, DEFAULT_STREAM_SESSION_LIMIT)
+            .coerceIn(MIN_STREAM_SESSION_LIMIT, MAX_STREAM_SESSION_LIMIT)
+        set(value) {
+            sharedPrefs.edit {
+                putInt(
+                    KEY_STREAM_SESSION_LIMIT,
+                    value.coerceIn(MIN_STREAM_SESSION_LIMIT, MAX_STREAM_SESSION_LIMIT),
+                )
+            }
         }
 
     // Reverse Connection URL
@@ -795,6 +812,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
+        fun onStreamSessionLimitChanged(limit: Int) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
     }
@@ -857,6 +875,12 @@ class ConfigManager private constructor(private val context: Context) {
     fun setWebSocketPortWithNotification(port: Int) {
         websocketPort = port
         listeners.forEach { it.onWebSocketPortChanged(port) }
+    }
+
+    fun setStreamSessionLimitWithNotification(limit: Int) {
+        val clamped = limit.coerceIn(MIN_STREAM_SESSION_LIMIT, MAX_STREAM_SESSION_LIMIT)
+        streamSessionLimit = clamped
+        listeners.forEach { it.onStreamSessionLimitChanged(clamped) }
     }
 
     fun setKeepScreenAwakeEnabledWithNotification(enabled: Boolean) {
@@ -988,6 +1012,7 @@ class ConfigManager private constructor(private val context: Context) {
             putInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
             putBoolean(KEY_WEBSOCKET_ENABLED, false)
             putInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
+            putInt(KEY_STREAM_SESSION_LIMIT, DEFAULT_STREAM_SESSION_LIMIT)
             putString(KEY_REVERSE_CONNECTION_URL, DEFAULT_REVERSE_CONNECTION_URL)
             putString(KEY_REVERSE_CONNECTION_TOKEN, "")
             putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false)
@@ -1008,6 +1033,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onWebSocketEnabledChanged(false)
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
             it.onKeepScreenAwakeEnabledChanged(false)
+            it.onStreamSessionLimitChanged(DEFAULT_STREAM_SESSION_LIMIT)
             it.onProductionModeChanged(false)
         }
     }

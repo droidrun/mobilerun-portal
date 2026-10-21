@@ -435,6 +435,62 @@ class MobilerunContentProviderTest {
     }
 
     @Test
+    fun buildStreamSessionLimitResponse_reportsLimitAndRange() {
+        val configManager = mockk<ConfigManager>()
+        every { configManager.streamSessionLimit } returns 4
+
+        val result = buildStreamSessionLimitResponse(configManager) as ApiResponse.RawObject
+
+        assertEquals(4, result.json.getInt("limit"))
+        assertEquals(1, result.json.getInt("min"))
+        assertEquals(5, result.json.getInt("max"))
+    }
+
+    @Test
+    fun handleStreamSessionLimitInsert_storesLimitInRange() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsInteger("limit") } returns 5
+
+        val result = handleStreamSessionLimitInsert(configManager, values)
+
+        assertEquals(ApiResponse.Success("Stream session limit set to 5"), result)
+        verify(exactly = 1) { configManager.setStreamSessionLimitWithNotification(5) }
+    }
+
+    @Test
+    fun handleStreamSessionLimitInsert_rejectsLimitOutOfRange() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+
+        for (limit in listOf(0, 6, -1)) {
+            every { values.getAsInteger("limit") } returns limit
+
+            val result = handleStreamSessionLimitInsert(configManager, values)
+
+            assertEquals(ApiResponse.Error("limit must be between 1 and 5"), result)
+        }
+        verify(exactly = 0) { configManager.setStreamSessionLimitWithNotification(any()) }
+    }
+
+    @Test
+    fun handleStreamSessionLimitInsert_rejectsMissingLimit() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsInteger("limit") } returns null
+
+        assertEquals(
+            ApiResponse.Error("Missing required integer field: limit"),
+            handleStreamSessionLimitInsert(configManager, values),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required integer field: limit"),
+            handleStreamSessionLimitInsert(configManager, null),
+        )
+        verify(exactly = 0) { configManager.setStreamSessionLimitWithNotification(any()) }
+    }
+
+    @Test
     fun handleCloudConnectInsert_storesApiKeyAndStartsReverseService() {
         val context = mockk<Context>(relaxed = true)
         val configManager = mockk<ConfigManager>(relaxed = true)

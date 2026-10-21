@@ -10,6 +10,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +86,45 @@ class ConfigManagerTaskPromptTest {
         val configManager = ConfigManager.getInstance(context)
 
         assertFalse(configManager.keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun streamSessionLimit_defaultsToThree() {
+        assertEquals(3, ConfigManager.getInstance(context).streamSessionLimit)
+    }
+
+    @Test
+    fun streamSessionLimit_persistsAcrossProcessRestart() {
+        ConfigManager.getInstance(context).streamSessionLimit = 5
+
+        clearSingleton()
+
+        assertEquals(5, ConfigManager.getInstance(context).streamSessionLimit)
+    }
+
+    @Test
+    fun streamSessionLimit_clampsStoredAndAssignedValuesToRange() {
+        val configManager = ConfigManager.getInstance(context)
+
+        sharedStore["stream_session_limit"] = 42
+        assertEquals(5, configManager.streamSessionLimit)
+        sharedStore["stream_session_limit"] = 0
+        assertEquals(1, configManager.streamSessionLimit)
+
+        configManager.streamSessionLimit = 9
+        assertEquals(5, sharedStore["stream_session_limit"])
+    }
+
+    @Test
+    fun setStreamSessionLimitWithNotification_notifiesListenersWithStoredValue() {
+        val configManager = ConfigManager.getInstance(context)
+        val listener = mockk<ConfigManager.ConfigChangeListener>(relaxed = true)
+        configManager.addListener(listener)
+
+        configManager.setStreamSessionLimitWithNotification(2)
+
+        verify(exactly = 1) { listener.onStreamSessionLimitChanged(2) }
+        assertEquals(2, configManager.streamSessionLimit)
     }
 
     @Test
