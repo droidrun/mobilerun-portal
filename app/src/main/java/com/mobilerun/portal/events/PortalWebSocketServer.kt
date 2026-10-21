@@ -50,6 +50,11 @@ class PortalWebSocketServer(
         localDeviceEventRelay.emit(event)
     }
 
+    init {
+        // Needed for rapid disable/enable flows where sockets can linger in TIME_WAIT.
+        isReuseAddr = true
+    }
+
     override fun onWebsocketHandshakeReceivedAsServer(
         conn: WebSocket?,
         draft: org.java_websocket.drafts.Draft?,
