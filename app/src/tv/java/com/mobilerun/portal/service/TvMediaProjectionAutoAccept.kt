@@ -2,15 +2,12 @@ package com.mobilerun.portal.service
 
 import android.view.accessibility.AccessibilityNodeInfo
 
-/** Fire OS dialog recognition uses system identity and this installation's label, never translated buttons. */
+/** Fire OS consent is a separate AlertDialog window; only its root identity/content is authoritative. */
 internal object TvMediaProjectionAutoAccept {
-    const val SYSTEM_UI = "com.android.systemui"
-
-    fun isPermissionWindow(packageName: String?, className: String): Boolean =
-        packageName == SYSTEM_UI && className.endsWith(".media.MediaProjectionPermissionActivity")
-
-    fun tryAccept(root: AccessibilityNodeInfo, windowClass: String, appLabel: String): Boolean {
-        if (!isPermissionWindow(root.packageName?.toString(), windowClass) || appLabel.isBlank()) return false
+    fun tryAccept(root: AccessibilityNodeInfo, appLabel: String, armed: Boolean): Boolean {
+        if (!armed || root.packageName?.toString() != MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE ||
+            appLabel.isBlank()
+        ) return false
         val positive = root.findAccessibilityNodeInfosByViewId("android:id/button1").orEmpty()
         val labels = listOf("com.android.systemui:id/dialog_title", "android:id/message")
             .flatMap { root.findAccessibilityNodeInfosByViewId(it).orEmpty() }
@@ -21,5 +18,13 @@ internal object TvMediaProjectionAutoAccept {
         } finally {
             (positive + labels).forEach { it.recycle() }
         }
+    }
+
+    // Do not pass a rejected static Fire OS dialog to the permissive legacy text matcher.
+    // Retain the existing multi-step fallback for explicitly identified newer share-mode UIs.
+    fun hasShareModeUi(root: AccessibilityNodeInfo): Boolean {
+        val nodes = listOf(MediaProjectionAutoAccept.DIALOG_VIEW_ID, MediaProjectionAutoAccept.SHARE_MODE_OPTIONS_VIEW_ID)
+            .flatMap { root.findAccessibilityNodeInfosByViewId(it).orEmpty() }
+        return try { nodes.isNotEmpty() } finally { nodes.forEach { it.recycle() } }
     }
 }

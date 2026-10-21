@@ -320,19 +320,25 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
 
         if (BuildConfig.TV_DEVICE) {
             tvEventHandler?.close()
-            tvEventHandler = Class.forName("com.mobilerun.portal.service.TvAccessibilityEvents")
-                .getConstructor(MobilerunAccessibilityService::class.java, java.util.function.BiConsumer::class.java)
-                .newInstance(this, java.util.function.BiConsumer<String, String?> { pkg, activity ->
-                    // This callback is always on main; overlay and snapshot state stay main-confined.
-                    if (activity != null) {
-                        if (pkg == currentPackageName) currentActivityName = activity
-                        return@BiConsumer
-                    }
-                    if (pkg.isNotEmpty() && pkg != currentPackageName && currentPackageName.isNotEmpty()) {
-                        resetOverlayState()
-                    }
-                    if (pkg.isNotEmpty()) currentPackageName = pkg
-                }) as TvEventHandler
+            tvEventHandler = try {
+                Class.forName("com.mobilerun.portal.service.TvAccessibilityEvents")
+                    .getConstructor(
+                        MobilerunAccessibilityService::class.java,
+                        java.util.function.BiConsumer::class.java,
+                        Runnable::class.java,
+                    )
+                    .newInstance(this, java.util.function.BiConsumer<String, String?> { pkg, activity ->
+                        // This callback is always on main; overlay/snapshot state stays main-confined.
+                        if (pkg.isNotEmpty() && pkg != currentPackageName && currentPackageName.isNotEmpty()) {
+                            resetOverlayState()
+                        }
+                        if (pkg.isNotEmpty()) currentPackageName = pkg
+                        if (activity != null) currentActivityName = activity
+                    }, Runnable { showAutoAcceptFailedToastIfEnoughTimeIsPassed() }) as TvEventHandler
+            } catch (error: Exception) {
+                Log.e(TAG, "Unable to initialize TV accessibility events", error)
+                null
+            }
         }
         Log.d(TAG, "Accessibility service connected and configured")
         connectedState.value = true
