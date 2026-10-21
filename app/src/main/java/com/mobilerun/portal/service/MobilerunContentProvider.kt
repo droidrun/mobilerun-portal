@@ -264,12 +264,7 @@ internal fun handleCloudConnectInsert(
     readStringValue: (ContentValues?, String) -> String? = { contentValues, key ->
         readProviderStringValue(contentValues, key, "MobilerunContentProvider")
     },
-    beforeEnable: () -> Unit = {},
-    startReverseConnectionService: (Context, String) -> Unit = { context, action ->
-        context.startForegroundService(
-            Intent(action, null, context, ReverseConnectionService::class.java),
-        )
-    },
+    startReverseConnectionService: (Context, String) -> Unit = ReverseConnectionService.Companion::start,
 ): ApiResponse {
     val appContext = providerContext?.applicationContext
         ?: return ApiResponse.Error("context unavailable")
@@ -287,8 +282,8 @@ internal fun handleCloudConnectInsert(
         return ApiResponse.Error("Cloud connection URL must end in /v1/providers/personal/join")
     }
 
-    return connectCloudCredential(appContext, configManager, apiKey, url, beforeEnable,
-        startReverseConnectionService)
+    return connectCloudCredential(appContext, configManager, apiKey, url,
+        startReverseConnectionService = startReverseConnectionService)
 }
 
 /** Shared connection path; callers select credential semantics without changing API-key defaults. */
@@ -297,18 +292,13 @@ internal fun connectCloudCredential(
     configManager: ConfigManager,
     token: String,
     url: String = configManager.defaultReverseConnectionUrl,
-    beforeEnable: () -> Unit = {},
-    startReverseConnectionService: (Context, String) -> Unit = { context, action ->
-        context.startForegroundService(Intent(action, null, context, ReverseConnectionService::class.java))
-    },
+    credentialType: String = ConfigManager.CREDENTIAL_API_KEY,
+    startReverseConnectionService: (Context, String) -> Unit = ReverseConnectionService.Companion::start,
 ): ApiResponse {
     return try {
         configManager.reverseConnectionUrl = url
-        configManager.reverseConnectionToken = token
-        configManager.reverseConnectionCredentialType = "api_key"
+        configManager.setReverseConnectionCredential(token, credentialType)
         configManager.forceLoginOnNextConnect = false
-        beforeEnable()
-        configManager.reverseConnectionEnabled = true
         startReverseConnectionService(appContext, ReverseConnectionService.ACTION_RECONNECT)
         ApiResponse.Success("Cloud connection requested")
     } catch (e: Exception) {

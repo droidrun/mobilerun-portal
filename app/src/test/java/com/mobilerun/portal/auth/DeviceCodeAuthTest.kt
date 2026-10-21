@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.service.ReverseConnectionService
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import io.mockk.*
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -105,20 +108,66 @@ class DeviceCodeAuthTest {
     }
 
     @Test fun lifecyclePreservesApiKeysAndNewerSessions() {
-        mockkObject(ConfigManager.Companion)
-        try {
-            val context = mockk<Context>(relaxed = true)
-            val config = mockk<ConfigManager>(relaxed = true)
-            every { ConfigManager.getInstance(context) } returns config
-            every { config.reverseConnectionCredentialType } returns "api_key"
-            every { config.reverseConnectionToken } returns "current"
-            assertFalse(SessionCredential.clear(context, "current"))
-            every { config.reverseConnectionCredentialType } returns SessionCredential.TYPE
-            assertFalse(SessionCredential.clear(context, "stale"))
-            verify(exactly = 0) { config.reverseConnectionToken = any() }
-            assertTrue(SessionCredential.clear(context, "current"))
-            verify { config.reverseConnectionToken = ""; config.reverseConnectionEnabled = false }
-            verify(exactly = 1) { context.stopService(any<Intent>()) }
-        } finally { unmockkObject(ConfigManager.Companion) }
+        val config = mockk<ConfigManager>(relaxed = true)
+        every { config.reverseConnectionCredentialType } returns ConfigManager.CREDENTIAL_API_KEY
+        every { config.reverseConnectionToken } returns "current"
+        assertFalse(SessionCredential.clear(config, "current"))
+        every { config.reverseConnectionCredentialType } returns SessionCredential.TYPE
+        assertFalse(SessionCredential.clear(config, "stale"))
+        verify(exactly = 0) { config.setReverseConnectionCredential(any(), any()) }
+        assertTrue(SessionCredential.clear(config, "current"))
+        verify { config.setReverseConnectionCredential("", ConfigManager.CREDENTIAL_API_KEY) }
+        verify { config.reverseConnectionEnabled = false }
+    }
+
+    @Test fun serverHtmlRateLimitsAndMalformedBodiesBackOff() {
+        for ((status, body) in listOf(503 to "<html>unavailable</html>", 429 to "rate limit", 200 to "bad json", 400 to "{}")) {
+            val result = client(status, body).poll("device")
+            assertEquals(DeviceTokenResult.NetworkError, result)
+            assertEquals(10000L, DeviceCodePollState(5, 100_000).nextDelay(result, 0))
+        }
+        assertEquals(DeviceTokenResult.Error("access_denied"), client(400, """{"error":"access_denied"}""").poll("device"))
+    }
+
+    @Test fun sessionBearerRequiresOfficialSecureWebSocket() {
+        val official = "wss://api.mobilerun.ai/v1/providers/personal/join"
+        assertTrue(ReverseConnectionService.sessionConnectionAllowed(official, official))
+        for (url in listOf("ws://api.mobilerun.ai/v1/providers/personal/join",
+                "https://api.mobilerun.ai/v1/providers/personal/join",
+                "wss://evil.example/v1/providers/personal/join",
+                "wss://api.mobilerun.ai.evil.example/v1/providers/personal/join",
+                "wss://api.mobilerun.ai:444/v1/providers/personal/join")) {
+            assertFalse(url, ReverseConnectionService.sessionConnectionAllowed(url, official))
+        }
+    }
+
+    @Test fun dailyCheckUsesWallClockIncludingRollback() {
+        val day = DeviceCodeAuthClient.SESSION_CHECK_INTERVAL_MS
+        assertTrue(DeviceCodeAuthClient.sessionCheckDue(0, 100))
+        assertFalse(DeviceCodeAuthClient.sessionCheckDue(100, day))
+        assertTrue(DeviceCodeAuthClient.sessionCheckDue(100, 100 + day))
+        assertTrue(DeviceCodeAuthClient.sessionCheckDue(100, 99))
+    }
+
+    @Test fun qrOnlyUsesOfficialCloudOrigin() {
+        assertTrue(DeviceCodeAuthClient.isSafeVerificationUri("https://cloud.mobilerun.ai/device?user_code=USER"))
+        for (uri in listOf("http://cloud.mobilerun.ai/device", "https://cloud.mobilerun.ai.evil.example/device",
+                "https://cloud.mobilerun.ai@evil.example/device", "https://evil.example/device")) {
+            assertFalse(DeviceCodeAuthClient.isSafeVerificationUri(uri))
+        }
+    }
+
+    @Test fun signOutPostsBearerAndCompletesEvenOnNetworkFailure() {
+        val completed = CountDownLatch(1)
+        client(503) { chain ->
+            assertEquals(DeviceCodeAuthClient.BASE_URL + "sign-out", chain.request().url.toString())
+            assertEquals("POST", chain.request().method)
+            assertEquals("Bearer secret", chain.request().header("Authorization"))
+        }.signOut("secret") { completed.countDown() }
+        assertTrue(completed.await(3, TimeUnit.SECONDS))
+        val offline = DeviceCodeAuthClient(OkHttpClient.Builder().addInterceptor { throw IOException("offline") }.build())
+        val failed = CountDownLatch(1)
+        offline.signOut("secret") { failed.countDown() }
+        assertTrue(failed.await(3, TimeUnit.SECONDS))
     }
 }
