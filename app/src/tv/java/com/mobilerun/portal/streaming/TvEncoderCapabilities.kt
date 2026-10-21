@@ -16,10 +16,7 @@ internal object TvEncoderCapabilities {
         val performanceCovers: ((Int, Int, Int) -> Boolean)? = null,
     )
 
-    data class Decision(val encoder: Encoder?, val box: Pair<Int, Int>, val reason: String) {
-        val h264Only: Boolean get() = encoder != null
-        val allowedVideoCodecs: Set<String> get() = if (h264Only) setOf("H264") else setOf("H264", "VP8")
-    }
+    data class Decision(val encoder: Encoder?, val box: Pair<Int, Int>, val reason: String)
 
     fun select(encoders: List<Encoder>, upperBound: Pair<Int, Int>? = null): Decision {
         // Do not skip a slower first encoder: WebRTC will select that same encoder.

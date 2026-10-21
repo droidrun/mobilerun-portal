@@ -16,8 +16,7 @@ class TvEncoderCapabilitiesTest {
         val selected = TvEncoderCapabilities.select(listOf(encoder(supports = { w, h, fps -> w == 1280 && h == 720 && fps == 30 })))
         assertEquals(1280 to 720, selected.box)
         assertEquals("capability", selected.reason)
-        assertTrue(selected.h264Only)
-        assertEquals(setOf("H264"), selected.allowedVideoCodecs)
+        assertNotNull(selected.encoder)
     }
 
     @Test
@@ -25,8 +24,7 @@ class TvEncoderCapabilitiesTest {
         for (codecs in listOf(emptyList(), listOf(encoder(hardware = false)))) {
             val selected = TvEncoderCapabilities.select(codecs)
             assertNull(selected.encoder)
-            assertFalse(selected.h264Only)
-            assertEquals(setOf("H264", "VP8"), selected.allowedVideoCodecs)
+            assertNull(selected.encoder)
             assertEquals(720 to 1280, selected.box)
             assertEquals("fallback", selected.reason)
         }
@@ -49,7 +47,7 @@ class TvEncoderCapabilitiesTest {
         assertEquals(960 to 540, selected.box)
         val tooSlow = TvEncoderCapabilities.select(listOf(encoder(performanceCovers = { _, _, _ -> false })))
         assertEquals(720 to 1280, tooSlow.box)
-        assertTrue(tooSlow.h264Only) // AVC exists, but higher-resolution real-time capability is unproven.
+        assertNotNull(tooSlow.encoder) // AVC exists, but higher-resolution real-time capability is unproven.
     }
 
     @Test
@@ -63,7 +61,7 @@ class TvEncoderCapabilitiesTest {
             val selected = TvEncoderCapabilities.select(listOf(codec))
             assertEquals(720 to 1280, selected.box)
             assertEquals("fallback", selected.reason)
-            assertTrue(selected.h264Only)
+            assertNotNull(selected.encoder)
         }
     }
 
