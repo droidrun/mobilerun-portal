@@ -16,15 +16,35 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         setProperty("archivesBaseName", "$applicationId-$versionName")
+    }
 
-        val updateFeedUrl =
-            (project.findProperty("updateFeedUrl") as String?)
-                ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json"
-        buildConfigField(
-            "String",
-            "UPDATE_FEED_URL",
-            "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
-        )
+    flavorDimensions += "form"
+    productFlavors {
+        create("phone") {
+            dimension = "form"
+            isDefault = true
+            val updateFeedUrl =
+                (project.findProperty("updateFeedUrl") as String?)
+                    ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json"
+            buildConfigField(
+                "String",
+                "UPDATE_FEED_URL",
+                "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+            )
+        }
+        create("tv") {
+            dimension = "form"
+            applicationId = "com.mobilerun.portal.tv"
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+            val updateFeedUrl =
+                (project.findProperty("tvUpdateFeedUrl") as String?)
+                    ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest-tv.json"
+            buildConfigField(
+                "String",
+                "UPDATE_FEED_URL",
+                "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+            )
+        }
     }
 
     buildFeatures {

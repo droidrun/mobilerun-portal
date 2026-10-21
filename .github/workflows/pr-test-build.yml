@@ -24,13 +24,15 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assemblePhoneDebug assembleTvDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: mobilerun-portal-pr-${{ github.event.pull_request.number }}
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/phone/debug/*.apk
+            app/build/outputs/apk/tv/debug/*.apk
           retention-days: 30
 
   comment-on-pr:
