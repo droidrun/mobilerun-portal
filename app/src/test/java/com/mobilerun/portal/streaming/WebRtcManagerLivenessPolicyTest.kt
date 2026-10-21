@@ -10,6 +10,55 @@ import org.webrtc.PeerConnection
 
 class WebRtcManagerLivenessPolicyTest {
     @Test
+    fun primaryDetach_preservesLiveTvSecondaryAfterPrimaryIdWasCleared() {
+        // stopStream clears primarySessionId before detach; streamRequestId is the latest viewer.
+        assertFalse(WebRtcManager.shouldClearRequestLivenessOnPrimaryDetach(
+            requestId = "live-secondary", primaryId = null, requestIsSecondary = true, tvEnabled = true,
+        ))
+        assertFalse(WebRtcManager.shouldClearRequestLivenessOnPrimaryDetach(
+            requestId = "live-secondary", primaryId = "expiring-primary", requestIsSecondary = true, tvEnabled = true,
+        ))
+    }
+
+    @Test
+    fun primaryDetach_clearsUnownedRequestAndPreservesPhonePolicy() {
+        assertTrue(WebRtcManager.shouldClearRequestLivenessOnPrimaryDetach(
+            requestId = "pending-primary", primaryId = null, requestIsSecondary = false, tvEnabled = true,
+        ))
+        assertTrue(WebRtcManager.shouldClearRequestLivenessOnPrimaryDetach(
+            requestId = "secondary", primaryId = null, requestIsSecondary = true, tvEnabled = false,
+        ))
+        assertFalse(WebRtcManager.shouldClearRequestLivenessOnPrimaryDetach(
+            requestId = "primary", primaryId = "primary", requestIsSecondary = false, tvEnabled = true,
+        ))
+    }
+
+    @Test
+    fun secondaryReaping_releasesTerminalPeersAndKeepsNegotiatingOrConnectedPeers() {
+        for (tvEnabled in listOf(false, true)) {
+            for (state in PeerConnection.IceConnectionState.values()) {
+                val terminal = state == PeerConnection.IceConnectionState.DISCONNECTED ||
+                    state == PeerConnection.IceConnectionState.CLOSED ||
+                    state == PeerConnection.IceConnectionState.FAILED
+                assertEquals("tv=$tvEnabled state=$state", terminal,
+                    WebRtcManager.shouldReapSecondaryPeer(tvEnabled) { state })
+            }
+        }
+    }
+
+    @Test
+    fun secondaryReaping_releasesUnavailableTvPeerWithoutChangingPhoneNullPolicy() {
+        assertTrue(WebRtcManager.shouldReapSecondaryPeer(true) { null })
+        assertFalse(WebRtcManager.shouldReapSecondaryPeer(false) { null })
+        assertTrue(WebRtcManager.shouldReapSecondaryPeer(true) { throw IllegalStateException("disposed") })
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun secondaryReaping_preservesPhoneNativeFailurePolicy() {
+        WebRtcManager.shouldReapSecondaryPeer(false) { throw IllegalStateException("disposed") }
+    }
+
+    @Test
     fun isPeerHealthyForLiveness_acceptsConnectedIce() {
         assertTrue(
             WebRtcManager.isPeerHealthyForLiveness(

@@ -149,6 +149,30 @@ class WebRtcManager private constructor(private val context: Context) {
             hasPublishedSession: Boolean,
         ): Boolean = expectedToken == currentToken && expectedCapture === currentCapture && !hasPublishedSession
 
+        internal fun shouldClearRequestLivenessOnPrimaryDetach(
+            requestId: String?,
+            primaryId: String?,
+            requestIsSecondary: Boolean,
+            tvEnabled: Boolean,
+        ): Boolean = requestId != primaryId && !(tvEnabled && requestIsSecondary)
+
+        internal fun shouldReapSecondaryPeer(
+            tvEnabled: Boolean,
+            readIceState: () -> PeerConnection.IceConnectionState?,
+        ): Boolean {
+            val state = try {
+                readIceState()
+            } catch (e: IllegalStateException) {
+                // A disposed native PC cannot deliver another terminal ICE callback.
+                if (!tvEnabled) throw e
+                return true
+            }
+            return (tvEnabled && state == null) ||
+                state == PeerConnection.IceConnectionState.DISCONNECTED ||
+                state == PeerConnection.IceConnectionState.CLOSED ||
+                state == PeerConnection.IceConnectionState.FAILED
+        }
+
         internal enum class KeyframeRequestScheduleDisposition {
             SKIP_NO_STREAM,
             COALESCE,
@@ -1460,6 +1484,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         var shouldRestart = false
                         var restartWaitForOffer = false
                         var activeConnection: PeerConnection? = null
+                        var closedSession: SecondarySession? = null
                         synchronized(streamLock) {
                             val session = secondarySessions[sessionId]
                             if (session == null || session.streamId != streamId) return
@@ -1472,7 +1497,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                 }
 
                                 PeerConnection.IceConnectionState.FAILED -> {
-                                    if (session.iceRestartAttempts < MAX_ICE_RESTARTS) {
+                                    if (!TvStreamPolicy.enabled && session.iceRestartAttempts < MAX_ICE_RESTARTS) {
                                         session.iceRestartAttempts += 1
                                         session.pendingIceCandidates.clear()
                                         session.pendingOutgoingIceCandidates.clear()
@@ -1485,6 +1510,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                         clearSessionLivenessStateLocked(sessionId, "ice_failed")
                                         secondarySessions.remove(sessionId)
                                         activeConnection = session.peerConnection
+                                        closedSession = session
                                     }
                                 }
 
@@ -1493,6 +1519,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                     clearSessionLivenessStateLocked(sessionId, "ice_${state.name.lowercase(Locale.US)}")
                                     secondarySessions.remove(sessionId)
                                     activeConnection = session.peerConnection
+                                    closedSession = session
                                 }
 
                                 else -> {}
@@ -1511,7 +1538,11 @@ class WebRtcManager private constructor(private val context: Context) {
                             state == PeerConnection.IceConnectionState.CLOSED ||
                             state == PeerConnection.IceConnectionState.FAILED
                         ) {
-                            activeConnection?.close()
+                            if (TvStreamPolicy.enabled) {
+                                closedSession?.let { cleanupSecondaryNativeResources(it) }
+                            } else {
+                                activeConnection?.close()
+                            }
                             if (!isStreamActive()) {
                                 scheduleIdleStop(state?.name?.lowercase(Locale.US) ?: "peer_closed")
                             }
@@ -1624,9 +1655,7 @@ class WebRtcManager private constructor(private val context: Context) {
         checkNativeCallOutsideStreamLock()
         val snapshot = synchronized(streamLock) { secondarySessions.values.toList() }
         val disconnected = snapshot.filter { session ->
-            val state = session.peerConnection.iceConnectionState()
-            state == PeerConnection.IceConnectionState.DISCONNECTED ||
-                state == PeerConnection.IceConnectionState.CLOSED || state == PeerConnection.IceConnectionState.FAILED
+            shouldReapSecondaryPeer(TvStreamPolicy.enabled) { session.peerConnection.iceConnectionState() }
         }
         return synchronized(streamLock) {
             disconnected.filter { session ->
@@ -2165,7 +2194,11 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun detachPeerResourcesLocked(): PeerResources {
         val resources = PeerResources(peerConnection, controlChannel)
         clearSessionLivenessStateLocked(primarySessionId)
-        if (streamRequestId != primarySessionId) {
+        if (shouldClearRequestLivenessOnPrimaryDetach(
+                streamRequestId, primarySessionId,
+                secondarySessions.containsKey(streamRequestId) || secondaryReservations.containsKey(streamRequestId),
+                TvStreamPolicy.enabled,
+            )) {
             clearSessionLivenessStateLocked(streamRequestId)
         }
         peerConnection = null
