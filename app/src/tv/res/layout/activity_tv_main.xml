@@ -4,16 +4,18 @@
   <ImageView android:layout_width="match_parent" android:layout_height="44dp" android:layout_marginHorizontal="48dp" android:layout_marginTop="27dp" android:src="@drawable/tv_logo_wordmark" android:tint="@color/tv_on_primary" android:scaleType="fitStart" android:adjustViewBounds="true" android:contentDescription="@string/tv_brand"/>
   <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center_vertical" android:layout_marginHorizontal="48dp" android:orientation="vertical">
    <TextView android:id="@+id/headline" style="@style/TVText" android:layout_height="128dp" android:text="@string/tv_headline" android:textColor="@color/tv_on_primary" android:textSize="44sp" android:textFontWeight="600" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="28sp" android:autoSizeMaxTextSize="44sp" android:autoSizeStepGranularity="1sp" android:gravity="center_vertical"/>
-   <LinearLayout android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
+   <LinearLayout android:id="@+id/stepRow1" android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
  <TextView android:id="@+id/step1" android:layout_width="32dp" android:layout_height="32dp" android:gravity="center" android:text="@string/tv_one" android:textColor="@color/tv_on_primary" android:fontFamily="@font/ibm_plex_mono" android:textSize="18sp"/>
  <TextView style="@style/TVText" android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="14dp" android:text="@string/tv_step_one" android:textColor="@color/tv_on_primary" android:textSize="22sp"/>
- </LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
+ </LinearLayout><LinearLayout android:id="@+id/stepRow2" android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
  <TextView android:id="@+id/step2" android:layout_width="32dp" android:layout_height="32dp" android:gravity="center" android:text="@string/tv_two" android:textColor="@color/tv_on_primary" android:fontFamily="@font/ibm_plex_mono" android:textSize="18sp"/>
  <TextView style="@style/TVText" android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="14dp" android:text="@string/tv_step_two" android:textColor="@color/tv_on_primary" android:textSize="22sp"/>
- </LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
+ </LinearLayout><LinearLayout android:id="@+id/stepRow3" android:layout_width="match_parent" android:layout_height="72dp" android:gravity="center_vertical" android:orientation="horizontal">
  <TextView android:id="@+id/step3" android:layout_width="32dp" android:layout_height="32dp" android:gravity="center" android:text="@string/tv_three" android:textColor="@color/tv_on_primary" android:fontFamily="@font/ibm_plex_mono" android:textSize="18sp"/>
  <TextView style="@style/TVText" android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="14dp" android:text="@string/tv_step_three" android:textColor="@color/tv_on_primary" android:textSize="22sp"/>
  </LinearLayout>
+   <TextView android:id="@+id/homeInstructions" style="@style/TVText" android:text="@string/tv_home_instructions" android:textColor="@color/tv_on_primary" android:textSize="24sp" android:visibility="gone" android:layout_marginTop="16dp"/>
+   <TextView android:id="@+id/homeDeviceName" style="@style/TVText" android:textColor="@color/tv_on_primary" android:textSize="22sp" android:visibility="gone" android:layout_marginTop="16dp" android:maxLines="2" android:ellipsize="end"/>
   </LinearLayout>
   <TextView android:id="@+id/footer" style="@style/TVLabel" android:layout_width="wrap_content" android:layout_gravity="bottom|start" android:layout_marginStart="48dp" android:layout_marginBottom="27dp" android:textColor="@color/tv_on_primary" android:alpha="0.6"/>
  </FrameLayout>
@@ -44,17 +46,17 @@
      <Button android:id="@+id/signOut" style="@style/TVButton.Ghost" android:layout_width="match_parent" android:text="@string/tv_sign_out" android:nextFocusUp="@id/updates" android:nextFocusRight="@id/accessibility"/>
     </LinearLayout>
    </FrameLayout>
-   <LinearLayout android:layout_width="172dp" android:layout_height="match_parent" android:orientation="vertical" android:padding="14dp" android:background="@drawable/tv_card" android:elevation="2dp">
+   <LinearLayout android:layout_width="172dp" android:layout_height="match_parent" android:orientation="vertical" android:padding="14dp" android:clipChildren="false" android:clipToPadding="false" android:background="@drawable/tv_card" android:elevation="2dp">
     <TextView style="@style/TVLabel" android:text="@string/tv_setup"/>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_accessibility_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/accessibilityStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
  <Button android:id="@+id/accessibility" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/newCode" android:nextFocusDown="@id/capture" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
- <TextView android:id="@+id/accessibilityHint" style="@style/TVHint" android:maxLines="1"/></LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+ <TextView android:id="@+id/accessibilityHint" style="@style/TVHint" android:maxLines="1"/></LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_capture_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/captureStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
  <Button android:id="@+id/capture" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_allow" android:nextFocusUp="@id/accessibility" android:nextFocusDown="@id/notifications" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
- </LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+ </LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_notifications_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/notificationStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
  <Button android:id="@+id/notifications" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/capture" android:nextFocusDown="@id/newCode" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>

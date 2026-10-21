@@ -42,4 +42,5 @@
     <string name="tv_adb_hint">Adb help in Set up</string>
     <string name="tv_setup_help">Setup instructions</string>
     <string name="tv_manual_sign_in">Open cloud.mobilerun.ai/device on your phone</string>
+    <string name="tv_home_instructions">Control this TV from cloud.mobilerun.ai</string>
 </resources>

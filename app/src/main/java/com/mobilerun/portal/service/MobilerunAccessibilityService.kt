@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.os.SystemClock
 import android.widget.Toast
+import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.R
 import com.mobilerun.portal.model.ElementNode
 import com.mobilerun.portal.model.PhoneState
@@ -204,6 +205,13 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
     }
 
+    // The implementation is loaded only in the TV flavor; phone has no TV dependency.
+    interface TvEventHandler : AutoCloseable {
+        fun onEvent(event: AccessibilityEvent?)
+    }
+
+    private var tvEventHandler: TvEventHandler? = null
+
     private lateinit var overlayManager: OverlayManager
     private val screenBounds = Rect()
     private lateinit var configManager: ConfigManager
@@ -306,10 +314,30 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             )
         }
 
+        if (BuildConfig.TV_DEVICE) {
+            tvEventHandler?.close()
+            tvEventHandler = Class.forName("com.mobilerun.portal.service.TvAccessibilityEvents")
+                .getConstructor(MobilerunAccessibilityService::class.java, java.util.function.BiConsumer::class.java)
+                .newInstance(this, java.util.function.BiConsumer<String, String?> { pkg, activity ->
+                    // This callback is always on main; overlay and snapshot state stay main-confined.
+                    if (activity != null) {
+                        if (pkg == currentPackageName) currentActivityName = activity
+                        return@BiConsumer
+                    }
+                    if (pkg.isNotEmpty() && pkg != currentPackageName && currentPackageName.isNotEmpty()) {
+                        resetOverlayState()
+                    }
+                    if (pkg.isNotEmpty()) currentPackageName = pkg
+                }) as TvEventHandler
+        }
         Log.d(TAG, "Accessibility service connected and configured")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (BuildConfig.TV_DEVICE) {
+            tvEventHandler?.onEvent(event)
+            return
+        }
         val eventPackage = event?.packageName?.toString() ?: ""
         val eventClassName = event?.className?.toString() ?: ""
 
@@ -1539,6 +1567,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         // connection is gone, and release the read-gate thread. (Do NOT do this
         // in onInterrupt — interrupt is not an unbind.)
         Log.d(TAG, "Accessibility service unbound")
+        if (BuildConfig.TV_DEVICE) {
+            tvEventHandler?.close()
+            tvEventHandler = null
+        }
         if (instance === this) instance = null
         apiHandler?.close()
         return super.onUnbind(intent)
@@ -1554,6 +1586,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         clearVisibleElementSnapshot()
         configManager.removeListener(this)
         apiHandler?.close()
+        if (BuildConfig.TV_DEVICE) {
+            tvEventHandler?.close()
+            tvEventHandler = null
+        }
         if (instance === this) instance = null
         Log.d(TAG, "Accessibility service destroyed")
     }

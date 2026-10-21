@@ -4,4 +4,6 @@
     <color name="tv_border">#DFDCD7</color><color name="tv_muted_surface">#EBE8E1</color>
     <color name="tv_primary">#2335F1</color><color name="tv_on_primary">#F4F2EE</color>
     <color name="tv_primary_tint">#E3E5FD</color><color name="tv_destructive">#C74C41</color>
+    <color name="tv_connected_dot">#1F9D55</color>
+    <color name="tv_connecting_dot">#E0A100</color>
 </resources>
