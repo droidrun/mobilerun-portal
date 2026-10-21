@@ -6,4 +6,6 @@
     <color name="tv_primary_tint">#E3E5FD</color><color name="tv_destructive">#C74C41</color>
     <color name="tv_connected_dot">#1F9D55</color>
     <color name="tv_connecting_dot">#E0A100</color>
+    <color name="tv_primary_focused">#1A26C2</color>
+    <color name="tv_destructive_tint">#F6E1DE</color>
 </resources>
