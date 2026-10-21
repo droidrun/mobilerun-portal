@@ -33,7 +33,7 @@
     <string name="tv_signed_out">Signed out</string><string name="tv_disconnected">Disconnected</string>
     <string name="tv_unauthorized">Sign-in required</string><string name="tv_limit">Connection limit reached</string>
     <string name="tv_connection_error">Connection unavailable</string>
-    <string name="tv_no_updates">Portal TV is up to date.</string>
+    <string name="tv_no_updates">Portal TV is up to date (v%1$s)</string>
     <string name="tv_install">Install update</string>
     <string name="tv_update_progress">Downloading update: %1$d%%</string>
     <string name="tv_a11y_fallback">Settings unavailable. Append to the existing value; never replace other services:\nadb shell settings put secure enabled_accessibility_services EXISTING:%1$s/%2$s</string>
@@ -43,4 +43,11 @@
     <string name="tv_setup_help">Setup instructions</string>
     <string name="tv_manual_sign_in">Open cloud.mobilerun.ai/device on your phone</string>
     <string name="tv_home_instructions">Control this TV from cloud.mobilerun.ai</string>
+    <string name="tv_update_checking">Checking…</string>
+    <string name="tv_update_downloading">Downloading…</string>
+    <string name="tv_update_available">Portal TV v%1$s is available</string>
+    <string name="tv_update_unpublished">No Portal TV release published yet</string>
+    <string name="tv_update_check_error">Could not check for updates. Try again later.</string>
+    <string name="tv_update_install_error">Could not install the update. Try again later.</string>
+    <string name="tv_update_installed">Portal TV update installed</string>
 </resources>
