@@ -1210,6 +1210,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             TAG,
                             "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
                         )
+                        forgetRejectedStreamRequestLocked(sessionId)
                         throw IllegalStateException("max_concurrent_stream_sessions_reached")
                     }
                     // A secondary restarting as the new primary must not keep its old peer.
@@ -1225,6 +1226,13 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         promotedSecondary?.let { cleanupSecondarySession(it) }
         return admission
+    }
+
+    // The caller records the request before admission; a rejected session must not stay current.
+    private fun forgetRejectedStreamRequestLocked(sessionId: String) {
+        if (streamRequestId == sessionId) {
+            streamRequestId = primarySessionId
+        }
     }
 
     private fun startSecondaryStreamWithExistingCapture(
@@ -1256,6 +1264,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             TAG,
                             "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys})",
                         )
+                        forgetRejectedStreamRequestLocked(sessionId)
                         throw IllegalStateException("max_concurrent_stream_sessions_reached")
                     }
                     secondarySessions.remove(sessionId)
