@@ -1227,29 +1227,33 @@ class WebRtcManager private constructor(private val context: Context) {
     ) {
         cancelIdleStop()
         val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
-        val staleSessions: List<SecondarySession>
+        var staleSessions = emptyList<SecondarySession>()
         val staleSession =
-            synchronized(streamLock) {
-                staleSessions = reapDisconnectedSecondarySessionsLocked()
-                val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
-                val existing = secondarySessions[sessionId]
-                if (
-                    isStreamSessionLimitReached(
-                        hasPrimary = hasPrimary,
-                        secondarySessionCount = secondarySessions.size,
-                        replacesExistingSession = existing != null,
-                        sessionLimit = sessionLimit,
-                    )
-                ) {
-                    Log.w(
-                        TAG,
-                        "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys})",
-                    )
-                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
+            try {
+                synchronized(streamLock) {
+                    staleSessions = reapDisconnectedSecondarySessionsLocked()
+                    val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
+                    val existing = secondarySessions[sessionId]
+                    if (
+                        isStreamSessionLimitReached(
+                            hasPrimary = hasPrimary,
+                            secondarySessionCount = secondarySessions.size,
+                            replacesExistingSession = existing != null,
+                            sessionLimit = sessionLimit,
+                        )
+                    ) {
+                        Log.w(
+                            TAG,
+                            "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys})",
+                        )
+                        throw IllegalStateException("max_concurrent_stream_sessions_reached")
+                    }
+                    secondarySessions.remove(sessionId)
                 }
-                secondarySessions.remove(sessionId)
+            } finally {
+                // Reaped sessions are already out of the map, so a rejection must still close them.
+                staleSessions.forEach { cleanupSecondarySession(it) }
             }
-        staleSessions.forEach { cleanupSecondarySession(it) }
         staleSession?.let { cleanupSecondarySession(it) }
 
         val streamId = streamGeneration.incrementAndGet()
