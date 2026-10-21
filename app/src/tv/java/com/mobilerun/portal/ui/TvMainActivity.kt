@@ -83,10 +83,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding.updates.setOnClickListener { checkUpdates() }
         listOf(binding.accessibility, binding.capture, binding.notifications, binding.newCode,
             binding.updates, binding.signOut).forEach { button ->
-            button.setOnFocusChangeListener { view, focused ->
-                view.animate().scaleX(if (focused) 1.04f else 1f).scaleY(if (focused) 1.04f else 1f)
-                    .translationZ(if (focused) dp(4f) else 0f).setDuration(120).start()
-            }
+            configureFocus(button)
         }
         listOf(binding.step1, binding.step2, binding.step3).forEach {
             it.background = GradientDrawable().apply {
@@ -251,8 +248,31 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         hint.visibility = View.VISIBLE
         renderSetup()
         val dialog = AlertDialog.Builder(this).setTitle(R.string.tv_setup_help).setMessage(fallback)
-            .setPositiveButton(android.R.string.ok, null).show()
+            .setPositiveButton(android.R.string.ok, null).showTvDialog()
         dialog.findViewById<TextView>(android.R.id.message)?.textSize = 20f
+    }
+
+    private fun configureFocus(button: Button) {
+        // Keep the platform button animator from adding a second elevation on focus/press.
+        button.stateListAnimator = null
+        button.elevation = 0f
+        fun animateFocus(focused: Boolean) {
+            button.animate().scaleX(if (focused) 1.04f else 1f).scaleY(if (focused) 1.04f else 1f)
+                .translationZ(if (focused) dp(6f) else 0f).setDuration(120).start()
+        }
+        button.setOnFocusChangeListener { _, focused -> animateFocus(focused) }
+        animateFocus(button.hasFocus())
+    }
+
+    private fun AlertDialog.Builder.showTvDialog(): AlertDialog = show().also { dialog ->
+        listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)
+            .mapNotNull(dialog::getButton).forEach { button ->
+                button.backgroundTintList = null
+                button.setBackgroundResource(R.drawable.tv_button)
+                button.setTextColor(androidx.core.content.ContextCompat.getColorStateList(
+                    this@TvMainActivity, R.color.tv_button_text))
+                configureFocus(button)
+            }
     }
 
     private fun dp(value: Float) = value * resources.displayMetrics.density
@@ -269,7 +289,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
                         else UpdateChecker.downloadAndInstall(this, result.info,
                             { binding.message.visibility = View.VISIBLE; binding.message.text = getString(R.string.tv_update_progress, it) },
                             { binding.message.visibility = View.VISIBLE; binding.message.text = it })
-                    }.show()
+                    }.showTvDialog()
                 is UpdateCheckResult.Failed -> { binding.message.visibility = View.VISIBLE; binding.message.text = result.message }
                 UpdateCheckResult.UpToDate -> onMessage(R.string.tv_no_updates)
             }
