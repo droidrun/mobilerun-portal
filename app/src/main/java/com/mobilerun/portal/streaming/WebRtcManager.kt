@@ -489,6 +489,42 @@ class WebRtcManager private constructor(private val context: Context) {
             private set
         private val heartbeatIntervals = java.util.ArrayDeque<Long>()
         var runnable: Runnable? = null
+        var transportPoll: Runnable? = null
+        var lastLivenessLogAtMs = admittedAtMs
+        var bytesReceivedSinceLog = 0L
+            private set
+        var lastRtcpAtMs: Long? = null
+            private set
+        private var lastTransportSample: TvTransportSnapshot? = null
+        private var lastTransportSampleAtMs = Long.MIN_VALUE
+
+        fun observeTransport(sample: TvTransportSnapshot, sampledAtMs: Long): Boolean {
+            if (sampledAtMs <= lastTransportSampleAtMs) return false
+            val previous = lastTransportSample
+            lastTransportSampleAtMs = sampledAtMs
+            lastTransportSample = sample
+            if (previous == null) return false // Establish a per-peer baseline, never reuse old totals.
+            fun delta(current: Map<String, Long>, old: Map<String, Long>): Long =
+                current.entries.sumOf { (id, value) -> old[id]?.let { (value - it).coerceAtLeast(0L) } ?: 0L }
+            val bytesDelta = delta(sample.bytesReceived, previous.bytesReceived)
+            val rtcpAdvanced = delta(sample.rtcpReports, previous.rtcpReports) > 0L
+            val consentAdvanced = delta(sample.consentResponses, previous.consentResponses) > 0L
+            bytesReceivedSinceLog += bytesDelta
+            if (rtcpAdvanced) lastRtcpAtMs = sampledAtMs
+            if (bytesDelta == 0L && !rtcpAdvanced && !consentAdvanced) return false
+            renewDeadline(sampledAtMs)
+            return true
+        }
+
+        fun resetLivenessLog(nowMs: Long) {
+            lastLivenessLogAtMs = nowMs
+            bytesReceivedSinceLog = 0L
+        }
+
+        private fun renewDeadline(nowMs: Long) {
+            renewals++
+            deadlineMs = maxOf(admittedAtMs + NEGOTIATION_ALLOWANCE_MS, nowMs + TIMEOUT_MS)
+        }
 
         fun renew(nowMs: Long, requestFrame: Boolean = false): Long? {
             sameSignalIntervalMs = (if (requestFrame) lastRequestFrameAtMs else lastKeepAliveAtMs)?.let { nowMs - it }
@@ -499,8 +535,7 @@ class WebRtcManager private constructor(private val context: Context) {
                 heartbeatIntervals.addLast(interval)
             }
             lastSignalAtMs = nowMs
-            renewals++
-            deadlineMs = nowMs + TIMEOUT_MS
+            renewDeadline(nowMs)
             return interval
         }
 
@@ -513,11 +548,42 @@ class WebRtcManager private constructor(private val context: Context) {
         }
 
         companion object {
-            const val TIMEOUT_MS = 20_000L
+            const val TIMEOUT_MS = 15_000L
             const val NEGOTIATION_ALLOWANCE_MS = 30_000L
+
+            fun observeTransportIfCurrent(
+                current: TvViewerLease?, expected: TvViewerLease,
+                sample: TvTransportSnapshot, sampledAtMs: Long,
+            ): Boolean = current === expected && expected.observeTransport(sample, sampledAtMs)
 
             fun shouldExpire(current: TvViewerLease?, expected: TvViewerLease, nowMs: Long): Boolean =
                 current === expected && nowMs >= expected.deadlineMs
+        }
+    }
+
+    internal data class TvTransportSnapshot(
+        val bytesReceived: Map<String, Long> = emptyMap(),
+        val rtcpReports: Map<String, Long> = emptyMap(),
+        val consentResponses: Map<String, Long> = emptyMap(),
+    ) {
+        companion object {
+            fun fromReport(report: RTCStatsReport): TvTransportSnapshot {
+                val stats = report.statsMap.values
+                val transports = stats.filter { it.type == "transport" && it.members["bytesReceived"] is Number }
+                val selectedPairs = stats.filter {
+                    it.type == "candidate-pair" && it.members["state"] == "succeeded" && it.members["nominated"] == true
+                }
+                fun counters(entries: Collection<RTCStats>, member: String): Map<String, Long> =
+                    entries.mapNotNull { stat ->
+                        (stat.members[member] as? Number)?.toLong()?.takeIf { it >= 0L }?.let { stat.id to it }
+                    }.toMap()
+                return TvTransportSnapshot(
+                    // Native RTC stats use Number (including BigInteger); avoid double-counting pairs and transports.
+                    counters(if (transports.isNotEmpty()) transports else selectedPairs, "bytesReceived"),
+                    counters(stats.filter { it.type == "remote-inbound-rtp" }, "roundTripTimeMeasurements"),
+                    counters(selectedPairs, "responsesReceived"),
+                )
+            }
         }
     }
 
@@ -1968,6 +2034,41 @@ class WebRtcManager private constructor(private val context: Context) {
         tvViewerLeases[sessionId] = lease
         TvStreamPolicy.log(sessionId, "admitted negotiationAllowanceMs=${TvViewerLease.NEGOTIATION_ALLOWANCE_MS} leaseTimeoutMs=${TvViewerLease.TIMEOUT_MS}")
         scheduleTvLeaseLocked(sessionId, lease, nowMs)
+        val poll = object : Runnable {
+            override fun run() {
+                val connection = synchronized(streamLock) {
+                    if (tvViewerLeases[sessionId] !== lease) return
+                    val current = if (primarySessionId == sessionId) peerConnection else secondarySessions[sessionId]?.peerConnection
+                    statsHandler.postDelayed(this, STATS_INTERVAL_MS)
+                    current
+                } ?: return
+                val sampledAtMs = SystemClock.elapsedRealtime()
+                try {
+                    connection.getStats { report ->
+                        statsHandler.post {
+                            synchronized(streamLock) {
+                                val currentConnection = if (primarySessionId == sessionId) peerConnection else secondarySessions[sessionId]?.peerConnection
+                                if (tvViewerLeases[sessionId] !== lease || currentConnection !== connection) return@post
+                                val now = SystemClock.elapsedRealtime()
+                                if (TvViewerLease.observeTransportIfCurrent(tvViewerLeases[sessionId], lease, TvTransportSnapshot.fromReport(report), sampledAtMs)) {
+                                    ensureSessionLivenessStateLocked(sessionId).lastLivenessAtMs = sampledAtMs
+                                    scheduleTvLeaseLocked(sessionId, lease, now)
+                                }
+                                if (now - lease.lastLivenessLogAtMs >= 30_000L) {
+                                    TvStreamPolicy.log(sessionId, "liveness bytesReceivedDelta=${lease.bytesReceivedSinceLog} rtcpAgeMs=${lease.lastRtcpAtMs?.let { now - it } ?: -1} renewals=${lease.renewals}")
+                                    lease.resetLivenessLog(now)
+                                }
+                            }
+                        }
+                    }
+                } catch (_: RuntimeException) {
+                    // Closing a peer can race a queued poll; unavailable stats never renew a lease.
+                    TvStreamPolicy.log(sessionId, "livenessStatsUnavailable=true")
+                }
+            }
+        }
+        lease.transportPoll = poll
+        statsHandler.postDelayed(poll, STATS_INTERVAL_MS)
     }
 
     private fun scheduleTvLeaseLocked(sessionId: String, lease: TvViewerLease, nowMs: Long) {
@@ -1986,6 +2087,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun finishTvLeaseLocked(sessionId: String, reason: String) {
         tvViewerLeases.remove(sessionId)?.let { lease ->
             lease.runnable?.let { stopHandler.removeCallbacks(it) }
+            lease.transportPoll?.let { statsHandler.removeCallbacks(it) }
             TvStreamPolicy.log(sessionId, "stop reason=$reason durationMs=${SystemClock.elapsedRealtime() - lease.admittedAtMs} renewals=${lease.renewals} medianHeartbeatIntervalMs=${lease.medianHeartbeatIntervalMs() ?: -1} medianWindow=last256")
         }
     }

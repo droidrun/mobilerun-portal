@@ -109,8 +109,36 @@ internal object CaptureSizing {
         maxHeight: Int,
     ): Pair<Int, Int> {
         val screenSize = readDisplaySize(context) ?: return deriveAutoCaptureSize(context)
-        return fitCaptureSizeToScreen(screenSize.first, screenSize.second, maxWidth, maxHeight)
-            ?: deriveAutoCaptureSize(context)
+        val tvBox = TvStreamPolicy.autoCaptureBox
+        if (tvBox == null) {
+            return fitCaptureSizeToScreen(screenSize.first, screenSize.second, maxWidth, maxHeight)
+                ?: deriveAutoCaptureSize(context)
+        }
+        val result = deriveCapCaptureSize(screenSize.first, screenSize.second, maxWidth, maxHeight, tvBox)
+        if (tvBox != null) {
+            val swapped = screenSize.first > screenSize.second && maxWidth < maxHeight
+            TvStreamPolicy.log(null, "request maxWidth=$maxWidth maxHeight=$maxHeight capsSwapped=$swapped effective=${result.first}x${result.second}")
+        }
+        return result
+    }
+
+    /** TV treats caps as orientation-agnostic, then intersects them with its build-time upper bound. */
+    internal fun deriveCapCaptureSize(
+        screenWidth: Int,
+        screenHeight: Int,
+        maxWidth: Int,
+        maxHeight: Int,
+        tvBox: Pair<Int, Int>? = null,
+    ): Pair<Int, Int> {
+        val swapped = tvBox != null && screenWidth > screenHeight && maxWidth < maxHeight
+        val capWidth = if (swapped) maxHeight else maxWidth
+        val capHeight = if (swapped) maxWidth else maxHeight
+        // The TV upper bound follows screen orientation too, preserving portrait cap behavior.
+        val orientedTvBox = if (tvBox != null && screenWidth < screenHeight) tvBox.second to tvBox.first else tvBox
+        val boxWidth = orientedTvBox?.let { minOf(capWidth, it.first) } ?: capWidth
+        val boxHeight = orientedTvBox?.let { minOf(capHeight, it.second) } ?: capHeight
+        return fitCaptureSizeToScreen(screenWidth, screenHeight, boxWidth, boxHeight)
+            ?: deriveAutoCaptureSize(screenWidth, screenHeight, orientedTvBox ?: legacyCaptureSize)
     }
 
     fun readDisplaySize(context: Context): Pair<Int, Int>? {
