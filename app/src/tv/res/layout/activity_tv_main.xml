@@ -42,7 +42,10 @@
      <TextView android:id="@+id/workspace" style="@style/TVText" android:textSize="28sp" android:textFontWeight="600" android:maxLines="1" android:ellipsize="end"/>
      <TextView style="@style/TVLabel" android:text="@string/tv_device" android:layout_marginTop="12dp"/>
      <TextView android:id="@+id/deviceName" style="@style/TVText" android:textSize="20sp" android:maxLines="1" android:ellipsize="end"/>
-     <Button android:id="@+id/updates" style="@style/TVButton" android:layout_width="match_parent" android:layout_marginTop="16dp" android:text="@string/tv_updates" android:nextFocusDown="@id/signOut" android:nextFocusRight="@id/accessibility"/>
+     <FrameLayout android:layout_width="match_parent" android:layout_height="66dp" android:layout_marginTop="16dp" android:clipChildren="false" android:clipToPadding="false">
+      <Button android:id="@+id/updates" style="@style/TVButton" android:layout_width="match_parent" android:text="@string/tv_updates" android:nextFocusDown="@id/signOut" android:nextFocusRight="@id/accessibility"/>
+      <ProgressBar android:id="@+id/updateSpinner" style="?android:attr/progressBarStyleSmall" android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="start|center_vertical" android:layout_marginStart="20dp" android:indeterminate="true" android:indeterminateTint="@color/tv_primary" android:visibility="gone" android:focusable="false" android:importantForAccessibility="no"/>
+     </FrameLayout>
      <Button android:id="@+id/signOut" style="@style/TVButton.Ghost" android:layout_width="match_parent" android:text="@string/tv_sign_out" android:nextFocusUp="@id/updates" android:nextFocusRight="@id/accessibility"/>
     </LinearLayout>
    </FrameLayout>
@@ -51,15 +54,15 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_accessibility_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/accessibilityStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
- <Button android:id="@+id/accessibility" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/newCode" android:nextFocusDown="@id/capture" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
+ <Button android:id="@+id/accessibility" style="@style/TVButton" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/newCode" android:nextFocusDown="@id/capture" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
  <TextView android:id="@+id/accessibilityHint" style="@style/TVHint" android:maxLines="1"/></LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_capture_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/captureStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
- <Button android:id="@+id/capture" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_allow" android:nextFocusUp="@id/accessibility" android:nextFocusDown="@id/notifications" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
+ <Button android:id="@+id/capture" style="@style/TVButton" android:layout_width="match_parent" android:text="@string/tv_allow" android:nextFocusUp="@id/accessibility" android:nextFocusDown="@id/notifications" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
  </LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:paddingHorizontal="6dp" android:clipChildren="false" android:clipToPadding="false">
  <TextView style="@style/TVText" android:text="@string/tv_notifications_label" android:textSize="18sp" android:textFontWeight="500"/>
  <TextView android:id="@+id/notificationStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="@font/geist_sans" android:paddingHorizontal="10dp" android:paddingVertical="0dp" android:layout_marginTop="3dp"/>
- <Button android:id="@+id/notifications" style="@style/TVButton.Primary" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/capture" android:nextFocusDown="@id/newCode" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
+ <Button android:id="@+id/notifications" style="@style/TVButton" android:layout_width="match_parent" android:text="@string/tv_open_settings" android:nextFocusUp="@id/capture" android:nextFocusDown="@id/newCode" android:nextFocusLeft="@id/newCode" android:nextFocusRight="@id/newCode"/>
  <TextView android:id="@+id/notificationHint" style="@style/TVHint" android:maxLines="1"/></LinearLayout>
    </LinearLayout>
   </LinearLayout>

@@ -32,6 +32,65 @@ Mobilerun Portal is an Android accessibility service that provides real-time vis
 - APK install from URLs (including split APKs) with optional auto-accept
 - Notification event streaming with per-event toggles
 
+## Portal TV
+
+Portal TV is the Mobilerun Portal build for **Android TV, Google TV, and Fire TV**. It has a landscape interface designed for a TV remote, QR/code sign-in, and cloud screen streaming and control.
+
+### Install
+
+Download `com.mobilerun.portal.tv-<version>.apk` from the [GitHub releases](https://github.com/droidrun/mobilerun-portal/releases), then sideload it onto your TV. For example, with ADB connected to the TV:
+
+```bash
+adb install -r "com.mobilerun.portal.tv-<version>.apk"
+```
+
+Replace `<version>` with the downloaded release version. Open **Mobilerun Portal TV** from the TV launcher.
+
+### Set up the TV
+
+Enable **Mobilerun Portal TV** in the TV's accessibility settings. Use the setup actions in Portal TV to allow screen capture and grant notification access; notification access is needed to control media playback with media keys.
+
+If Fire OS does not expose the accessibility settings page, this ADB fallback **appends** Portal TV to the enabled services, preserving any services already enabled:
+
+```bash
+adb shell '
+portal_service="com.mobilerun.portal.tv/com.mobilerun.portal.service.MobilerunAccessibilityService"
+enabled_services=$(settings get secure enabled_accessibility_services)
+case "$enabled_services" in
+  ""|null) enabled_services="$portal_service" ;;
+  *)
+    case ":$enabled_services:" in
+      *":$portal_service:"*) ;;
+      *) enabled_services="$enabled_services:$portal_service" ;;
+    esac
+    ;;
+esac
+settings put secure enabled_accessibility_services "$enabled_services"
+settings put secure accessibility_enabled 1
+'
+```
+
+If the notification-access page is unavailable, grant access with:
+
+```bash
+adb shell cmd notification allow_listener com.mobilerun.portal.tv/com.mobilerun.portal.service.MobilerunNotificationListener
+```
+
+### Sign in and control
+
+Scan the QR code with your phone, or open [cloud.mobilerun.ai/device](https://cloud.mobilerun.ai/device) and enter the code shown on the TV. Confirm sign-in and choose a workspace.
+
+![Portal TV sign-in and permission setup](docs/images/portal-tv-sign-in.png)
+
+Open the TV in [Mobilerun Cloud](https://cloud.mobilerun.ai) to view its screen stream and control it. Use keyboard **arrow keys** to navigate, **Enter** to confirm, and **Esc** to go back.
+
+![Portal TV home and connection status](docs/images/portal-tv-home.png)
+
+### Limitations
+
+- DRM-protected apps, including some streaming services, may show a black screen in the stream.
+- Fire OS asks for screen-capture consent. With the accessibility service enabled and automatic capture approval enabled, Portal TV accepts the consent dialog automatically for capture requests initiated by Portal TV.
+
 ## 🚀 Usage
 
 ### ⚙️ Setup
