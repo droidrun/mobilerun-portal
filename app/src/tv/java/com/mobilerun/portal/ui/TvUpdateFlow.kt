@@ -79,6 +79,7 @@ internal class TvUpdateFlow(
 
     private fun setUpdateLoading(loading: Boolean, label: String = getString(R.string.tv_update_checking)) {
         val wasFocused = binding.updates.hasFocus()
+        val finished = updateBusy && !loading
         updateBusy = loading
         binding.updates.isEnabled = !loading
         binding.updates.text = if (loading) label else getString(R.string.tv_updates)
@@ -88,6 +89,7 @@ internal class TvUpdateFlow(
             activity.resources.getDimensionPixelSize(R.dimen.tv_button_padding), binding.updates.paddingBottom)
         binding.updateSpinner.visibility = if (loading) View.VISIBLE else View.GONE
         onLoadingChanged(loading && wasFocused)
+        if (finished && binding.updates.isShown) binding.updates.requestFocus()
     }
 
     private fun showUpdateMessage(text: String, temporary: Boolean = true) {
