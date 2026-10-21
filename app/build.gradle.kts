@@ -44,8 +44,7 @@ android {
         create("tv") {
             dimension = "form"
             applicationId = "com.mobilerun.portal.tv"
-            // 720x406 aspect-fits a 16:9 display to the existing even 720x404 result.
-            val captureBox = (project.findProperty("tvCaptureBox") as String?) ?: "720x406"
+            val captureBox = (project.findProperty("tvCaptureBox") as String?) ?: "1280x720"
             val dimensions = Regex("([0-9]+)x([0-9]+)").matchEntire(captureBox)
                 ?: error("tvCaptureBox must be WIDTHxHEIGHT")
             val (boxWidth, boxHeight) = dimensions.destructured

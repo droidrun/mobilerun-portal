@@ -205,6 +205,15 @@ class CaptureSizingTest {
         assertEquals(expected, CaptureSizing.deriveAutoCaptureSize(context))
     }
 
+    @Test
+    fun tvCapsFollowScreenOrientationAndBuildTimeBound() {
+        assertEquals(1280 to 720, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280, 1280 to 720))
+        assertEquals(720 to 1280, CaptureSizing.deriveCapCaptureSize(1080, 1920, 720, 1280, 1280 to 720))
+        assertEquals(960 to 540, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280, 960 to 540))
+        assertEquals(640 to 360, CaptureSizing.deriveCapCaptureSize(1920, 1080, 640, 360, 1280 to 720))
+        assertEquals(720 to 404, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280)) // Phone unchanged.
+    }
+
     private data class SizingCase(
         val name: String,
         val screenWidth: Int,
