@@ -54,7 +54,7 @@ sealed class InstallResult {
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
-    private const val EXPECTED_PACKAGE_NAME = "com.mobilerun.portal"
+    private const val EXPECTED_PACKAGE_NAME = BuildConfig.APPLICATION_ID
     private const val PREFS_NAME = "portal_update"
     private const val KEY_LAST_CHECK_MS = "last_check_ms"
     private const val KEY_CACHED_VERSION = "cached_version"

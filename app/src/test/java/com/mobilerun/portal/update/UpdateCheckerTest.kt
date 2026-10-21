@@ -1,5 +1,6 @@
 package com.mobilerun.portal.update
 
+import com.mobilerun.portal.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -54,6 +55,23 @@ class UpdateCheckerTest {
     @Test(expected = IllegalArgumentException::class)
     fun parseFeed_rejectsWrongPackage() {
         UpdateChecker.parseFeed(validFeed(packageName = "com.droidrun.portal"), "com.mobilerun.portal")
+    }
+
+    @Test
+    fun parseFeed_defaultsToInstalledFlavorPackage() {
+        val info = UpdateChecker.parseFeed(validFeed(packageName = BuildConfig.APPLICATION_ID))
+
+        assertEquals(BuildConfig.APPLICATION_ID, info.packageName)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun parseFeed_rejectsOtherFlavorPackageByDefault() {
+        val otherPackage = if (BuildConfig.FLAVOR == "tv") {
+            "com.mobilerun.portal"
+        } else {
+            "com.mobilerun.portal.tv"
+        }
+        UpdateChecker.parseFeed(validFeed(packageName = otherPackage))
     }
 
     @Test(expected = IllegalArgumentException::class)
