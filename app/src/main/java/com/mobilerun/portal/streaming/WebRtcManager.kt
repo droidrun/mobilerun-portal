@@ -1249,14 +1249,15 @@ class WebRtcManager private constructor(private val context: Context) {
         val staleSession =
             try {
                 synchronized(streamLock) {
+                    // Decided before reaping, so a restart of a gone or failed secondary stays a replacement.
+                    val replacesExistingSession = secondarySessions.containsKey(sessionId)
                     staleSessions = reapDisconnectedSecondarySessionsLocked()
                     val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
-                    val existing = secondarySessions[sessionId]
                     if (
                         isStreamSessionLimitReached(
                             hasPrimary = hasPrimary,
                             secondarySessionCount = secondarySessions.size,
-                            replacesExistingSession = existing != null,
+                            replacesExistingSession = replacesExistingSession,
                             sessionLimit = sessionLimit,
                         )
                     ) {
