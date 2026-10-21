@@ -1,3 +1,5 @@
+import com.android.build.api.dsl.ApplicationProductFlavor
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -20,29 +22,32 @@ android {
 
     flavorDimensions += "form"
     productFlavors {
-        create("phone") {
-            dimension = "form"
-            isDefault = true
+        fun ApplicationProductFlavor.configureUpdateFeed(propertyName: String, defaultUrl: String) {
             val updateFeedUrl =
-                (project.findProperty("updateFeedUrl") as String?)
-                    ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json"
+                (project.findProperty(propertyName) as String?)
+                    ?: defaultUrl
             buildConfigField(
                 "String",
                 "UPDATE_FEED_URL",
                 "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
             )
         }
+
+        create("phone") {
+            dimension = "form"
+            isDefault = true
+            configureUpdateFeed(
+                "updateFeedUrl",
+                "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json",
+            )
+        }
         create("tv") {
             dimension = "form"
             applicationId = "com.mobilerun.portal.tv"
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
-            val updateFeedUrl =
-                (project.findProperty("tvUpdateFeedUrl") as String?)
-                    ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest-tv.json"
-            buildConfigField(
-                "String",
-                "UPDATE_FEED_URL",
-                "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+            configureUpdateFeed(
+                "tvUpdateFeedUrl",
+                "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest-tv.json",
             )
         }
     }

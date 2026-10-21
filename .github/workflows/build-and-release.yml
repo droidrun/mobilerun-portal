@@ -136,23 +136,7 @@ jobs:
             "${APKSIGNER_BIN}" verify --print-certs "${APK}"
           done
 
-      - name: Copy release APK to workspace root
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          set -euo pipefail
-
-          VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
-          for FLAVOR in phone tv; do
-            ARTIFACT_PREFIX="${PORTAL_ARTIFACT_PREFIX}"
-            if [[ "${FLAVOR}" == tv ]]; then
-              ARTIFACT_PREFIX="${TV_ARTIFACT_PREFIX}"
-            fi
-            RELEASE_APK="$(find "app/build/outputs/apk/${FLAVOR}/release" -maxdepth 1 -name '*.apk')"
-            [[ -f "${RELEASE_APK}" ]]
-            cp "${RELEASE_APK}" "${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
-          done
-
-      - name: Generate update feed
+      - name: Prepare release APKs and update feeds
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
@@ -166,7 +150,10 @@ jobs:
               ARTIFACT_PREFIX="${TV_ARTIFACT_PREFIX}"
               FEED=latest-tv.json
             fi
+            SOURCE_APK="$(find "app/build/outputs/apk/${FLAVOR}/release" -maxdepth 1 -name '*.apk')"
+            [[ -f "${SOURCE_APK}" ]]
             RELEASE_APK="${ARTIFACT_PREFIX}-${VERSION_NAME}.apk"
+            cp "${SOURCE_APK}" "${RELEASE_APK}"
             APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION_NAME}/${RELEASE_APK}"
 
             [[ -f "${RELEASE_APK}" ]]
