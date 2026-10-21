@@ -19,7 +19,7 @@ internal object DpadStrategyPolicy {
         KeyEvent.KEYCODE_DPAD_DOWN -> DpadKeyAction.DOWN
         KeyEvent.KEYCODE_DPAD_LEFT -> DpadKeyAction.LEFT
         KeyEvent.KEYCODE_DPAD_RIGHT -> DpadKeyAction.RIGHT
-        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> DpadKeyAction.ACTIVATE
+        KeyEvent.KEYCODE_DPAD_CENTER -> DpadKeyAction.ACTIVATE
         KeyEvent.KEYCODE_ESCAPE -> DpadKeyAction.BACK
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> DpadKeyAction.PLAY_PAUSE
         KeyEvent.KEYCODE_MEDIA_PLAY -> DpadKeyAction.PLAY
@@ -33,8 +33,13 @@ internal object DpadStrategyPolicy {
     }
 
     // Execute in order, stopping at the first successful strategy.
-    fun navigationStrategies(sdkInt: Int, focusedEditable: Boolean, imeConnected: Boolean): List<DpadNavigationStrategy> =
+    fun navigationStrategies(action: DpadKeyAction, sdkInt: Int, focusedEditable: Boolean, imeConnected: Boolean): List<DpadNavigationStrategy> =
         buildList {
+            // Arrow keys must stay in an editor, including when IME delivery fails.
+            if (focusedEditable && focusDirection(action) != null) {
+                if (imeConnected) add(DpadNavigationStrategy.IME)
+                return@buildList
+            }
             if (sdkInt >= 33) add(DpadNavigationStrategy.GLOBAL_ACTION)
             if (focusedEditable && imeConnected) add(DpadNavigationStrategy.IME)
             add(DpadNavigationStrategy.FOCUS)
