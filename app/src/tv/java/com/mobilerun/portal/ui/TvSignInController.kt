@@ -6,31 +6,50 @@ import android.os.Looper
 import android.os.SystemClock
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiResponse
-import com.mobilerun.portal.auth.*
+import com.mobilerun.portal.auth.DeviceAuthorization
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
+import com.mobilerun.portal.auth.DeviceCodePollState
+import com.mobilerun.portal.auth.DeviceTokenResult
+import com.mobilerun.portal.auth.SessionCredential
+import com.mobilerun.portal.auth.SessionResult
+import com.mobilerun.portal.auth.WorkspaceResult
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.core.GenerationGate
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.connectCloudCredential
-import org.json.JSONException
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import org.json.JSONException
 
 /** Owns device-code/account work across settings trips; views only observe state. */
-class TvSignInController(context: Context, private var listener: Listener?) {
+class TvSignInController(
+    context: Context,
+    private var listener: Listener?,
+    private val worker: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor(),
+    private val post: (() -> Unit) -> Unit = Handler(Looper.getMainLooper()).let { main ->
+        { task -> main.post(task); Unit }
+    },
+    private val auth: DeviceCodeAuthClient = DeviceCodeAuthClient(),
+    private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
+    private val currentTimeMillis: () -> Long = System::currentTimeMillis,
+) {
+    private companion object {
+        const val INITIAL_CODE_BACKOFF_MS = 5_000L
+        const val MAX_CODE_BACKOFF_MS = 60_000L
+    }
     interface Listener {
         fun onSignedIn(signedIn: Boolean)
-        fun onCode(userCode: String, verificationUri: String?, deadline: Long, lifetimeMs: Long)
+        fun onCode(userCode: String, verificationUri: String, qrUri: String?, deadline: Long, lifetimeMs: Long)
         fun onAccount(user: String?, workspace: String?)
         fun onMessage(message: Int?)
     }
 
     private val context = context.applicationContext
     private val config = ConfigManager.getInstance(context)
-    private val main = Handler(Looper.getMainLooper())
-    private val worker = Executors.newSingleThreadScheduledExecutor()
-    private val auth = DeviceCodeAuthClient()
-    private val generation = AuthGeneration()
+    private val generation = GenerationGate()
     private var task: ScheduledFuture<*>? = null
     private var requesting = false
     private var code: DeviceAuthorization? = null
@@ -41,8 +60,7 @@ class TvSignInController(context: Context, private var listener: Listener?) {
     private var closed = false
     private var signingOut = false
 
-    fun hasSession() = config.reverseConnectionCredentialType == SessionCredential.TYPE &&
-        config.reverseConnectionToken.isNotBlank()
+    fun hasSession() = SessionCredential.isActive(config)
 
     fun start() {
         if (closed || signingOut) return
@@ -51,9 +69,9 @@ class TvSignInController(context: Context, private var listener: Listener?) {
         if (signedIn) {
             val token = config.reverseConnectionToken
             if (foreground && ReverseConnectionService.getInstance() == null) ReverseConnectionService.start(context)
-            if (metadataToken != token || DeviceCodeAuthClient.sessionCheckDue(config.sessionCheckedAt, System.currentTimeMillis())) checkAccount(token)
+            if (metadataToken != token || DeviceCodeAuthClient.sessionCheckDue(config.sessionCheckedAt, currentTimeMillis())) checkAccount(token)
         } else if (code == null && !requesting) refreshCode()
-        else code?.let { listener?.onCode(it.userCode, safeUri(it), deadline, it.expiresIn * 1000) }
+        else code?.let { listener?.onCode(it.userCode, it.verificationUri, safeUri(it), deadline, it.expiresIn * 1000) }
     }
 
     fun setForeground(value: Boolean) { foreground = value }
@@ -62,15 +80,15 @@ class TvSignInController(context: Context, private var listener: Listener?) {
         cancel()
         if (closed || hasSession() || signingOut) return
         requesting = true
-        listener?.onCode("", null, 0L, 1L)
+        listener?.onCode("", "", null, 0L, 1L)
         listener?.onMessage(R.string.tv_loading)
-        val id = generation.next()
-        requestCode(id, 0, 5000)
+        val id = generation.advance()
+        requestCode(id, 0, INITIAL_CODE_BACKOFF_MS)
     }
 
     /** Explicit cancellation is used for a new code, sign-out or final Activity destruction. */
     fun cancel() {
-        generation.next()
+        generation.advance()
         task?.cancel(false)
         task = null
         requesting = false
@@ -86,12 +104,12 @@ class TvSignInController(context: Context, private var listener: Listener?) {
     }
 
     fun signOut() {
-        if (signingOut) return
+        if (signingOut || !hasSession()) return
         cancel()
         signingOut = true
         val token = config.reverseConnectionToken
         auth.signOut(token) {
-            main.post {
+            post {
                 ReverseConnectionService.clearSession(context, token)
                 signingOut = false
                 metadataToken = null
@@ -105,22 +123,22 @@ class TvSignInController(context: Context, private var listener: Listener?) {
 
     private fun requestCode(id: Long, delay: Long, backoff: Long) {
         task = worker.schedule({
-            val requestedAt = SystemClock.elapsedRealtime()
+            val requestedAt = elapsedRealtime()
             try {
                 val value = auth.authorize()
-                main.post {
+                post {
                     if (closed || !generation.isCurrent(id) || hasSession()) return@post
                     code = value
                     deadline = requestedAt + value.expiresIn * 1000
                     listener?.onMessage(null)
-                    listener?.onCode(value.userCode, safeUri(value), deadline, value.expiresIn * 1000)
+                    listener?.onCode(value.userCode, value.verificationUri, safeUri(value), deadline, value.expiresIn * 1000)
                     schedulePoll(id, value, DeviceCodePollState(value.interval, deadline), value.interval * 1000)
                 }
             } catch (_: IOException) {
-                main.post {
+                post {
                     if (closed || !generation.isCurrent(id) || hasSession()) return@post
                     listener?.onMessage(R.string.tv_retrying)
-                    requestCode(id, backoff, (backoff * 2).coerceAtMost(60_000))
+                    requestCode(id, backoff, (backoff * 2).coerceAtMost(MAX_CODE_BACKOFF_MS))
                 }
             } catch (_: JSONException) { failedCode(id) }
               catch (_: IllegalArgumentException) { failedCode(id) }
@@ -128,23 +146,23 @@ class TvSignInController(context: Context, private var listener: Listener?) {
     }
 
     private fun failedCode(id: Long) {
-        main.post { if (!closed && generation.isCurrent(id)) listener?.onMessage(R.string.tv_error) }
+        post { if (!closed && generation.isCurrent(id)) listener?.onMessage(R.string.tv_error) }
     }
 
     private fun schedulePoll(id: Long, authorization: DeviceAuthorization, state: DeviceCodePollState, delay: Long) {
         task = worker.schedule({
             if (!generation.isCurrent(id)) return@schedule
-            if (state.expired(SystemClock.elapsedRealtime())) {
-                main.post { if (!closed && generation.isCurrent(id)) refreshCode() }
+            if (state.expired(elapsedRealtime())) {
+                post { if (!closed && generation.isCurrent(id)) refreshCode() }
                 return@schedule
             }
             val result = auth.poll(authorization.deviceCode)
-            main.post {
+            post {
                 if (closed || !generation.isCurrent(id) || hasSession()) {
                     if (result is DeviceTokenResult.Authorized) auth.signOut(result.token)
                     return@post
                 }
-                if (state.expired(SystemClock.elapsedRealtime())) {
+                if (state.expired(elapsedRealtime())) {
                     if (result is DeviceTokenResult.Authorized) auth.signOut(result.token)
                     refreshCode()
                 } else if (result is DeviceTokenResult.Authorized) {
@@ -159,17 +177,17 @@ class TvSignInController(context: Context, private var listener: Listener?) {
                     else listener?.onMessage(null)
                     start()
                 } else {
-                    val next = state.nextDelay(result, SystemClock.elapsedRealtime())
+                    val next = state.nextDelay(result, elapsedRealtime())
                     if (next != null) schedulePoll(id, authorization, state, next)
                     else if (result is DeviceTokenResult.Error && result.code == "expired_token") refreshCode()
                     else {
                         deadline = 0L
-                        listener?.onCode(authorization.userCode, safeUri(authorization), 0, authorization.expiresIn * 1000)
+                        listener?.onCode(authorization.userCode, authorization.verificationUri, safeUri(authorization), 0, authorization.expiresIn * 1000)
                         listener?.onMessage(if (result is DeviceTokenResult.Error && result.code == "access_denied") R.string.tv_denied else R.string.tv_error)
                     }
                 }
             }
-        }, minOf(delay, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)), TimeUnit.MILLISECONDS)
+        }, minOf(delay, (deadline - elapsedRealtime()).coerceAtLeast(0)), TimeUnit.MILLISECONDS)
     }
 
     fun checkAccount(token: String = config.reverseConnectionToken) {
@@ -178,7 +196,7 @@ class TvSignInController(context: Context, private var listener: Listener?) {
         worker.execute {
             val session = auth.session(token)
             val workspace = if (session is SessionResult.Valid) auth.workspace(token, session.organizationId) else null
-            main.post {
+            post {
                 if (checkingToken == token) checkingToken = null
                 if (closed) return@post
                 if (config.reverseConnectionToken != token) {
@@ -193,7 +211,7 @@ class TvSignInController(context: Context, private var listener: Listener?) {
                     start()
                 } else if (session is SessionResult.Valid) {
                     synchronized(config) {
-                        if (config.reverseConnectionToken == token) config.sessionCheckedAt = System.currentTimeMillis()
+                        if (config.reverseConnectionToken == token) config.sessionCheckedAt = currentTimeMillis()
                     }
                     metadataToken = token
                     listener?.onAccount(session.user, (workspace as? WorkspaceResult.Name)?.value)

@@ -7,9 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -19,14 +19,13 @@ import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import com.mobilerun.portal.auth.DeviceCodeAuthClient
-import com.mobilerun.portal.auth.SessionCredential
-import com.mobilerun.portal.auth.SessionResult
-import com.mobilerun.portal.auth.DeviceCodeAuthClient.Companion.SESSION_CHECK_INTERVAL_MS
-import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
+import com.mobilerun.portal.auth.DeviceCodeAuthClient.Companion.SESSION_CHECK_INTERVAL_MS
+import com.mobilerun.portal.auth.SessionCredential
+import com.mobilerun.portal.auth.SessionResult
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
@@ -34,12 +33,13 @@ import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
-import org.java_websocket.client.WebSocketClient
-import org.java_websocket.handshake.ServerHandshake
-import org.json.JSONObject
+import com.mobilerun.portal.taskprompt.PortalCloudClient
 import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import org.json.JSONObject
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link"
@@ -150,16 +150,23 @@ class ReverseConnectionService : Service() {
     private val installExecutor = Executors.newSingleThreadExecutor()
     private val authClient = DeviceCodeAuthClient()
     private val sessionCheckInFlight = AtomicBoolean(false)
-    private val sessionCheck = object : Runnable {
+    private val sessionCheck: Runnable = object : Runnable {
         override fun run() {
             checkSessionIfDue()
-            handler.postDelayed(this, SESSION_CHECK_INTERVAL_MS)
+            scheduleSessionCheck()
         }
     }
 
-    private fun checkSessionIfDue() {
+    private fun scheduleSessionCheck() {
+        handler.removeCallbacks(sessionCheck)
+        if (SessionCredential.isActive(configManager)) {
+            handler.postDelayed(sessionCheck, SESSION_CHECK_INTERVAL_MS)
+        }
+    }
+
+    internal fun checkSessionIfDue() {
         val checkedToken = synchronized(configManager) {
-            if (!isServiceRunning.get() || configManager.reverseConnectionCredentialType != SessionCredential.TYPE ||
+            if (!isServiceRunning.get() || !SessionCredential.isActive(configManager) ||
                 !DeviceCodeAuthClient.sessionCheckDue(configManager.sessionCheckedAt, System.currentTimeMillis())) return
             configManager.reverseConnectionToken
         }
@@ -217,7 +224,7 @@ class ReverseConnectionService : Service() {
         reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
         reverseDeviceEventRelay.start()
         createNotificationChannel()
-        handler.postDelayed(sessionCheck, SESSION_CHECK_INTERVAL_MS)
+        scheduleSessionCheck()
         Log.d(TAG, "Service Created")
     }
 
@@ -240,11 +247,6 @@ class ReverseConnectionService : Service() {
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
-        if (configManager.reverseConnectionCredentialType == SessionCredential.TYPE &&
-            !sessionConnectionAllowed(configManager.reverseConnectionUrlOrDefault, configManager.defaultReverseConnectionUrl)) {
-            clearSession(this, configManager.reverseConnectionToken)
-            return START_NOT_STICKY
-        }
         if (configManager.reverseConnectionCredentialType == SessionCredential.TYPE &&
             configManager.reverseConnectionToken.isBlank()) {
             stopSelf(startId)
@@ -440,6 +442,7 @@ class ReverseConnectionService : Service() {
                     )
                     retryController.onConnected()
                     checkSessionIfDue()
+                    scheduleSessionCheck()
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)

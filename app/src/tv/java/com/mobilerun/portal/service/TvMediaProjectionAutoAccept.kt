@@ -4,8 +4,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 /** Fire OS consent is a separate AlertDialog window; only its root identity/content is authoritative. */
 internal object TvMediaProjectionAutoAccept {
-    fun tryAccept(root: AccessibilityNodeInfo, appLabel: String, armed: Boolean): Boolean {
-        if (!armed || root.packageName?.toString() != MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE ||
+    fun tryAccept(root: AccessibilityNodeInfo, appLabel: String): Boolean {
+        if (root.packageName?.toString() != MediaProjectionAutoAccept.SYSTEM_UI_PACKAGE ||
             appLabel.isBlank()
         ) return false
         val positive = root.findAccessibilityNodeInfosByViewId("android:id/button1").orEmpty()
@@ -20,8 +20,7 @@ internal object TvMediaProjectionAutoAccept {
         }
     }
 
-    // Do not pass a rejected static Fire OS dialog to the permissive legacy text matcher.
-    // Retain the existing multi-step fallback for explicitly identified newer share-mode UIs.
+    // Only explicit share-mode widgets permit the multi-step fallback; static dialogs require app identity.
     fun hasShareModeUi(root: AccessibilityNodeInfo): Boolean {
         val nodes = listOf(MediaProjectionAutoAccept.DIALOG_VIEW_ID, MediaProjectionAutoAccept.SHARE_MODE_OPTIONS_VIEW_ID)
             .flatMap { root.findAccessibilityNodeInfosByViewId(it).orEmpty() }

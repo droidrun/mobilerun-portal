@@ -14,12 +14,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import com.mobilerun.portal.BuildConfig
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.URI
@@ -29,6 +23,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import org.json.JSONObject
 
 data class UpdateInfo(
     val latestVersion: String,
@@ -41,7 +41,7 @@ data class UpdateInfo(
 sealed class UpdateCheckResult {
     data class Available(val info: UpdateInfo) : UpdateCheckResult()
     object UpToDate : UpdateCheckResult()
-    data class Failed(val message: String) : UpdateCheckResult()
+    data class Failed(val message: String, val httpStatus: Int? = null) : UpdateCheckResult()
 }
 
 sealed class InstallResult {
@@ -129,7 +129,7 @@ object UpdateChecker {
                 response.use {
                     if (!response.isSuccessful) {
                         mainHandler.post {
-                            callback(UpdateCheckResult.Failed("Check failed: HTTP ${response.code}"))
+                            callback(UpdateCheckResult.Failed("Check failed: HTTP ${response.code}", response.code))
                         }
                         return
                     }

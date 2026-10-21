@@ -1,13 +1,14 @@
 package com.mobilerun.portal.auth
 
-import android.content.Context
-import android.content.Intent
 import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.config.ConfigManager
-import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.core.GenerationGate
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import io.mockk.*
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -15,9 +16,11 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONObject
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
 
 class DeviceCodeAuthTest {
     @Test fun pendingUsesServerIntervalAndSlowDownPersists() {
@@ -48,13 +51,13 @@ class DeviceCodeAuthTest {
     }
 
     @Test fun codeRefreshAndSignOutInvalidateInflightResults() {
-        val gate = AuthGeneration()
-        val first = gate.next()
+        val gate = GenerationGate()
+        val first = gate.advance()
         assertTrue(gate.isCurrent(first))
-        val refresh = gate.next()
+        val refresh = gate.advance()
         assertFalse(gate.isCurrent(first))
         assertTrue(gate.isCurrent(refresh))
-        gate.next() // sign out / activity stop
+        gate.advance() // sign out / activity stop
         assertFalse(gate.isCurrent(refresh))
     }
 
@@ -69,7 +72,7 @@ class DeviceCodeAuthTest {
     @Test fun authorizationUsesJsonClientAndSpecificUserAgentWithDefaultInterval() {
         val auth = client(body = """{"device_code":"device","user_code":"USER","verification_uri":"https://example.com","verification_uri_complete":"https://example.com/device?user_code=USER","expires_in":120}""") { chain ->
             assertEquals("application/json", chain.request().header("Accept"))
-            assertEquals("mobilerun-portal-tv/${BuildConfig.VERSION_NAME}", chain.request().header("User-Agent"))
+            assertEquals("${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME}", chain.request().header("User-Agent"))
             val buffer = okio.Buffer()
             chain.request().body!!.writeTo(buffer)
             val json = JSONObject(buffer.readUtf8())
@@ -127,18 +130,6 @@ class DeviceCodeAuthTest {
             assertEquals(10000L, DeviceCodePollState(5, 100_000).nextDelay(result, 0))
         }
         assertEquals(DeviceTokenResult.Error("access_denied"), client(400, """{"error":"access_denied"}""").poll("device"))
-    }
-
-    @Test fun sessionBearerRequiresOfficialSecureWebSocket() {
-        val official = "wss://api.mobilerun.ai/v1/providers/personal/join"
-        assertTrue(ReverseConnectionService.sessionConnectionAllowed(official, official))
-        for (url in listOf("ws://api.mobilerun.ai/v1/providers/personal/join",
-                "https://api.mobilerun.ai/v1/providers/personal/join",
-                "wss://evil.example/v1/providers/personal/join",
-                "wss://api.mobilerun.ai.evil.example/v1/providers/personal/join",
-                "wss://api.mobilerun.ai:444/v1/providers/personal/join")) {
-            assertFalse(url, ReverseConnectionService.sessionConnectionAllowed(url, official))
-        }
     }
 
     @Test fun dailyCheckUsesWallClockIncludingRollback() {

@@ -7,7 +7,9 @@
     <string name="tv_step_one">Scan the code with your phone</string>
     <string name="tv_step_two">Confirm and choose a workspace</string>
     <string name="tv_step_three">Control this TV from the Mobilerun cloud</string>
-    <string name="tv_one">1</string><string name="tv_two">2</string><string name="tv_three">3</string>
+    <string name="tv_one">1</string>
+    <string name="tv_two">2</string>
+    <string name="tv_three">3</string>
     <string name="tv_footer">PORTAL TV · v%1$s</string>
     <string name="tv_setup">SETUP</string>
     <string name="tv_scan">SCAN TO SIGN IN</string>
@@ -20,7 +22,8 @@
     <string name="tv_qr">Scan to sign in to Mobilerun</string>
     <string name="tv_updates">Check for updates</string>
     <string name="tv_sign_out">Sign out</string>
-    <string name="tv_ready">Ready</string><string name="tv_needed">Needed</string>
+    <string name="tv_ready">Ready</string>
+    <string name="tv_needed">Needed</string>
     <string name="tv_countdown">Expires in %1$d:%2$02d</string>
     <string name="tv_loading">Requesting sign-in code…</string>
     <string name="tv_retrying">Waiting for a connection. Retrying automatically…</string>
@@ -28,10 +31,14 @@
     <string name="tv_error">Could not sign in. Get a new code to try again.</string>
     <string name="tv_session_saved">Checking account…</string>
     <string name="tv_workspace_unknown">Workspace unavailable</string>
-    <string name="tv_workspace">WORKSPACE</string><string name="tv_device">DEVICE</string>
-    <string name="tv_connected">Connected</string><string name="tv_connecting">Connecting</string>
-    <string name="tv_signed_out">Signed out</string><string name="tv_disconnected">Disconnected</string>
-    <string name="tv_unauthorized">Sign-in required</string><string name="tv_limit">Connection limit reached</string>
+    <string name="tv_workspace">WORKSPACE</string>
+    <string name="tv_device">DEVICE</string>
+    <string name="tv_connected">Connected</string>
+    <string name="tv_connecting">Connecting</string>
+    <string name="tv_signed_out">Signed out</string>
+    <string name="tv_disconnected">Disconnected</string>
+    <string name="tv_unauthorized">Sign-in required</string>
+    <string name="tv_limit">Connection limit reached</string>
     <string name="tv_connection_error">Connection unavailable</string>
     <string name="tv_no_updates">Portal TV is up to date (v%1$s)</string>
     <string name="tv_install">Install update</string>
@@ -41,7 +48,7 @@
     <string name="tv_status_pill">● %1$s</string>
     <string name="tv_adb_hint">Adb help in Set up</string>
     <string name="tv_setup_help">Setup instructions</string>
-    <string name="tv_manual_sign_in">Open cloud.mobilerun.ai/device on your phone</string>
+    <string name="tv_manual_sign_in">Open %1$s on your phone</string>
     <string name="tv_home_instructions">Control this TV from cloud.mobilerun.ai</string>
     <string name="tv_update_checking">Checking…</string>
     <string name="tv_update_downloading">Downloading…</string>

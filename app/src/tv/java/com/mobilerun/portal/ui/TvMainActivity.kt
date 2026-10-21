@@ -1,13 +1,8 @@
 package com.mobilerun.portal.ui
 
 import android.content.ActivityNotFoundException
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -27,24 +22,24 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.R
-import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivityTvMainBinding
 import com.mobilerun.portal.service.MobilerunAccessibilityService
-import com.mobilerun.portal.service.TvAccessibilityEvents
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
-import com.mobilerun.portal.update.InstallResult
-import com.mobilerun.portal.update.UpdateInfo
-import com.mobilerun.portal.update.UpdateInstallReceiver
-import com.mobilerun.portal.update.UpdateCheckResult
-import com.mobilerun.portal.update.UpdateChecker
 
 /** Maps controller and permission/connection callbacks to TV views. */
 class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
+    private companion object {
+        const val QR_SIZE = 640
+        const val FOCUS_SCALE = 1.04f
+        const val FOCUS_DURATION_MS = 120L
+        const val COUNTDOWN_TICK_MS = 1_000L
+        const val EXPIRY_PROGRESS_MAX = 1_000
+    }
     private lateinit var binding: ActivityTvMainBinding
     private lateinit var controller: TvSignInController
     private val main = Handler(Looper.getMainLooper())
@@ -52,30 +47,20 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
     private var lifetimeMs = 1L
     private var signedIn = false
     private var displayedQr: String? = null
-    private var updateBusy = false
-    private var downloadingUpdate = false
-    private val clearUpdateMessage = Runnable { binding.message.visibility = View.GONE }
-    private val updateInstallReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT ||
-                (intent?.action == ApiHandler.ACTION_INSTALL_RESULT &&
-                    intent.getBooleanExtra(UpdateInstallReceiver.EXTRA_IS_PORTAL_UPDATE, false))
-            ) {
-                if (UpdateChecker.pendingInstallResult != null) consumeUpdateInstallResult()
-                else finishUpdateInstall(intent.getBooleanExtra(ApiHandler.EXTRA_INSTALL_SUCCESS, false))
-            }
-        }
-    }
+    private lateinit var updates: TvUpdateFlow
+    private var started = false
     private val tick = object : Runnable {
         override fun run() {
-            if (deadline > 0) {
-                val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)
-                val seconds = (remaining + 999) / 1000
-                binding.countdown.text = getString(R.string.tv_countdown, seconds / 60, seconds % 60)
-                binding.expiryProgress.progress = ((remaining * 1000) / lifetimeMs).toInt().coerceIn(0, 1000)
-                if (remaining == 0L) controller.refreshCode()
+            if (!started || signedIn || deadline <= 0) return
+            val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+            val seconds = (remaining + COUNTDOWN_TICK_MS - 1) / COUNTDOWN_TICK_MS
+            binding.countdown.text = getString(R.string.tv_countdown, seconds / 60, seconds % 60)
+            binding.expiryProgress.progress = ((remaining * EXPIRY_PROGRESS_MAX) / lifetimeMs).toInt().coerceIn(0, EXPIRY_PROGRESS_MAX)
+            if (remaining == 0L) {
+                controller.refreshCode()
+                return
             }
-            main.postDelayed(this, 1000)
+            main.postDelayed(this, COUNTDOWN_TICK_MS)
         }
     }
 
@@ -84,14 +69,11 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding = ActivityTvMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         controller = TvSignInController(this, this)
-        ContextCompat.registerReceiver(this, updateInstallReceiver, IntentFilter().apply {
-            addAction(ApiHandler.ACTION_INSTALL_RESULT)
-            addAction(UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT)
-        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        updates = TvUpdateFlow(this, binding, { reset -> updateFocus(reset) }, { it.showTvDialog() })
         binding.footer.text = getString(R.string.tv_footer, BuildConfig.VERSION_NAME)
         binding.deviceName.text = ConfigManager.getInstance(this).deviceName
         binding.homeDeviceName.text = binding.deviceName.text
-        TvAccessibilityEvents.connected.observe(this) { renderSetup() }
+        MobilerunAccessibilityService.isConnected.observe(this) { renderSetup() }
         binding.accessibility.setOnClickListener {
             openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, binding.accessibilityHint,
                 getString(R.string.tv_a11y_fallback, packageName, MobilerunAccessibilityService::class.java.name))
@@ -106,17 +88,10 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         }
         binding.newCode.setOnClickListener { controller.refreshCode() }
         binding.signOut.setOnClickListener { controller.signOut() }
-        binding.updates.setOnClickListener { checkUpdates() }
+        binding.updates.setOnClickListener { updates.checkUpdates() }
         listOf(binding.accessibility, binding.capture, binding.notifications, binding.newCode,
             binding.updates, binding.signOut).forEach { button ->
             configureFocus(button)
-        }
-        listOf(binding.step1, binding.step2, binding.step3).forEach {
-            it.background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(1.5f).toInt(), getColor(R.color.tv_on_primary))
-            }
         }
         ConnectionStateManager.connectionState.observe(this) {
             controller.start()
@@ -127,10 +102,10 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
 
     override fun onStart() {
         super.onStart()
+        started = true
         controller.setForeground(true)
         controller.start()
         renderSetup()
-        main.post(tick)
     }
 
     override fun onResume() {
@@ -138,18 +113,12 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         val deviceName = ConfigManager.getInstance(this).deviceName
         binding.deviceName.text = deviceName
         binding.homeDeviceName.text = deviceName
-        if (UpdateChecker.isUpdateInstallInProgress() && !downloadingUpdate) {
-            downloadingUpdate = true
-            setUpdateLoading(true, getString(R.string.tv_update_downloading))
-        } else if (!UpdateChecker.isUpdateInstallInProgress() && downloadingUpdate) {
-            downloadingUpdate = false
-            setUpdateLoading(false)
-        }
-        consumeUpdateInstallResult()
+        updates.onResume()
         renderSetup()
     }
 
     override fun onStop() {
+        started = false
         controller.setForeground(false)
         main.removeCallbacks(tick)
         super.onStop() // Approval polling intentionally continues while Settings is in front.
@@ -157,7 +126,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
 
     override fun onDestroy() {
         controller.close()
-        unregisterReceiver(updateInstallReceiver)
+        updates.close()
         main.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
@@ -174,7 +143,10 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         listOf(binding.homeInstructions, binding.homeDeviceName).forEach {
             it.visibility = if (signedIn) View.VISIBLE else View.GONE
         }
-        if (signedIn) deadline = 0
+        if (signedIn) {
+            deadline = 0
+            main.removeCallbacks(tick)
+        }
         if (changed) {
             binding.account.setText(R.string.tv_session_saved)
             binding.workspace.setText(R.string.tv_workspace_unknown)
@@ -190,27 +162,34 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
     }
 
     override fun onMessage(message: Int?) {
-        main.removeCallbacks(clearUpdateMessage)
+        updates.cancelMessageTimer()
         binding.message.visibility = if (message == null) View.GONE else View.VISIBLE
         if (message != null) binding.message.setText(message)
     }
 
-    override fun onCode(userCode: String, verificationUri: String?, deadline: Long, lifetimeMs: Long) {
+    override fun onCode(userCode: String, verificationUri: String, qrUri: String?, deadline: Long, lifetimeMs: Long) {
         this.deadline = deadline
         this.lifetimeMs = lifetimeMs.coerceAtLeast(1)
         val compact = userCode.filter(Char::isLetterOrDigit)
         binding.userCode.text = if (compact.length == 8) compact.chunked(4).joinToString("-") else userCode
         binding.countdown.visibility = if (deadline > 0) View.VISIBLE else View.INVISIBLE
-        if (verificationUri == null && userCode.isNotEmpty()) onMessage(R.string.tv_manual_sign_in)
-        if (verificationUri == null || verificationUri != displayedQr) {
-            displayedQr = verificationUri
+        main.removeCallbacks(tick)
+        if (deadline > 0 && started && !signedIn) main.post(tick)
+        if (qrUri == null && userCode.isNotEmpty()) {
+            updates.cancelMessageTimer()
+            binding.message.text = getString(R.string.tv_manual_sign_in, verificationUri)
+            binding.message.visibility = View.VISIBLE
+        }
+        if (qrUri == null || qrUri != displayedQr) {
+            displayedQr = qrUri
             binding.qr.setImageDrawable(null)
             // The controller validates too; keep the rendering boundary explicit.
-            if (verificationUri != null && DeviceCodeAuthClient.isSafeVerificationUri(verificationUri)) {
-                val matrix = MultiFormatWriter().encode(verificationUri, BarcodeFormat.QR_CODE, 640, 640)
+            if (qrUri != null && DeviceCodeAuthClient.isSafeVerificationUri(qrUri)) {
+                val matrix = MultiFormatWriter().encode(qrUri, BarcodeFormat.QR_CODE, QR_SIZE, QR_SIZE)
                 val ink = getColor(R.color.tv_foreground)
-                val pixels = IntArray(640 * 640) { i -> if (matrix[i % 640, i / 640]) ink else Color.WHITE }
-                binding.qr.setImageBitmap(Bitmap.createBitmap(pixels, 640, 640, Bitmap.Config.ARGB_8888))
+                val background = getColor(R.color.tv_card)
+                val pixels = IntArray(QR_SIZE * QR_SIZE) { i -> if (matrix[i % QR_SIZE, i / QR_SIZE]) ink else background }
+                binding.qr.setImageBitmap(Bitmap.createBitmap(pixels, QR_SIZE, QR_SIZE, Bitmap.Config.ARGB_8888))
             }
         }
     }
@@ -219,13 +198,10 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         fun row(status: TextView, button: Button, ready: Boolean) {
             status.setText(if (ready) R.string.tv_ready else R.string.tv_needed)
             status.setTextColor(getColor(if (ready) R.color.tv_primary else R.color.tv_foreground))
-            status.background = GradientDrawable().apply {
-                cornerRadius = dp(8f)
-                setColor(getColor(if (ready) R.color.tv_primary_tint else R.color.tv_muted_surface))
-            }
+            status.setBackgroundResource(if (ready) R.drawable.tv_chip_ready else R.drawable.tv_chip_needed)
             button.visibility = if (ready) View.GONE else View.VISIBLE
         }
-        row(binding.accessibilityStatus, binding.accessibility, TvAccessibilityEvents.connected.value == true)
+        row(binding.accessibilityStatus, binding.accessibility, MobilerunAccessibilityService.isConnected.value == true)
         row(binding.captureStatus, binding.capture, WebRtcManager.getExistingInstance()?.isCaptureActive() == true)
         row(binding.notificationStatus, binding.notifications,
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName))
@@ -248,7 +224,11 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             button.nextFocusUpId = needed.getOrNull(i - 1)?.id ?: primary.id
             button.nextFocusDownId = needed.getOrNull(i + 1)?.id ?: primary.id
         }
-        primary.nextFocusDownId = if (signedIn) binding.signOut.id else first.id
+        val enabledMain = mainButtons.filter { it.isEnabled }
+        enabledMain.forEachIndexed { index, button ->
+            button.nextFocusUpId = enabledMain.getOrNull(index - 1)?.id ?: needed.lastOrNull()?.id ?: button.id
+            button.nextFocusDownId = enabledMain.getOrNull(index + 1)?.id ?: first.id
+        }
         if (reset || currentFocus?.isShown != true) first.requestFocus()
     }
 
@@ -270,10 +250,6 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             setSpan(ForegroundColorSpan(getColor(dotColor)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         binding.homeStatus.setText(text)
-        binding.homeStatus.background = GradientDrawable().apply {
-            cornerRadius = dp(20f)
-            setColor(getColor(R.color.tv_primary_tint))
-        }
     }
 
     private fun openSettings(action: String, hint: TextView, fallback: String) {
@@ -298,8 +274,8 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         button.stateListAnimator = null
         button.elevation = 0f
         fun animateFocus(focused: Boolean) {
-            button.animate().scaleX(if (focused) 1.04f else 1f).scaleY(if (focused) 1.04f else 1f)
-                .translationZ(if (focused) dp(6f) else 0f).setDuration(120).start()
+            button.animate().scaleX(if (focused) FOCUS_SCALE else 1f).scaleY(if (focused) FOCUS_SCALE else 1f)
+                .translationZ(if (focused) resources.getDimension(R.dimen.tv_focus_elevation) else 0f).setDuration(FOCUS_DURATION_MS).start()
         }
         button.setOnFocusChangeListener { _, focused -> animateFocus(focused) }
         animateFocus(button.hasFocus())
@@ -310,88 +286,9 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             .mapNotNull(dialog::getButton).forEach { button ->
                 button.backgroundTintList = null
                 button.setBackgroundResource(R.drawable.tv_button)
-                button.setTextColor(androidx.core.content.ContextCompat.getColorStateList(
+                button.setTextColor(ContextCompat.getColorStateList(
                     this@TvMainActivity, R.color.tv_button_text))
                 configureFocus(button)
             }
-    }
-
-    private fun dp(value: Float) = value * resources.displayMetrics.density
-
-    private fun setUpdateLoading(loading: Boolean, label: String = getString(R.string.tv_update_checking)) {
-        val wasFocused = binding.updates.hasFocus()
-        updateBusy = loading
-        binding.updates.isEnabled = !loading
-        binding.updates.text = if (loading) label else getString(R.string.tv_updates)
-        binding.updates.setPaddingRelative(dp(if (loading) 50f else 18f).toInt(),
-            binding.updates.paddingTop, dp(18f).toInt(), binding.updates.paddingBottom)
-        binding.updateSpinner.visibility = if (loading) View.VISIBLE else View.GONE
-        updateFocus(reset = loading && wasFocused)
-    }
-
-    private fun showUpdateMessage(text: String, temporary: Boolean = true) {
-        main.removeCallbacks(clearUpdateMessage)
-        binding.message.text = text
-        binding.message.visibility = View.VISIBLE
-        if (temporary) main.postDelayed(clearUpdateMessage, 10_000)
-    }
-
-    private fun consumeUpdateInstallResult() {
-        val result = UpdateChecker.pendingInstallResult ?: return
-        UpdateChecker.pendingInstallResult = null
-        finishUpdateInstall(result is InstallResult.Done && result.success)
-    }
-
-    private fun finishUpdateInstall(success: Boolean) {
-        downloadingUpdate = false
-        setUpdateLoading(false)
-        showUpdateMessage(getString(if (success) R.string.tv_update_installed else R.string.tv_update_install_error))
-    }
-
-    private fun downloadUpdate(info: UpdateInfo) {
-        if (!packageManager.canRequestPackageInstalls()) {
-            UpdateChecker.openInstallPermissionSettings(this)
-            return
-        }
-        downloadingUpdate = true
-        setUpdateLoading(true, getString(R.string.tv_update_downloading))
-        showUpdateMessage(getString(R.string.tv_update_downloading), temporary = false)
-        UpdateChecker.downloadAndInstall(this, info,
-            { progress ->
-                if (!isFinishing && !isDestroyed) {
-                    showUpdateMessage(getString(R.string.tv_update_progress, progress), temporary = false)
-                }
-            },
-            {
-                if (!isFinishing && !isDestroyed) {
-                    downloadingUpdate = false
-                    setUpdateLoading(false)
-                    showUpdateMessage(getString(R.string.tv_update_install_error))
-                }
-            })
-    }
-
-    private fun checkUpdates() {
-        if (updateBusy) return
-        onMessage(null)
-        setUpdateLoading(true)
-        UpdateChecker.checkForUpdate(this) { result ->
-            if (isFinishing || isDestroyed) return@checkForUpdate
-            setUpdateLoading(false)
-            when (result) {
-                is UpdateCheckResult.Available -> {
-                    showUpdateMessage(getString(R.string.tv_update_available, result.info.latestVersion))
-                    AlertDialog.Builder(this)
-                        .setTitle(R.string.tv_install).setMessage(result.info.latestVersion)
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(R.string.tv_install) { _, _ -> downloadUpdate(result.info) }
-                        .showTvDialog()
-                }
-                is UpdateCheckResult.Failed -> showUpdateMessage(getString(
-                    if (result.message == "Check failed: HTTP 404") R.string.tv_update_unpublished
-                    else R.string.tv_update_check_error))
-                UpdateCheckResult.UpToDate -> showUpdateMessage(getString(R.string.tv_no_updates, BuildConfig.VERSION_NAME))
-            }
-        }
     }
 }

@@ -2,18 +2,19 @@ package com.mobilerun.portal.auth
 
 import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.config.ConfigManager
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Callback
-import okhttp3.Call
-import okhttp3.Response
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
-import org.json.JSONException
+import com.mobilerun.portal.taskprompt.CLOUD_ORIGIN
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
 
 /** Sensitive values intentionally have no generated toString(). */
 class DeviceAuthorization(
@@ -45,6 +46,11 @@ sealed interface WorkspaceResult {
 
 /** RFC 8628 timing policy, using a monotonic clock supplied by the caller. */
 internal class DeviceCodePollState(intervalSeconds: Long, private val expiresAt: Long) {
+    private companion object {
+        const val MAX_NETWORK_BACKOFF_MS = 60_000L
+        const val SLOW_DOWN_STEP_MS = 5_000L
+    }
+
     var intervalMs = intervalSeconds.coerceAtLeast(1) * 1000
         private set
     private var networkBackoffMs = intervalMs
@@ -53,23 +59,17 @@ internal class DeviceCodePollState(intervalSeconds: Long, private val expiresAt:
         if (expired(now)) return null
         return when (result) {
             DeviceTokenResult.NetworkError -> {
-                networkBackoffMs = (networkBackoffMs * 2).coerceAtMost(60_000)
+                networkBackoffMs = (networkBackoffMs * 2).coerceAtMost(MAX_NETWORK_BACKOFF_MS)
                 maxOf(intervalMs, networkBackoffMs)
             }
             is DeviceTokenResult.Error -> when (result.code) {
                 "authorization_pending" -> intervalMs
-                "slow_down" -> { intervalMs += 5000; intervalMs }
+                "slow_down" -> { intervalMs += SLOW_DOWN_STEP_MS; intervalMs }
                 else -> null
             }
             is DeviceTokenResult.Authorized -> null
         }
     }
-}
-
-internal class AuthGeneration {
-    private var generation = 0L
-    @Synchronized fun next(): Long = ++generation
-    @Synchronized fun isCurrent(value: Long): Boolean = value == generation
 }
 
 class DeviceCodeAuthClient(
@@ -82,11 +82,11 @@ class DeviceCodeAuthClient(
 ) {
     companion object {
         const val CLIENT_ID = "mobilerun-portal"
-        const val BASE_URL = "https://cloud.mobilerun.ai/api/auth/"
+        const val BASE_URL = "$CLOUD_ORIGIN/api/auth/"
         const val SESSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
         fun sessionCheckDue(lastSuccess: Long, now: Long) =
             lastSuccess <= 0 || now < lastSuccess || now - lastSuccess >= SESSION_CHECK_INTERVAL_MS
-        fun isSafeVerificationUri(uri: String) = uri.startsWith("https://cloud.mobilerun.ai/")
+        fun isSafeVerificationUri(uri: String) = uri.startsWith("$CLOUD_ORIGIN/")
     }
 
     private val revokeHttp = http.newBuilder().callTimeout(3, TimeUnit.SECONDS).build()
@@ -103,7 +103,7 @@ class DeviceCodeAuthClient(
 
     private fun request(path: String, token: String? = null, json: JSONObject? = null): Request {
         return Request.Builder().url(BASE_URL + path)
-            .header("User-Agent", "mobilerun-portal-tv/${BuildConfig.VERSION_NAME}")
+            .header("User-Agent", "${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME}")
             .header("Accept", "application/json")
             .apply {
                 if (token != null) header("Authorization", "Bearer $token")
@@ -174,6 +174,9 @@ class DeviceCodeAuthClient(
 /** Config-only compare-and-clear; service lifecycle belongs to the service layer. */
 object SessionCredential {
     const val TYPE = ConfigManager.CREDENTIAL_SESSION
+    fun isActive(config: ConfigManager): Boolean =
+        config.reverseConnectionCredentialType == TYPE && config.reverseConnectionToken.isNotBlank()
+
     fun clear(config: ConfigManager, expectedToken: String): Boolean = synchronized(config) {
         if (config.reverseConnectionCredentialType != TYPE || config.reverseConnectionToken != expectedToken) return false
         config.setReverseConnectionCredential("")
