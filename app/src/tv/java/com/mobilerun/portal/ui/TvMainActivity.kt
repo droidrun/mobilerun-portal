@@ -10,6 +10,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -24,6 +27,7 @@ import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivityTvMainBinding
 import com.mobilerun.portal.service.MobilerunAccessibilityService
+import com.mobilerun.portal.service.TvAccessibilityEvents
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
@@ -60,6 +64,8 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         controller = TvSignInController(this, this)
         binding.footer.text = getString(R.string.tv_footer, BuildConfig.VERSION_NAME)
         binding.deviceName.text = ConfigManager.getInstance(this).deviceName
+        binding.homeDeviceName.text = binding.deviceName.text
+        TvAccessibilityEvents.connected.observe(this) { renderSetup() }
         binding.accessibility.setOnClickListener {
             openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, binding.accessibilityHint,
                 getString(R.string.tv_a11y_fallback, packageName, MobilerunAccessibilityService::class.java.name))
@@ -127,6 +133,12 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
         binding.home.visibility = if (signedIn) View.VISIBLE else View.GONE
         binding.signIn.visibility = if (signedIn) View.GONE else View.VISIBLE
         binding.headline.setText(if (signedIn) R.string.tv_headline_home else R.string.tv_headline)
+        listOf(binding.stepRow1, binding.stepRow2, binding.stepRow3).forEach {
+            it.visibility = if (signedIn) View.GONE else View.VISIBLE
+        }
+        listOf(binding.homeInstructions, binding.homeDeviceName).forEach {
+            it.visibility = if (signedIn) View.VISIBLE else View.GONE
+        }
         if (signedIn) deadline = 0
         if (changed) {
             binding.account.setText(R.string.tv_session_saved)
@@ -177,7 +189,7 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             }
             button.visibility = if (ready) View.GONE else View.VISIBLE
         }
-        row(binding.accessibilityStatus, binding.accessibility, MobilerunAccessibilityService.getInstance() != null)
+        row(binding.accessibilityStatus, binding.accessibility, TvAccessibilityEvents.connected.value == true)
         row(binding.captureStatus, binding.capture, WebRtcManager.getExistingInstance()?.isCaptureActive() == true)
         row(binding.notificationStatus, binding.notifications,
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName))
@@ -211,7 +223,14 @@ class TvMainActivity : AppCompatActivity(), TvSignInController.Listener {
             ConnectionState.LIMIT_EXCEEDED -> R.string.tv_limit
             ConnectionState.BAD_REQUEST, ConnectionState.ERROR -> R.string.tv_connection_error
         }
-        binding.connectionStatus.text = getString(R.string.tv_status_pill, getString(text))
+        val dotColor = when (text) {
+            R.string.tv_connected -> R.color.tv_connected_dot
+            R.string.tv_connecting -> R.color.tv_connecting_dot
+            else -> R.color.tv_muted_foreground
+        }
+        binding.connectionStatus.text = SpannableString(getString(R.string.tv_status_pill, getString(text))).apply {
+            setSpan(ForegroundColorSpan(getColor(dotColor)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
         binding.homeStatus.setText(text)
         binding.homeStatus.background = GradientDrawable().apply {
             cornerRadius = dp(20f)
