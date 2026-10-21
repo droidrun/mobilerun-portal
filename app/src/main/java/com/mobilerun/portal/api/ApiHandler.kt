@@ -45,6 +45,7 @@ import java.net.URL
 import androidx.core.net.toUri
 import com.mobilerun.portal.service.ScreenCaptureService
 import com.mobilerun.portal.service.CaptureSizing
+import com.mobilerun.portal.streaming.TvStreamPolicy
 import com.mobilerun.portal.streaming.WebRtcManager
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
@@ -131,6 +132,12 @@ class ApiHandler(
      * and falls through to the legacy explicit/auto behavior.
      */
     private fun selectCaptureSize(params: JSONObject): CaptureSizeSelection {
+        if (TvStreamPolicy.enabled) {
+            val sizeFields = listOf("width", "height", "maxWidth", "maxHeight").joinToString(" ") {
+                "$it=${if (params.has(it)) params.optInt(it, 0).toString() else "absent"}"
+            }
+            TvStreamPolicy.log(params.optString("sessionId"), "request $sizeFields")
+        }
         val maxWidth = params.optInt("maxWidth", 0)
         val maxHeight = params.optInt("maxHeight", 0)
         if (maxWidth > 0 && maxHeight > 0) {

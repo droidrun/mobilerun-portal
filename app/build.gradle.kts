@@ -44,6 +44,18 @@ android {
         create("tv") {
             dimension = "form"
             applicationId = "com.mobilerun.portal.tv"
+            // 720x406 aspect-fits a 16:9 display to the existing even 720x404 result.
+            val captureBox = (project.findProperty("tvCaptureBox") as String?) ?: "720x406"
+            val dimensions = Regex("([0-9]+)x([0-9]+)").matchEntire(captureBox)
+                ?: error("tvCaptureBox must be WIDTHxHEIGHT")
+            val (boxWidth, boxHeight) = dimensions.destructured
+            require(boxWidth.toInt() in 144..1920 && boxHeight.toInt() in 256..3840 &&
+                boxWidth.toInt() >= boxHeight.toInt() &&
+                boxWidth.toInt() % 2 == 0 && boxHeight.toInt() % 2 == 0) {
+                "tvCaptureBox must be an even landscape box within capture bounds"
+            }
+            buildConfigField("int", "TV_CAPTURE_BOX_WIDTH", boxWidth.toInt().toString())
+            buildConfigField("int", "TV_CAPTURE_BOX_HEIGHT", boxHeight.toInt().toString())
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             configureUpdateFeed(
                 "tvUpdateFeedUrl",
