@@ -1485,7 +1485,7 @@ class WebRtcManager private constructor(private val context: Context) {
             val channel = connection.createDataChannel("control", dcInit)
                 ?: throw IllegalStateException("Failed to create secondary control channel")
             dataChannel = channel
-            val controlHandler = ScrcpyControlChannel()
+            val controlHandler = ScrcpyControlChannel(context)
             channel.registerObserver(
                 LoggingDataChannelObserver(
                     channel = channel,
@@ -2827,7 +2827,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         val newControlChannel = newPeerConnection.createDataChannel("control", dcInit)
         val newScrcpyControlHandler = newControlChannel?.let { dc ->
-            val handler = ScrcpyControlChannel()
+            val handler = ScrcpyControlChannel(context)
             dc.registerObserver(
                 LoggingDataChannelObserver(
                     channel = dc,

@@ -22,6 +22,7 @@ import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.input.TextInputResult
 import com.mobilerun.portal.core.JsonBuilders
 import com.mobilerun.portal.core.StateRepository
+import com.mobilerun.portal.service.DpadController
 import com.mobilerun.portal.service.GestureController
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import org.json.JSONArray
@@ -549,7 +550,7 @@ class ApiHandler(
             return if (stateRepo.inputText("\n", clear = false))
                 ApiResponse.Success("Newline inserted via Accessibility")
             else {
-                val result = com.mobilerun.portal.service.DpadController.activate()
+                val result = DpadController.activate()
                 if (result.success) ApiResponse.Success(result.message)
                 else ApiResponse.Success("Enter handled (no focused element)")
             }
@@ -612,7 +613,7 @@ class ApiHandler(
                 ApiResponse.Error("Failed to insert character")
         }
 
-        val result = com.mobilerun.portal.service.DpadController.handleKey(applicationContext, keyCode)
+        val result = DpadController.handleKey(applicationContext, keyCode)
             ?: return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
         return if (result.success) ApiResponse.Success(result.message) else ApiResponse.Error(result.message)
     }
