@@ -5,13 +5,14 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import com.mobilerun.portal.streaming.TvStreamPolicy
 
 /**
  * Derives an aspect-correct capture size when a stream request omits both
  * dimensions.
  *
- * The legacy 720x1280 size remains the bounding box and fallback. Explicit
- * stream dimensions do not pass through this helper.
+ * Phones retain the legacy 720x1280 box and fallback; TV auto sizing uses
+ * its flavor box. Explicit stream dimensions do not pass through this helper.
  */
 internal object CaptureSizing {
     private const val TAG = "CaptureSizing"
@@ -79,16 +80,18 @@ internal object CaptureSizing {
     fun deriveAutoCaptureSize(
         screenWidth: Int,
         screenHeight: Int,
+        box: Pair<Int, Int> = legacyCaptureSize,
     ): Pair<Int, Int> =
-        fitCaptureSizeToScreen(screenWidth, screenHeight) ?: legacyCaptureSize
+        fitCaptureSizeToScreen(screenWidth, screenHeight, box.first, box.second) ?: box
 
     /**
-     * Resolves the current screen size, falling back atomically to the legacy
-     * capture size if display lookup or aspect fitting fails.
+     * Resolves the current screen size, falling back atomically to the flavor's
+     * auto box if display lookup or aspect fitting fails.
      */
     fun deriveAutoCaptureSize(context: Context): Pair<Int, Int> {
-        val screenSize = readDisplaySize(context) ?: return legacyCaptureSize
-        return deriveAutoCaptureSize(screenSize.first, screenSize.second)
+        val box = TvStreamPolicy.autoCaptureBox ?: legacyCaptureSize
+        val screenSize = readDisplaySize(context) ?: return box
+        return deriveAutoCaptureSize(screenSize.first, screenSize.second, box)
     }
 
     /**

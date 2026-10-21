@@ -35,12 +35,19 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Before
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ApiHandlerTest {
+    @Before
+    fun mockTvDiagnosticsLog() {
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.i("TvStreamDiag", any()) } returns 0
+    }
+
     @After
     fun tearDown() {
         unmockkAll()
@@ -1204,12 +1211,15 @@ class ApiHandlerTest {
         every { context.applicationContext } returns context
         val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
         val manager = mockk<WebRtcManager>(relaxed = true)
+        // With no display service, auto capture falls back to the flavor's box.
+        val (expectedWidth, expectedHeight) =
+            com.mobilerun.portal.streaming.TvStreamPolicy.autoCaptureBox ?: (720 to 1280)
 
         mockkObject(WebRtcManager.Companion)
         every { WebRtcManager.getInstance(context) } returns manager
         every { manager.isCaptureActive() } returns true
         every {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+            manager.startStreamWithExistingCapture(expectedWidth, expectedHeight, 30, "session-1", true)
         } just Runs
 
         val response =
@@ -1225,7 +1235,7 @@ class ApiHandlerTest {
         assertEquals(0, result.getJSONObject("rtcConfiguration").getJSONArray("iceServers").length())
         verify(exactly = 1) { manager.setStreamRequestId("session-1") }
         verify(exactly = 1) {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+            manager.startStreamWithExistingCapture(expectedWidth, expectedHeight, 30, "session-1", true)
         }
     }
 
