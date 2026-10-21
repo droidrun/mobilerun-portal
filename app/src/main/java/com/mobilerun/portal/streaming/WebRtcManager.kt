@@ -119,10 +119,10 @@ class WebRtcManager private constructor(private val context: Context) {
         internal fun isStreamSessionLimitReached(
             hasPrimary: Boolean,
             secondarySessionCount: Int,
-            replacesExistingSecondary: Boolean,
+            replacesExistingSession: Boolean,
             sessionLimit: Int,
         ): Boolean {
-            if (replacesExistingSecondary) return false
+            if (replacesExistingSession) return false
             val activeCount = (if (hasPrimary) 1 else 0) + secondarySessionCount
             return activeCount >= sessionLimit
         }
@@ -940,19 +940,7 @@ class WebRtcManager private constructor(private val context: Context) {
             "Starting WebRTC Stream: session=$sessionId ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
         )
         val effectiveIceServers = iceServers ?: consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -1094,19 +1082,7 @@ class WebRtcManager private constructor(private val context: Context) {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
         cancelIdleStop()
         val effectiveIceServers = consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -1203,6 +1179,37 @@ class WebRtcManager private constructor(private val context: Context) {
         flushPendingPrimarySignaling(sessionId)
     }
 
+    // A new primary (fresh or stale takeover) must fit under the limit next to the existing secondaries.
+    // Secondaries are only counted here; a FAILED one may still be in its ICE restart.
+    private fun admitIncomingSession(sessionId: String): Pair<IncomingSessionRoute, String?> {
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
+        synchronized(streamLock) {
+            val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+            if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
+                return resolvedRoute to null
+            }
+            if (
+                isStreamSessionLimitReached(
+                    hasPrimary = false,
+                    secondarySessionCount = secondarySessions.size,
+                    replacesExistingSession =
+                        primarySessionId == sessionId || secondarySessions.containsKey(sessionId),
+                    sessionLimit = sessionLimit,
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys})",
+                )
+                throw IllegalStateException("max_concurrent_stream_sessions_reached")
+            }
+            if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
+                return IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
+            }
+            return resolvedRoute to null
+        }
+    }
+
     private fun startSecondaryStreamWithExistingCapture(
         sessionId: String,
         width: Int,
@@ -1223,7 +1230,7 @@ class WebRtcManager private constructor(private val context: Context) {
                     isStreamSessionLimitReached(
                         hasPrimary = hasPrimary,
                         secondarySessionCount = secondarySessions.size,
-                        replacesExistingSecondary = existing != null,
+                        replacesExistingSession = existing != null,
                         sessionLimit = sessionLimit,
                     )
                 ) {

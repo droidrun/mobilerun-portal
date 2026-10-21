@@ -24,12 +24,19 @@ class WebRtcManagerStreamSessionLimitTest {
     }
 
     @Test
-    fun isStreamSessionLimitReached_neverRejectsAReplacedSecondary() {
+    fun isStreamSessionLimitReached_newPrimaryCountsTheRemainingSecondaries() {
+        assertTrue(limitReached(hasPrimary = false, secondaries = 2, limit = 1))
+        assertTrue(limitReached(hasPrimary = false, secondaries = 3, limit = 3))
+        assertFalse(limitReached(hasPrimary = false, secondaries = 2, limit = 3))
+    }
+
+    @Test
+    fun isStreamSessionLimitReached_neverRejectsAReplacedSession() {
         assertFalse(
             WebRtcManager.isStreamSessionLimitReached(
                 hasPrimary = true,
                 secondarySessionCount = 4,
-                replacesExistingSecondary = true,
+                replacesExistingSession = true,
                 sessionLimit = 1,
             ),
         )
@@ -39,7 +46,7 @@ class WebRtcManagerStreamSessionLimitTest {
         WebRtcManager.isStreamSessionLimitReached(
             hasPrimary = hasPrimary,
             secondarySessionCount = secondaries,
-            replacesExistingSecondary = false,
+            replacesExistingSession = false,
             sessionLimit = limit,
         )
 }
