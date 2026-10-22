@@ -3,6 +3,7 @@ package com.mobilerun.portal.service
 import android.os.Build
 import android.os.Environment
 import android.util.Log
+import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.model.FileInfo
 import com.mobilerun.portal.model.FileListResponse
 import com.mobilerun.portal.model.FilePermissions
@@ -55,7 +56,7 @@ class FileOperations(
             if (!Environment.isExternalStorageManager()) {
                 return SecurityException(
                     "MANAGE_EXTERNAL_STORAGE not granted. " +
-                        "Grant it via: adb shell appops set com.mobilerun.portal MANAGE_EXTERNAL_STORAGE allow"
+                        "Grant it via: adb shell appops set ${BuildConfig.APPLICATION_ID} MANAGE_EXTERNAL_STORAGE allow"
                 )
             }
             return null

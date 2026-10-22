@@ -5,13 +5,14 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import com.mobilerun.portal.streaming.TvStreamPolicy
 
 /**
  * Derives an aspect-correct capture size when a stream request omits both
  * dimensions.
  *
- * The legacy 720x1280 size remains the bounding box and fallback. Explicit
- * stream dimensions do not pass through this helper.
+ * Phones retain the legacy 720x1280 box and fallback; TV auto sizing uses
+ * its flavor box. Explicit stream dimensions do not pass through this helper.
  */
 internal object CaptureSizing {
     private const val TAG = "CaptureSizing"
@@ -79,16 +80,18 @@ internal object CaptureSizing {
     fun deriveAutoCaptureSize(
         screenWidth: Int,
         screenHeight: Int,
+        box: Pair<Int, Int> = legacyCaptureSize,
     ): Pair<Int, Int> =
-        fitCaptureSizeToScreen(screenWidth, screenHeight) ?: legacyCaptureSize
+        fitCaptureSizeToScreen(screenWidth, screenHeight, box.first, box.second) ?: box
 
     /**
-     * Resolves the current screen size, falling back atomically to the legacy
-     * capture size if display lookup or aspect fitting fails.
+     * Resolves the current screen size, falling back atomically to the flavor's
+     * auto box if display lookup or aspect fitting fails.
      */
     fun deriveAutoCaptureSize(context: Context): Pair<Int, Int> {
-        val screenSize = readDisplaySize(context) ?: return legacyCaptureSize
-        return deriveAutoCaptureSize(screenSize.first, screenSize.second)
+        val box = TvStreamPolicy.autoCaptureBox ?: legacyCaptureSize
+        val screenSize = readDisplaySize(context) ?: return box
+        return deriveAutoCaptureSize(screenSize.first, screenSize.second, box)
     }
 
     /**
@@ -106,8 +109,36 @@ internal object CaptureSizing {
         maxHeight: Int,
     ): Pair<Int, Int> {
         val screenSize = readDisplaySize(context) ?: return deriveAutoCaptureSize(context)
-        return fitCaptureSizeToScreen(screenSize.first, screenSize.second, maxWidth, maxHeight)
-            ?: deriveAutoCaptureSize(context)
+        val tvBox = TvStreamPolicy.autoCaptureBox
+        if (tvBox == null) {
+            return fitCaptureSizeToScreen(screenSize.first, screenSize.second, maxWidth, maxHeight)
+                ?: deriveAutoCaptureSize(context)
+        }
+        val result = deriveCapCaptureSize(screenSize.first, screenSize.second, maxWidth, maxHeight, tvBox)
+        if (tvBox != null) {
+            val swapped = screenSize.first > screenSize.second && maxWidth < maxHeight
+            TvStreamPolicy.log(null, "request maxWidth=$maxWidth maxHeight=$maxHeight capsSwapped=$swapped effective=${result.first}x${result.second}")
+        }
+        return result
+    }
+
+    /** TV treats caps as orientation-agnostic, then intersects them with its build-time upper bound. */
+    internal fun deriveCapCaptureSize(
+        screenWidth: Int,
+        screenHeight: Int,
+        maxWidth: Int,
+        maxHeight: Int,
+        tvBox: Pair<Int, Int>? = null,
+    ): Pair<Int, Int> {
+        val swapped = tvBox != null && screenWidth > screenHeight && maxWidth < maxHeight
+        val capWidth = if (swapped) maxHeight else maxWidth
+        val capHeight = if (swapped) maxWidth else maxHeight
+        // The TV upper bound follows screen orientation too, preserving portrait cap behavior.
+        val orientedTvBox = if (tvBox != null && screenWidth < screenHeight && tvBox.first > tvBox.second) tvBox.second to tvBox.first else tvBox
+        val boxWidth = orientedTvBox?.let { minOf(capWidth, it.first) } ?: capWidth
+        val boxHeight = orientedTvBox?.let { minOf(capHeight, it.second) } ?: capHeight
+        return fitCaptureSizeToScreen(screenWidth, screenHeight, boxWidth, boxHeight)
+            ?: deriveAutoCaptureSize(screenWidth, screenHeight, orientedTvBox ?: legacyCaptureSize)
     }
 
     fun readDisplaySize(context: Context): Pair<Int, Int>? {

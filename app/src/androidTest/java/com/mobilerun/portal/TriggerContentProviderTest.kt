@@ -31,11 +31,11 @@ class TriggerContentProviderTest {
 
     @Test
     fun catalog_and_status_queries_work_without_accessibility_service() {
-        val catalog = queryJson("content://com.mobilerun.portal/triggers/catalog")
+        val catalog = queryJson(triggerUri("catalog"))
         assertEquals("success", catalog.getString("status"))
         assertTrue(catalog.getJSONObject("result").getJSONArray("eventTypes").length() > 0)
 
-        val status = queryJson("content://com.mobilerun.portal/triggers/status")
+        val status = queryJson(triggerUri("status"))
         assertEquals("success", status.getString("status"))
         assertTrue(status.getJSONObject("result").has("accessibilityServiceConnected"))
         assertTrue(status.getJSONObject("result").has("schemaVersion"))
@@ -45,22 +45,22 @@ class TriggerContentProviderTest {
     fun rule_mutations_round_trip_through_provider() {
         val ruleId = "provider-rule"
         val saveResult = insert(
-            "content://com.mobilerun.portal/triggers/rules/save",
+            triggerUri("rules/save"),
             ContentValues().apply {
                 put("rule_json_base64", encodeRuleJson(ruleId, "Provider Rule"))
             },
         )
         assertEquals("success", saveResult.getQueryParameter("status"))
 
-        val rules = queryJson("content://com.mobilerun.portal/triggers/rules").getJSONArray("result")
+        val rules = queryJson(triggerUri("rules")).getJSONArray("result")
         assertTrue(rules.length() >= 1)
 
-        val fetched = queryJson("content://com.mobilerun.portal/triggers/rules/$ruleId")
+        val fetched = queryJson(triggerUri("rules/$ruleId"))
             .getJSONObject("result")
         assertEquals(ruleId, fetched.getString("id"))
 
         val toggleResult = insert(
-            "content://com.mobilerun.portal/triggers/rules/set_enabled",
+            triggerUri("rules/set_enabled"),
             ContentValues().apply {
                 put("rule_id", ruleId)
                 put("enabled", false)
@@ -68,18 +68,18 @@ class TriggerContentProviderTest {
         )
         assertEquals("success", toggleResult.getQueryParameter("status"))
 
-        val updated = queryJson("content://com.mobilerun.portal/triggers/rules/$ruleId")
+        val updated = queryJson(triggerUri("rules/$ruleId"))
             .getJSONObject("result")
         assertEquals(false, updated.getBoolean("enabled"))
 
         val testResult = insert(
-            "content://com.mobilerun.portal/triggers/rules/test",
+            triggerUri("rules/test"),
             ContentValues().apply { put("rule_id", ruleId) },
         )
         assertEquals("success", testResult.getQueryParameter("status"))
 
         val deleteResult = insert(
-            "content://com.mobilerun.portal/triggers/rules/delete",
+            triggerUri("rules/delete"),
             ContentValues().apply { put("rule_id", ruleId) },
         )
         assertEquals("success", deleteResult.getQueryParameter("status"))
@@ -89,36 +89,36 @@ class TriggerContentProviderTest {
     fun runs_delete_and_clear_work_through_provider() {
         val ruleId = "run-rule"
         insert(
-            "content://com.mobilerun.portal/triggers/rules/save",
+            triggerUri("rules/save"),
             ContentValues().apply {
                 put("rule_json_base64", encodeRuleJson(ruleId, "Run Rule"))
             },
         )
         insert(
-            "content://com.mobilerun.portal/triggers/rules/test",
+            triggerUri("rules/test"),
             ContentValues().apply { put("rule_id", ruleId) },
         )
 
         Thread.sleep(250)
 
-        val runs = queryJson("content://com.mobilerun.portal/triggers/runs?limit=10")
+        val runs = queryJson(triggerUri("runs?limit=10"))
             .getJSONArray("result")
         assertTrue(runs.length() >= 1)
         val runId = runs.getJSONObject(0).getString("id")
 
         val deleteRunResult = insert(
-            "content://com.mobilerun.portal/triggers/runs/delete",
+            triggerUri("runs/delete"),
             ContentValues().apply { put("run_id", runId) },
         )
         assertEquals("success", deleteRunResult.getQueryParameter("status"))
 
         val clearRunsResult = insert(
-            "content://com.mobilerun.portal/triggers/runs/clear",
+            triggerUri("runs/clear"),
             ContentValues(),
         )
         assertEquals("success", clearRunsResult.getQueryParameter("status"))
 
-        val remainingRuns = queryJson("content://com.mobilerun.portal/triggers/runs?limit=10")
+        val remainingRuns = queryJson(triggerUri("runs?limit=10"))
             .getJSONArray("result")
         assertEquals(0, remainingRuns.length())
     }
@@ -129,6 +129,8 @@ class TriggerContentProviderTest {
             .clear()
             .commit()
     }
+
+    private fun triggerUri(path: String): String = "content://${context.packageName}/triggers/$path"
 
     private fun queryJson(rawUri: String): JSONObject {
         val cursor = context.contentResolver.query(Uri.parse(rawUri), null, null, null, null)

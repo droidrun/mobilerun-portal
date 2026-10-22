@@ -1,3 +1,5 @@
+import com.android.build.api.dsl.ApplicationProductFlavor
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -16,15 +18,54 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         setProperty("archivesBaseName", "$applicationId-$versionName")
+    }
 
-        val updateFeedUrl =
-            (project.findProperty("updateFeedUrl") as String?)
-                ?: "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json"
-        buildConfigField(
-            "String",
-            "UPDATE_FEED_URL",
-            "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
-        )
+    flavorDimensions += "form"
+    productFlavors {
+        fun ApplicationProductFlavor.configureUpdateFeed(propertyName: String, defaultUrl: String) {
+            val updateFeedUrl =
+                (project.findProperty(propertyName) as String?)
+                    ?: defaultUrl
+            buildConfigField(
+                "String",
+                "UPDATE_FEED_URL",
+                "\"${updateFeedUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+            )
+        }
+
+        create("phone") {
+            dimension = "form"
+            isDefault = true
+            configureUpdateFeed(
+                "updateFeedUrl",
+                "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest.json",
+            )
+        }
+        create("tv") {
+            dimension = "form"
+            applicationId = "com.mobilerun.portal.tv"
+            val captureBox = project.findProperty("tvCaptureBox") as String?
+            val dimensions = captureBox?.let {
+                Regex("([0-9]+)x([0-9]+)").matchEntire(it)
+                    ?: error("tvCaptureBox must be WIDTHxHEIGHT")
+            }
+            val boxWidth = dimensions?.groupValues?.get(1)?.toInt() ?: 0
+            val boxHeight = dimensions?.groupValues?.get(2)?.toInt() ?: 0
+            if (dimensions != null) {
+                require(boxWidth in 144..1920 && boxHeight in 256..3840 &&
+                    boxWidth >= boxHeight && boxWidth % 2 == 0 && boxHeight % 2 == 0) {
+                    "tvCaptureBox must be an even landscape box within capture bounds"
+                }
+            }
+            // Zero means no extra bound: the TV encoder's capabilities choose the box.
+            buildConfigField("int", "TV_CAPTURE_BOX_WIDTH", boxWidth.toString())
+            buildConfigField("int", "TV_CAPTURE_BOX_HEIGHT", boxHeight.toString())
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+            configureUpdateFeed(
+                "tvUpdateFeedUrl",
+                "https://github.com/droidrun/mobilerun-portal/releases/latest/download/latest-tv.json",
+            )
+        }
     }
 
     buildFeatures {
@@ -70,6 +111,7 @@ dependencies {
     implementation(libs.java.websocket)
     implementation(libs.webrtc)
     implementation(libs.okhttp)
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.mockk)

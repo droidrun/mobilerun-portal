@@ -1,0 +1,4 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/tv_card" />
+    <item android:color="@color/tv_foreground" />
+</selector>

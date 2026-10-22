@@ -185,6 +185,44 @@ class CaptureSizingTest {
         )
     }
 
+    @Test
+    fun tvAutoBoxUsesAspectFitAndEvenRounding() {
+        assertEquals(720 to 404, CaptureSizing.deriveAutoCaptureSize(1920, 1080, 720 to 406))
+        assertEquals(718 to 404, CaptureSizing.deriveAutoCaptureSize(1920, 1080, 720 to 404))
+        assertEquals(960 to 540, CaptureSizing.deriveAutoCaptureSize(1920, 1080, 960 to 540))
+        assertEquals(1280 to 720, CaptureSizing.deriveAutoCaptureSize(1920, 1080, 1280 to 720))
+        assertEquals(720 to 720, CaptureSizing.deriveAutoCaptureSize(1000, 1000, 1280 to 720))
+        assertEquals(1280 to 720, CaptureSizing.deriveAutoCaptureSize(0, 0, 1280 to 720))
+        // Explicit max caps still pass directly to the existing box fitter.
+        assertEquals(600 to 336, CaptureSizing.fitCaptureSizeToScreen(1920, 1080, 600, 800))
+    }
+
+    @Test
+    fun displayLookupFallbackUsesOnlyTheFlavorAutoBox() {
+        io.mockk.mockkStatic(android.util.Log::class)
+        io.mockk.every { android.util.Log.i("TvStreamDiag", any()) } returns 0
+        io.mockk.every { android.util.Log.w("TvStreamDiag", any<String>()) } returns 0
+        try {
+            val context = io.mockk.mockk<android.content.Context>()
+            io.mockk.every { context.getSystemService(android.content.Context.WINDOW_SERVICE) } returns null
+            val expected = com.mobilerun.portal.streaming.TvStreamPolicy.autoCaptureBox ?: (720 to 1280)
+            assertEquals(expected, CaptureSizing.deriveAutoCaptureSize(context))
+        } finally {
+            io.mockk.unmockkStatic(android.util.Log::class)
+        }
+    }
+
+    @Test
+    fun tvCapsFollowScreenOrientationAndBuildTimeBound() {
+        assertEquals(1280 to 720, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280, 1280 to 720))
+        assertEquals(720 to 1280, CaptureSizing.deriveCapCaptureSize(1080, 1920, 720, 1280, 1280 to 720))
+        assertEquals(960 to 540, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280, 960 to 540))
+        assertEquals(640 to 360, CaptureSizing.deriveCapCaptureSize(1920, 1080, 640, 360, 1280 to 720))
+        assertEquals(720 to 404, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280)) // Phone unchanged.
+        assertEquals(720 to 404, CaptureSizing.deriveCapCaptureSize(1920, 1080, 720, 1280, 720 to 1280)) // Legacy capability fallback.
+        assertEquals(720 to 1280, CaptureSizing.deriveCapCaptureSize(1080, 1920, 720, 1280, 720 to 1280))
+    }
+
     private data class SizingCase(
         val name: String,
         val screenWidth: Int,

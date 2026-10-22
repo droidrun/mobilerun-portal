@@ -22,6 +22,7 @@ import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.input.TextInputResult
 import com.mobilerun.portal.core.JsonBuilders
 import com.mobilerun.portal.core.StateRepository
+import com.mobilerun.portal.service.DpadController
 import com.mobilerun.portal.service.GestureController
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import org.json.JSONArray
@@ -44,6 +45,7 @@ import java.net.URL
 import androidx.core.net.toUri
 import com.mobilerun.portal.service.ScreenCaptureService
 import com.mobilerun.portal.service.CaptureSizing
+import com.mobilerun.portal.streaming.TvStreamPolicy
 import com.mobilerun.portal.streaming.WebRtcManager
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
@@ -130,6 +132,12 @@ class ApiHandler(
      * and falls through to the legacy explicit/auto behavior.
      */
     private fun selectCaptureSize(params: JSONObject): CaptureSizeSelection {
+        if (TvStreamPolicy.enabled) {
+            val sizeFields = listOf("width", "height", "maxWidth", "maxHeight").joinToString(" ") {
+                "$it=${if (params.has(it)) params.optInt(it, 0).toString() else "absent"}"
+            }
+            TvStreamPolicy.log(params.optString("sessionId"), "request $sizeFields")
+        }
         val maxWidth = params.optInt("maxWidth", 0)
         val maxHeight = params.optInt("maxHeight", 0)
         if (maxWidth > 0 && maxHeight > 0) {
@@ -548,8 +556,11 @@ class ApiHandler(
             // Fallback: some multiline fields accept newline via ACTION_SET_TEXT
             return if (stateRepo.inputText("\n", clear = false))
                 ApiResponse.Success("Newline inserted via Accessibility")
-            else
-                ApiResponse.Success("Enter handled (no focused element)")
+            else {
+                val result = DpadController.activate()
+                if (result.success) ApiResponse.Success(result.message)
+                else ApiResponse.Success("Enter handled (no focused element)")
+            }
         }
 
         // DEL key: prefer IME direct dispatch, then fall back to accessibility
@@ -609,7 +620,9 @@ class ApiHandler(
                 ApiResponse.Error("Failed to insert character")
         }
 
-        return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
+        val result = DpadController.handleKey(applicationContext, keyCode)
+            ?: return ApiResponse.Error(DpadController.UNSUPPORTED_KEY_MESSAGE.format(Locale.ROOT, keyCode))
+        return if (result.success) ApiResponse.Success(result.message) else ApiResponse.Error(result.message)
     }
 
     // Overlay
@@ -1656,7 +1669,7 @@ class ApiHandler(
             // bring the app to the foreground
             Log.i(TAG, "Bringing app to foreground for install prompt...")
             val foregroundIntent =
-                Intent(context, com.mobilerun.portal.ui.MainActivity::class.java).apply {
+                com.mobilerun.portal.ui.PortalEntry.mainIntent(context).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }

@@ -2,12 +2,14 @@ package com.mobilerun.portal.taskprompt
 
 import java.net.URLEncoder
 
+const val CLOUD_ORIGIN = "https://cloud.mobilerun.ai"
+
 object PortalAuthDeepLink {
     const val CALLBACK_HOST = "auth-callback"
     const val PREFERRED_CALLBACK_SCHEME = "droidrun"
 
     private const val LEGACY_CALLBACK_SCHEME = "mobilerun"
-    private const val CLOUD_AUTH_DEVICE_URL = "https://cloud.mobilerun.ai/auth/device"
+    private const val CLOUD_AUTH_DEVICE_URL = "$CLOUD_ORIGIN/auth/device"
     private val ACCEPTED_CALLBACK_SCHEMES =
         setOf(PREFERRED_CALLBACK_SCHEME, LEGACY_CALLBACK_SCHEME)
 

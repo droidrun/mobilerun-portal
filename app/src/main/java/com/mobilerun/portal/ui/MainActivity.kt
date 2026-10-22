@@ -59,6 +59,7 @@ import androidx.core.content.ContextCompat
 
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import com.mobilerun.portal.BuildConfig
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.update.InstallResult
@@ -1879,7 +1880,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun fetchElementData() {
         try {
             // Use ContentProvider to get combined state (a11y tree + phone state)
-            val uri = Uri.parse("content://com.mobilerun.portal/state")
+            val uri = Uri.parse("content://${BuildConfig.APPLICATION_ID}/state")
 
             val cursor = contentResolver.query(
                 uri,

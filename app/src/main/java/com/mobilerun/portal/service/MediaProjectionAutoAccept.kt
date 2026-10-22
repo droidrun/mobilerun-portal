@@ -14,8 +14,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 object MediaProjectionAutoAccept {
     private const val TAG = "MediaProjectionAutoAccept"
 
-    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
-    private const val MEDIA_PROJECTION_ACTIVITY = "MediaProjectionPermissionActivity"
+    internal const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    internal const val MEDIA_PROJECTION_ACTIVITY = "MediaProjectionPermissionActivity"
 
     private const val COOLDOWN_MS = 2000L
     private const val PENDING_SPINNER_TIMEOUT_MS = 1500L
@@ -39,8 +39,8 @@ object MediaProjectionAutoAccept {
     private var lastDecisionLogKey: String? = null
     private var lastDecisionLogAtMs = 0L
 
-    private const val DIALOG_VIEW_ID = "com.android.systemui:id/screen_share_permission_dialog"
-    private const val SHARE_MODE_OPTIONS_VIEW_ID =
+    internal const val DIALOG_VIEW_ID = "com.android.systemui:id/screen_share_permission_dialog"
+    internal const val SHARE_MODE_OPTIONS_VIEW_ID =
         "com.android.systemui:id/screen_share_mode_options"
     private const val POSITIVE_BUTTON_ID = "android:id/button1"
     private const val LEGACY_ALERT_TITLE_ID = "android:id/alertTitle"

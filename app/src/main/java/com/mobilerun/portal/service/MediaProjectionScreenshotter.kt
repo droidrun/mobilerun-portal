@@ -313,6 +313,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
                     null,
                     handler,
                 )
+                MobilerunAccessibilityService.getInstance()?.onMediaProjectionStarted()
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting projection capture", e)
                 if (allowPromptRetry && requestFreshPermissionPrompt(

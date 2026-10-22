@@ -21,10 +21,12 @@ import com.mobilerun.portal.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import org.json.JSONObject
 import org.webrtc.*
@@ -40,6 +42,9 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val VIDEO_TRACK_ID = "ARDAMSv0"
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
+        private const val TV_ENCODER_COOLDOWN_MS = 5 * 60 * 1000L
+        private val SUPPORTED_VIDEO_CODECS = setOf("H264", "VP8")
+        private val AUXILIARY_VIDEO_CODECS = setOf("RTX", "RED", "ULPFEC", "FLEXFEC-03")
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
         private const val SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS = 60_000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
@@ -66,6 +71,52 @@ class WebRtcManager private constructor(private val context: Context) {
                 instance?.releaseResources()
                 instance = null
             }
+        }
+
+        /** Immutable allow-list for one TV peer; also reused when a recent H264 stall requires cooldown. */
+        internal fun tvNegotiationCodecs(probe: TvEncoderProbe.Result, previousProbeStuck: Boolean = false): Set<String> =
+            if (probe == TvEncoderProbe.Result.OK && !previousProbeStuck) setOf("H264") else setOf("VP8")
+
+        internal data class TvFallbackSenderLimits(
+            val scaleDownBy: Double, val maxFps: Int, val maxBitrateBps: Int,
+        )
+
+        internal fun tvFallbackSenderLimits(width: Int, height: Int, fps: Int): TvFallbackSenderLimits =
+            TvFallbackSenderLimits(
+                maxOf(1.0, width.toDouble() / 640, height.toDouble() / 360),
+                fps.coerceIn(1, 15),
+                800_000,
+            )
+
+        internal fun tvEncoderCooldownActive(stoppedAtMs: Long?, nowMs: Long): Boolean =
+            stoppedAtMs != null && nowMs - stoppedAtMs in 0 until TV_ENCODER_COOLDOWN_MS
+
+        internal enum class TvProbeAction { START, JOIN, STUCK }
+
+        internal fun tvProbeAction(startedAtMs: Long?, nowMs: Long): TvProbeAction = when {
+            startedAtMs == null -> TvProbeAction.START
+            nowMs - startedAtMs < TvEncoderProbe.TIMEOUT_MS -> TvProbeAction.JOIN
+            else -> TvProbeAction.STUCK
+        }
+
+        internal fun tvCodecPreferences(
+            available: List<RtpCapabilities.CodecCapability>, codecs: Set<String>,
+        ): List<RtpCapabilities.CodecCapability> = available.filter {
+            val name = it.name.uppercase(Locale.US)
+            name in codecs || name in AUXILIARY_VIDEO_CODECS
+        }
+
+        internal data class EncoderStallSample(val captureFrames: Long, val framesSent: Long?, val framesEncoded: Long?)
+
+        internal fun nextTvEncoderStallCount(
+            count: Int, connected: Boolean, previous: EncoderStallSample?, current: EncoderStallSample,
+        ): Int {
+            if (!connected || previous == null || current.captureFrames <= previous.captureFrames) return 0
+            val deltas = listOfNotNull(
+                current.framesSent?.let { value -> previous.framesSent?.let { value - it } },
+                current.framesEncoded?.let { value -> previous.framesEncoded?.let { value - it } },
+            )
+            return if (deltas.isNotEmpty() && deltas.all { it == 0L }) count + 1 else 0
         }
 
         internal fun maybeSnapshotPendingPrimarySignalingForReset(
@@ -147,6 +198,30 @@ class WebRtcManager private constructor(private val context: Context) {
             currentCapture: Any?,
             hasPublishedSession: Boolean,
         ): Boolean = expectedToken == currentToken && expectedCapture === currentCapture && !hasPublishedSession
+
+        internal fun shouldClearRequestLivenessOnPrimaryDetach(
+            requestId: String?,
+            primaryId: String?,
+            requestIsSecondary: Boolean,
+            tvEnabled: Boolean,
+        ): Boolean = requestId != primaryId && !(tvEnabled && requestIsSecondary)
+
+        internal fun shouldReapSecondaryPeer(
+            tvEnabled: Boolean,
+            readIceState: () -> PeerConnection.IceConnectionState?,
+        ): Boolean {
+            val state = try {
+                readIceState()
+            } catch (e: IllegalStateException) {
+                // A disposed native PC cannot deliver another terminal ICE callback.
+                if (!tvEnabled) throw e
+                return true
+            }
+            return (tvEnabled && state == null) ||
+                state == PeerConnection.IceConnectionState.DISCONNECTED ||
+                state == PeerConnection.IceConnectionState.CLOSED ||
+                state == PeerConnection.IceConnectionState.FAILED
+        }
 
         internal enum class KeyframeRequestScheduleDisposition {
             SKIP_NO_STREAM,
@@ -454,6 +529,120 @@ class WebRtcManager private constructor(private val context: Context) {
         val shouldStop: Boolean,
     )
 
+    /** TV-only use; all reads and mutations are serialized by streamLock. */
+    internal class TvViewerLease(val admittedAtMs: Long) {
+        var deadlineMs = admittedAtMs + NEGOTIATION_ALLOWANCE_MS
+            private set
+        var renewals = 0L
+            private set
+        private var lastSignalAtMs: Long? = null
+        private var lastKeepAliveAtMs: Long? = null
+        private var lastRequestFrameAtMs: Long? = null
+        var sameSignalIntervalMs: Long? = null
+            private set
+        private val heartbeatIntervals = java.util.ArrayDeque<Long>()
+        var runnable: Runnable? = null
+        var zeroSentIntervals = 0
+        var encoderSample: EncoderStallSample? = null
+        var encoderUnavailableNotified = false
+        var transportPoll: Runnable? = null
+        var lastLivenessLogAtMs = admittedAtMs
+        var bytesReceivedSinceLog = 0L
+            private set
+        var lastRtcpAtMs: Long? = null
+            private set
+        private var lastTransportSample: TvTransportSnapshot? = null
+        private var lastTransportSampleAtMs = Long.MIN_VALUE
+
+        fun observeTransport(sample: TvTransportSnapshot, sampledAtMs: Long): Boolean {
+            if (sampledAtMs <= lastTransportSampleAtMs) return false
+            val previous = lastTransportSample
+            lastTransportSampleAtMs = sampledAtMs
+            lastTransportSample = sample
+            if (previous == null) return false // Establish a per-peer baseline, never reuse old totals.
+            fun delta(current: Map<String, Long>, old: Map<String, Long>): Long =
+                current.entries.sumOf { (id, value) -> old[id]?.let { (value - it).coerceAtLeast(0L) } ?: 0L }
+            val bytesDelta = delta(sample.bytesReceived, previous.bytesReceived)
+            val rtcpAdvanced = delta(sample.rtcpReports, previous.rtcpReports) > 0L
+            val consentAdvanced = delta(sample.consentResponses, previous.consentResponses) > 0L
+            bytesReceivedSinceLog += bytesDelta
+            if (rtcpAdvanced) lastRtcpAtMs = sampledAtMs
+            if (bytesDelta == 0L && !rtcpAdvanced && !consentAdvanced) return false
+            renewDeadline(sampledAtMs)
+            return true
+        }
+
+        fun resetLivenessLog(nowMs: Long) {
+            lastLivenessLogAtMs = nowMs
+            bytesReceivedSinceLog = 0L
+        }
+
+        private fun renewDeadline(nowMs: Long) {
+            renewals++
+            deadlineMs = maxOf(admittedAtMs + NEGOTIATION_ALLOWANCE_MS, nowMs + TIMEOUT_MS)
+        }
+
+        fun renew(nowMs: Long, requestFrame: Boolean = false): Long? {
+            sameSignalIntervalMs = (if (requestFrame) lastRequestFrameAtMs else lastKeepAliveAtMs)?.let { nowMs - it }
+            if (requestFrame) lastRequestFrameAtMs = nowMs else lastKeepAliveAtMs = nowMs
+            val interval = lastSignalAtMs?.let { nowMs - it }
+            if (interval != null) {
+                if (heartbeatIntervals.size == 256) heartbeatIntervals.removeFirst()
+                heartbeatIntervals.addLast(interval)
+            }
+            lastSignalAtMs = nowMs
+            renewDeadline(nowMs)
+            return interval
+        }
+
+        fun medianHeartbeatIntervalMs(): Long? {
+            val sorted = heartbeatIntervals.sorted()
+            if (sorted.isEmpty()) return null
+            val middle = sorted.size / 2
+            return if (sorted.size % 2 == 0) (sorted[middle - 1] + sorted[middle]) / 2
+                else sorted[middle]
+        }
+
+        companion object {
+            const val TIMEOUT_MS = 15_000L
+            const val NEGOTIATION_ALLOWANCE_MS = 30_000L
+
+            fun observeTransportIfCurrent(
+                current: TvViewerLease?, expected: TvViewerLease,
+                sample: TvTransportSnapshot, sampledAtMs: Long,
+            ): Boolean = current === expected && expected.observeTransport(sample, sampledAtMs)
+
+            fun shouldExpire(current: TvViewerLease?, expected: TvViewerLease, nowMs: Long): Boolean =
+                current === expected && nowMs >= expected.deadlineMs
+        }
+    }
+
+    internal data class TvTransportSnapshot(
+        val bytesReceived: Map<String, Long> = emptyMap(),
+        val rtcpReports: Map<String, Long> = emptyMap(),
+        val consentResponses: Map<String, Long> = emptyMap(),
+    ) {
+        companion object {
+            fun fromReport(report: RTCStatsReport): TvTransportSnapshot {
+                val stats = report.statsMap.values
+                val transports = stats.filter { it.type == "transport" && it.members["bytesReceived"] is Number }
+                val selectedPairs = stats.filter {
+                    it.type == "candidate-pair" && it.members["state"] == "succeeded" && it.members["nominated"] == true
+                }
+                fun counters(entries: Collection<RTCStats>, member: String): Map<String, Long> =
+                    entries.mapNotNull { stat ->
+                        (stat.members[member] as? Number)?.toLong()?.takeIf { it >= 0L }?.let { stat.id to it }
+                    }.toMap()
+                return TvTransportSnapshot(
+                    // Native RTC stats use Number (including BigInteger); avoid double-counting pairs and transports.
+                    counters(if (transports.isNotEmpty()) transports else selectedPairs, "bytesReceived"),
+                    counters(stats.filter { it.type == "remote-inbound-rtp" }, "roundTripTimeMeasurements"),
+                    counters(selectedPairs, "responsesReceived"),
+                )
+            }
+        }
+    }
+
     private data class SessionLivenessState(
         var lastLivenessAtMs: Long,
         var iceState: PeerConnection.IceConnectionState? = null,
@@ -552,6 +741,17 @@ class WebRtcManager private constructor(private val context: Context) {
     private val keyframeHandler = Handler(keyframeThread.looper)
     private val statsThread = HandlerThread("WebRtcStats").apply { start() }
     private val statsHandler = Handler(statsThread.looper)
+
+    private class TvNegotiation {
+        var codecs: Set<String>? = null
+        var ready: (() -> Unit)? = null
+        var inProgress = false
+    }
+    // State is guarded by streamLock; native peer access remains outside it.
+    private val tvNegotiations = java.util.IdentityHashMap<PeerConnection, TvNegotiation>()
+    private val captureFrameCount = AtomicLong()
+    private var tvEncoderUnavailableAtMs: Long? = null
+
     private val frameTapThread = HandlerThread("WebRtcFrameTap").apply { start() }
     private val frameTapHandler = Handler(frameTapThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -594,6 +794,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     @Volatile
     private var pendingStreamStop: PendingStreamStop? = null
+    private val tvViewerLeases = mutableMapOf<String, TvViewerLease>()
     private val sessionLivenessStates = mutableMapOf<String, SessionLivenessState>()
     private var pendingKeyframeRequest: PendingKeyframeRequest? = null
     private var lastKeyframeRequestStartedAtMs = 0L
@@ -800,6 +1001,7 @@ class WebRtcManager private constructor(private val context: Context) {
         return object : CapturerObserver {
             override fun onCapturerStarted(success: Boolean) {
                 delegate.onCapturerStarted(success)
+                if (success) MobilerunAccessibilityService.getInstance()?.onMediaProjectionStarted()
             }
 
             override fun onCapturerStopped() {
@@ -808,6 +1010,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
 
             override fun onFrameCaptured(frame: VideoFrame) {
+                if (TvStreamPolicy.enabled) captureFrameCount.incrementAndGet()
                 delegate.onFrameCaptured(frame)
                 onCaptureFrameObserved(frame)
             }
@@ -900,7 +1103,10 @@ class WebRtcManager private constructor(private val context: Context) {
                 val filteredEncoderFactory =
                     FilteringVideoEncoderFactory(
                         encoderFactory,
-                        setOf("H264", "VP8"),
+                        // Advertise both at factory construction: WebRTC may cache capabilities.
+                        // A peer's transceiver preferences restrict its actual negotiated allow-list.
+                        SUPPORTED_VIDEO_CODECS,
+                        if (TvStreamPolicy.enabled) SoftwareVideoEncoderFactory() else null,
                     )
                 Log.i(TAG, "Enabled video encoders: ${filteredEncoderFactory.codecListLabel()}")
                 PeerConnectionFactory.builder()
@@ -1018,7 +1224,7 @@ class WebRtcManager private constructor(private val context: Context) {
         try {
             if (isCurrentStream(streamId)) {
                 val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
-                configureVideoSender(sender, width, height, fps)
+                configureVideoSender(sender, width, height, fps, sessionId, connectionForSender)
                 synchronized(streamLock) {
                     if (isCurrentStreamLocked(streamId) && peerConnection == connectionForSender) {
                         primaryVideoSender = sender
@@ -1161,7 +1367,7 @@ class WebRtcManager private constructor(private val context: Context) {
         try {
             if (isCurrentStream(streamId)) {
                 val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
-                configureVideoSender(sender, width, height, fps)
+                configureVideoSender(sender, width, height, fps, sessionId, connectionForSender)
                 synchronized(streamLock) {
                     if (isCurrentStreamLocked(streamId) && peerConnection == connectionForSender) {
                         primaryVideoSender = sender
@@ -1258,6 +1464,7 @@ class WebRtcManager private constructor(private val context: Context) {
             session.pendingIceCandidates.addAll(reservation.pendingIce)
             pendingOffer = reservation.pendingOffer
             secondarySessions[sessionId] = session
+            armTvLeaseLocked(sessionId, SystemClock.elapsedRealtime())
             published = true
         }
         if (!published) {
@@ -1267,7 +1474,7 @@ class WebRtcManager private constructor(private val context: Context) {
         try {
             if (!isCurrentSecondary(sessionId, streamId)) return
             val sender = session.peerConnection.addTrack(reservation.captureIdentity, listOf(VIDEO_TRACK_ID))
-            configureVideoSender(sender, effectiveWidth, effectiveHeight, effectiveFps)
+            configureVideoSender(sender, effectiveWidth, effectiveHeight, effectiveFps, sessionId, session.peerConnection)
             synchronized(streamLock) {
                 if (secondarySessions[sessionId] === session) session.videoSender = sender
             }
@@ -1344,10 +1551,11 @@ class WebRtcManager private constructor(private val context: Context) {
                     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                         var shouldRestart = false
                         var restartWaitForOffer = false
-                        var activeConnection: PeerConnection? = null
+                        val activeSession: SecondarySession
                         synchronized(streamLock) {
                             val session = secondarySessions[sessionId]
                             if (session == null || session.streamId != streamId) return
+                            activeSession = session
                             updateSessionIceStateLocked(sessionId, state)
                             when (state) {
                                 PeerConnection.IceConnectionState.CONNECTED,
@@ -1357,7 +1565,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                 }
 
                                 PeerConnection.IceConnectionState.FAILED -> {
-                                    if (session.iceRestartAttempts < MAX_ICE_RESTARTS) {
+                                    if (!TvStreamPolicy.enabled && session.iceRestartAttempts < MAX_ICE_RESTARTS) {
                                         session.iceRestartAttempts += 1
                                         session.pendingIceCandidates.clear()
                                         session.pendingOutgoingIceCandidates.clear()
@@ -1365,26 +1573,23 @@ class WebRtcManager private constructor(private val context: Context) {
                                         session.isRemoteDescriptionSet = false
                                         shouldRestart = true
                                         restartWaitForOffer = session.waitingForOffer
-                                        activeConnection = session.peerConnection
                                     } else {
-                                        clearSessionLivenessStateLocked(sessionId)
+                                        clearSessionLivenessStateLocked(sessionId, "ice_failed")
                                         secondarySessions.remove(sessionId)
-                                        activeConnection = session.peerConnection
                                     }
                                 }
 
                                 PeerConnection.IceConnectionState.DISCONNECTED,
                                 PeerConnection.IceConnectionState.CLOSED -> {
-                                    clearSessionLivenessStateLocked(sessionId)
+                                    clearSessionLivenessStateLocked(sessionId, "ice_${state.name.lowercase(Locale.US)}")
                                     secondarySessions.remove(sessionId)
-                                    activeConnection = session.peerConnection
                                 }
 
                                 else -> {}
                             }
                         }
                         if (shouldRestart) {
-                            activeConnection?.restartIce()
+                            activeSession.peerConnection.restartIce()
                             if (restartWaitForOffer) {
                                 sendStreamReady(sessionId)
                             } else {
@@ -1396,7 +1601,11 @@ class WebRtcManager private constructor(private val context: Context) {
                             state == PeerConnection.IceConnectionState.CLOSED ||
                             state == PeerConnection.IceConnectionState.FAILED
                         ) {
-                            activeConnection?.close()
+                            if (TvStreamPolicy.enabled) {
+                                cleanupSecondaryNativeResources(activeSession)
+                            } else {
+                                activeSession.peerConnection.close()
+                            }
                             if (!isStreamActive()) {
                                 scheduleIdleStop(state?.name?.lowercase(Locale.US) ?: "peer_closed")
                             }
@@ -1417,7 +1626,7 @@ class WebRtcManager private constructor(private val context: Context) {
             val channel = connection.createDataChannel("control", dcInit)
                 ?: throw IllegalStateException("Failed to create secondary control channel")
             dataChannel = channel
-            val controlHandler = ScrcpyControlChannel()
+            val controlHandler = ScrcpyControlChannel(context)
             channel.registerObserver(
                 LoggingDataChannelObserver(
                     channel = channel,
@@ -1453,34 +1662,37 @@ class WebRtcManager private constructor(private val context: Context) {
                 if (current == null || current.streamId != streamId) null else current
             }
                 ?: return
-        val constraints = MediaConstraints()
-        session.peerConnection.createOffer(
-            object : SimpleSdpObserver("createOffer-secondary") {
-                override fun onCreateSuccess(desc: SessionDescription) {
-                    super.onCreateSuccess(desc)
-                    val activeSession =
-                        synchronized(streamLock) {
-                            val current = secondarySessions[sessionId]
-                            if (current == null || current.streamId != streamId) null else current
-                        }
-                            ?: return
-                    val mungedSdp = preferH264(desc.description)
-                    val offer =
-                        if (mungedSdp == desc.description) desc
-                        else SessionDescription(desc.type, mungedSdp)
-                    activeSession.peerConnection.setLocalDescription(
-                        object : SimpleSdpObserver("setLocalDescription-secondary") {
-                            override fun onSetSuccess() {
-                                if (!isCurrentSecondary(sessionId, streamId)) return
-                                sendOffer(offer.description, sessionId)
+        prepareTvNegotiation(session.peerConnection, sessionId) {
+            val constraints = MediaConstraints()
+            session.peerConnection.createOffer(
+                object : StreamSdpObserver("createOffer-secondary", sessionId, session.peerConnection) {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        super.onCreateSuccess(desc)
+                        val activeSession =
+                            synchronized(streamLock) {
+                                val current = secondarySessions[sessionId]
+                                if (current == null || current.streamId != streamId) null else current
                             }
-                        },
-                        offer,
-                    )
-                }
-            },
-            constraints,
-        )
+                                ?: return
+                        val mungedSdp = if (!TvStreamPolicy.enabled || tvPeerRequiresH264(session.peerConnection)) preferH264(desc.description) else desc.description
+                        val offer =
+                            if (mungedSdp == desc.description) desc
+                            else SessionDescription(desc.type, mungedSdp)
+                        activeSession.peerConnection.setLocalDescription(
+                            object : StreamSdpObserver("setLocalDescription-secondary", sessionId, activeSession.peerConnection) {
+                                override fun onSetSuccess() {
+                                    finishTvNegotiation(activeSession.peerConnection)
+                                    if (!isCurrentSecondary(sessionId, streamId)) return
+                                    sendOffer(offer.description, sessionId)
+                                }
+                            },
+                            offer,
+                        )
+                    }
+                },
+                constraints,
+            )
+        }
     }
 
     private fun checkNativeCallOutsideStreamLock() {
@@ -1509,9 +1721,7 @@ class WebRtcManager private constructor(private val context: Context) {
         checkNativeCallOutsideStreamLock()
         val snapshot = synchronized(streamLock) { secondarySessions.values.toList() }
         val disconnected = snapshot.filter { session ->
-            val state = session.peerConnection.iceConnectionState()
-            state == PeerConnection.IceConnectionState.DISCONNECTED ||
-                state == PeerConnection.IceConnectionState.CLOSED || state == PeerConnection.IceConnectionState.FAILED
+            shouldReapSecondaryPeer(TvStreamPolicy.enabled) { session.peerConnection.iceConnectionState() }
         }
         return synchronized(streamLock) {
             disconnected.filter { session ->
@@ -1673,14 +1883,27 @@ class WebRtcManager private constructor(private val context: Context) {
         stopStream(sessionId, "session_stop")
     }
 
-    private fun stopStream(sessionId: String, reason: String) {
+    private fun stopStream(
+        sessionId: String,
+        reason: String,
+        expectedLease: TvViewerLease? = null,
+        expectedConnection: PeerConnection? = null,
+    ): Boolean {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
-        cancelIdleStop()
-        cancelKeepAlive(sessionId)
         val primaryResources: PeerResources?
         val secondaryResources: SecondarySession?
         val hasRemaining =
             synchronized(streamLock) {
+                if (expectedLease != null &&
+                    !TvViewerLease.shouldExpire(tvViewerLeases[sessionId], expectedLease, SystemClock.elapsedRealtime())) return false
+                if (expectedConnection != null &&
+                    !isCurrentPeerLocked(sessionId, expectedConnection)) return false
+                if (TvStreamPolicy.enabled && reason == "tv_encoder_unavailable" &&
+                    tvNegotiations[expectedConnection]?.codecs == setOf("H264")) {
+                    tvEncoderUnavailableAtMs = SystemClock.elapsedRealtime()
+                }
+                cancelIdleStop()
+                clearSessionLivenessStateLocked(sessionId, reason)
                 secondaryReservations.remove(sessionId)
                 if (primarySessionId == sessionId) {
                     streamGeneration.incrementAndGet()
@@ -1698,7 +1921,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         primaryResources?.let { cleanupPeerResources(it) }
         secondaryResources?.let { cleanupSecondarySession(it) }
-        if (reason == "keep_alive_timeout") {
+        if (reason == "keep_alive_timeout" || reason == "tv_lease_expired" || reason == "tv_negotiation_failed") {
             notifyStreamStoppedAsync(reason, sessionId)
         }
         if (!hasRemaining) {
@@ -1707,11 +1930,12 @@ class WebRtcManager private constructor(private val context: Context) {
                 LastSessionCaptureAction.SCHEDULE_IDLE_STOP -> scheduleIdleStop("session_stop")
             }
         }
+        return true
     }
 
     fun stopAllSessions(reason: String = "cloud_stop") {
         cancelIdleStop()
-        cancelAllKeepAlives()
+        cancelAllKeepAlives(reason)
         val primaryResources: PeerResources?
         val staleSecondary: List<SecondarySession>
         synchronized(streamLock) {
@@ -1757,7 +1981,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
         cancelIdleStop()
-        cancelAllKeepAlives()
+        if (!TvStreamPolicy.enabled) cancelAllKeepAlives()
         val stopGeneration = streamGeneration.get()
         stopHandler.post {
             var invokeCallback = false
@@ -1770,6 +1994,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         null
                     } else {
                         streamGeneration.incrementAndGet()
+                        if (TvStreamPolicy.enabled) cancelAllKeepAlives("capture_stopped")
                         primarySessionId = null
                         staleSecondary = secondarySessions.values.toList()
                         staleSecondary.forEach { clearSessionLivenessStateLocked(it.sessionId) }
@@ -1834,14 +2059,100 @@ class WebRtcManager private constructor(private val context: Context) {
                 secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId)
     }
 
+    private fun armTvLeaseLocked(sessionId: String, nowMs: Long) {
+        if (!TvStreamPolicy.enabled) return
+        finishTvLeaseLocked(sessionId, "session_replaced")
+        val lease = TvViewerLease(nowMs)
+        tvViewerLeases[sessionId] = lease
+        TvStreamPolicy.log(sessionId, "admitted negotiationAllowanceMs=${TvViewerLease.NEGOTIATION_ALLOWANCE_MS} leaseTimeoutMs=${TvViewerLease.TIMEOUT_MS}")
+        scheduleTvLeaseLocked(sessionId, lease, nowMs)
+        val poll = object : Runnable {
+            override fun run() {
+                val connection = synchronized(streamLock) {
+                    if (tvViewerLeases[sessionId] !== lease) return
+                    val current = if (primarySessionId == sessionId) peerConnection else secondarySessions[sessionId]?.peerConnection
+                    statsHandler.postDelayed(this, STATS_INTERVAL_MS)
+                    current
+                } ?: return
+                val sampledAtMs = SystemClock.elapsedRealtime()
+                val capturedFrames = captureFrameCount.get()
+                try {
+                    connection.getStats { report ->
+                        statsHandler.post {
+                            handleTvEncoderStats(report, sessionId, connection, lease, capturedFrames)
+                            synchronized(streamLock) {
+                                if (tvViewerLeases[sessionId] !== lease || !isCurrentPeerLocked(sessionId, connection)) return@post
+                                val now = SystemClock.elapsedRealtime()
+                                if (TvViewerLease.observeTransportIfCurrent(tvViewerLeases[sessionId], lease, TvTransportSnapshot.fromReport(report), sampledAtMs)) {
+                                    ensureSessionLivenessStateLocked(sessionId).lastLivenessAtMs = sampledAtMs
+                                    scheduleTvLeaseLocked(sessionId, lease, now)
+                                }
+                                if (now - lease.lastLivenessLogAtMs >= 30_000L) {
+                                    TvStreamPolicy.log(sessionId, "liveness bytesReceivedDelta=${lease.bytesReceivedSinceLog} rtcpAgeMs=${lease.lastRtcpAtMs?.let { now - it } ?: -1} renewals=${lease.renewals}")
+                                    lease.resetLivenessLog(now)
+                                }
+                            }
+                        }
+                    }
+                } catch (_: RuntimeException) {
+                    // Closing a peer can race a queued poll; unavailable stats never renew a lease.
+                    TvStreamPolicy.log(sessionId, "livenessStatsUnavailable=true")
+                }
+            }
+        }
+        lease.transportPoll = poll
+        statsHandler.postDelayed(poll, STATS_INTERVAL_MS)
+    }
+
+    private fun handleTvEncoderStats(
+        report: RTCStatsReport, sessionId: String, connection: PeerConnection,
+        lease: TvViewerLease, capturedFrames: Long,
+    ) {
+        val video = outboundVideoStats(report) ?: return
+        val sample = EncoderStallSample(capturedFrames, video.frames, video.framesEncoded)
+        synchronized(streamLock) {
+            if (tvViewerLeases[sessionId] !== lease || !isCurrentPeerLocked(sessionId, connection)) return
+            val ice = sessionLivenessStates[sessionId]?.iceState
+            lease.zeroSentIntervals = nextTvEncoderStallCount(
+                lease.zeroSentIntervals,
+                ice == PeerConnection.IceConnectionState.CONNECTED || ice == PeerConnection.IceConnectionState.COMPLETED,
+                lease.encoderSample, sample,
+            )
+            lease.encoderSample = sample
+            if (!shouldWarnForZeroSentStats(lease.zeroSentIntervals) || lease.encoderUnavailableNotified) return
+            lease.encoderUnavailableNotified = true
+        }
+        stopHandler.post {
+            if (stopStream(sessionId, "tv_encoder_unavailable", expectedConnection = connection)) {
+                notifyStreamStopped(reason = "tv_encoder_unavailable", sessionId = sessionId)
+            }
+        }
+    }
+
+    private fun scheduleTvLeaseLocked(sessionId: String, lease: TvViewerLease, nowMs: Long) {
+        lease.runnable?.let { stopHandler.removeCallbacks(it) }
+        val runnable = Runnable { stopStream(sessionId, "tv_lease_expired", expectedLease = lease) }
+        lease.runnable = runnable
+        stopHandler.postDelayed(runnable, (lease.deadlineMs - nowMs).coerceAtLeast(0L))
+    }
+
     private fun ensureSessionLivenessStateLocked(sessionId: String): SessionLivenessState {
         return sessionLivenessStates.getOrPut(sessionId) {
             SessionLivenessState(lastLivenessAtMs = 0L)
         }
     }
 
-    private fun clearSessionLivenessStateLocked(sessionId: String?) {
+    private fun finishTvLeaseLocked(sessionId: String, reason: String) {
+        tvViewerLeases.remove(sessionId)?.let { lease ->
+            lease.runnable?.let { stopHandler.removeCallbacks(it) }
+            lease.transportPoll?.let { statsHandler.removeCallbacks(it) }
+            TvStreamPolicy.log(sessionId, "stop reason=$reason durationMs=${SystemClock.elapsedRealtime() - lease.admittedAtMs} renewals=${lease.renewals} medianHeartbeatIntervalMs=${lease.medianHeartbeatIntervalMs() ?: -1} medianWindow=last256")
+        }
+    }
+
+    private fun clearSessionLivenessStateLocked(sessionId: String?, reason: String = "peer_resources_detached") {
         if (sessionId.isNullOrBlank()) return
+        finishTvLeaseLocked(sessionId, reason)
         requestFrameLoggedSessions.remove(sessionId)
         sessionLivenessStates.remove(sessionId)?.runnable?.let { stopHandler.removeCallbacks(it) }
     }
@@ -1849,6 +2160,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun primePrimarySessionLivenessLocked(sessionId: String, nowMs: Long) {
         val state = ensureSessionLivenessStateLocked(sessionId)
         state.lastLivenessAtMs = nowMs
+        armTvLeaseLocked(sessionId, nowMs)
     }
 
     private fun resolveIncomingSessionRouteLocked(sessionId: String): IncomingSessionRoute {
@@ -1877,12 +2189,13 @@ class WebRtcManager private constructor(private val context: Context) {
                 "Incoming session $sessionId taking over stale primary $currentPrimarySessionId (lastLivenessAgeMs=${lastLivenessAgeMs ?: -1L})",
             )
         }
+        TvStreamPolicy.log(sessionId, "route=$route")
         return route
     }
 
     private fun clearPrimarySessionForTakeoverLocked(): String? {
         val currentPrimarySessionId = primarySessionId ?: return null
-        clearSessionLivenessStateLocked(currentPrimarySessionId)
+        clearSessionLivenessStateLocked(currentPrimarySessionId, "stale_primary_takeover")
         if (streamRequestId == currentPrimarySessionId) {
             streamRequestId = null
         }
@@ -1977,7 +2290,11 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun detachPeerResourcesLocked(): PeerResources {
         val resources = PeerResources(peerConnection, controlChannel)
         clearSessionLivenessStateLocked(primarySessionId)
-        if (streamRequestId != primarySessionId) {
+        if (shouldClearRequestLivenessOnPrimaryDetach(
+                streamRequestId, primarySessionId,
+                secondarySessions.containsKey(streamRequestId) || secondaryReservations.containsKey(streamRequestId),
+                TvStreamPolicy.enabled,
+            )) {
             clearSessionLivenessStateLocked(streamRequestId)
         }
         peerConnection = null
@@ -2035,6 +2352,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun cleanupPeerResources(resources: PeerResources) {
         checkNativeCallOutsideStreamLock()
+        if (TvStreamPolicy.enabled) synchronized(streamLock) { tvNegotiations.remove(resources.peerConnection) }
         try {
             resources.controlChannel?.close()
         } catch (e: Exception) {
@@ -2081,8 +2399,9 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
         val activeConnection = connection ?: return
+        if (rejectTvAnswerWithoutH264(sdp, sessionId, activeConnection)) return
         activeConnection.setRemoteDescription(
-            object : SimpleSdpObserver("setRemoteDescription") {
+            object : StreamSdpObserver("setRemoteDescription", sessionId, activeConnection) {
                 override fun onSetSuccess() {
                     super.onSetSuccess()
                     var pending: List<IceCandidate>? = null
@@ -2114,6 +2433,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun handleOffer(sdp: String, sessionId: String) {
+        if (TvStreamPolicy.enabled) TvStreamPolicy.log(sessionId, "offeredCodecs=${TvStreamPolicy.codecs(sdp)}")
         if (sessionId.isBlank()) {
             Log.w(TAG, "handleOffer called without sessionId")
             return
@@ -2181,7 +2501,7 @@ class WebRtcManager private constructor(private val context: Context) {
     ) {
         Log.i(TAG, "Applying primary offer ($source): session=$sessionId gen=$generation")
         connection.setRemoteDescription(
-            object : SimpleSdpObserver("setRemoteDescription-offer-$source") {
+            object : StreamSdpObserver("setRemoteDescription-offer-$source", sessionId, connection) {
                 override fun onSetSuccess() {
                     super.onSetSuccess()
                     synchronized(streamLock) {
@@ -2201,40 +2521,49 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun createAnswer(connection: PeerConnection, generation: Int, sessionId: String) {
-        val constraints = MediaConstraints()
-        connection.createAnswer(
-            object : SimpleSdpObserver("createAnswer") {
-                override fun onCreateSuccess(desc: SessionDescription) {
-                    super.onCreateSuccess(desc)
-                    synchronized(streamLock) {
-                        if (peerConnection !== connection ||
-                            streamGeneration.get() != generation
-                        ) {
-                            Log.w(TAG, "Answer created on stale PeerConnection")
-                            return
+        prepareTvNegotiation(connection, sessionId) {
+            val constraints = MediaConstraints()
+            connection.createAnswer(
+                object : StreamSdpObserver("createAnswer", sessionId, connection) {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        super.onCreateSuccess(desc)
+                        synchronized(streamLock) {
+                            if (peerConnection !== connection ||
+                                streamGeneration.get() != generation
+                            ) {
+                                Log.w(TAG, "Answer created on stale PeerConnection")
+                                return
+                            }
                         }
+                        Log.i(TAG, "Created primary answer: session=$sessionId gen=$generation")
+                        if (TvStreamPolicy.enabled) {
+                            TvStreamPolicy.log(sessionId, "generatedAnswerCodecs=${TvStreamPolicy.codecs(desc.description)}")
+                            if (tvPeerRequiresH264(connection) && !TvStreamPolicy.codecs(desc.description).contains(":H264")) {
+                                failTvNegotiation(sessionId, connection, "no_h264_answer")
+                                return
+                            }
+                        }
+                        val forcedH264 = if (!TvStreamPolicy.enabled || tvPeerRequiresH264(connection)) forceH264(desc.description) else null
+                        val answer =
+                            if (forcedH264 == null) {
+                                desc
+                            } else {
+                                Log.i(TAG, "Forcing H264 in answer SDP")
+                                SessionDescription(desc.type, forcedH264)
+                            }
+                        setLocalDescriptionAndSendAnswer(
+                            connection,
+                            generation,
+                            sessionId,
+                            answer,
+                            desc,
+                            answer != desc,
+                        )
                     }
-                    Log.i(TAG, "Created primary answer: session=$sessionId gen=$generation")
-                    val forcedH264 = forceH264(desc.description)
-                    val answer =
-                        if (forcedH264 == null) {
-                            desc
-                        } else {
-                            Log.i(TAG, "Forcing H264 in answer SDP")
-                            SessionDescription(desc.type, forcedH264)
-                        }
-                    setLocalDescriptionAndSendAnswer(
-                        connection,
-                        generation,
-                        sessionId,
-                        answer,
-                        desc,
-                        answer != desc,
-                    )
-                }
-            },
-            constraints
-        )
+                },
+                constraints
+            )
+        }
     }
 
     private fun setLocalDescriptionAndSendAnswer(
@@ -2245,9 +2574,11 @@ class WebRtcManager private constructor(private val context: Context) {
         fallback: SessionDescription,
         allowFallback: Boolean,
     ) {
+        TvStreamPolicy.log(sessionId, "setLocalDescription phase=answer original=${answer === fallback}")
         connection.setLocalDescription(
-            object : SimpleSdpObserver("setLocalDescription-answer") {
+            object : StreamSdpObserver("setLocalDescription-answer", sessionId, connection) {
                 override fun onSetSuccess() {
+                    finishTvNegotiation(connection)
                     super.onSetSuccess()
                     synchronized(streamLock) {
                         if (peerConnection !== connection ||
@@ -2276,10 +2607,12 @@ class WebRtcManager private constructor(private val context: Context) {
 
                 override fun onSetFailure(p0: String?) {
                     Log.e(TAG, "setLocalDescription (answer) failed: $p0")
+                    TvStreamPolicy.log(sessionId, "setLocalDescription phase=answer failed=true original=${answer === fallback} retry=$allowFallback")
                     if (!allowFallback ||
                         peerConnection !== connection ||
                         streamGeneration.get() != generation
                     ) {
+                        if (TvStreamPolicy.enabled) super.onSetFailure(p0)
                         return
                     }
                     Log.w(TAG, "Retrying setLocalDescription with original answer SDP")
@@ -2419,7 +2752,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val activeConnection = session.peerConnection
         val streamId = session.streamId
         activeConnection.setRemoteDescription(
-            object : SimpleSdpObserver("setRemoteDescription-offer-secondary") {
+            object : StreamSdpObserver("setRemoteDescription-offer-secondary", sessionId, activeConnection) {
                 override fun onSetSuccess() {
                     super.onSetSuccess()
                     synchronized(streamLock) {
@@ -2439,39 +2772,49 @@ class WebRtcManager private constructor(private val context: Context) {
         streamId: Int,
         sessionId: String,
     ) {
-        val constraints = MediaConstraints()
-        connection.createAnswer(
-            object : SimpleSdpObserver("createAnswer-secondary") {
-                override fun onCreateSuccess(desc: SessionDescription) {
-                    super.onCreateSuccess(desc)
-                    if (!isCurrentSecondary(sessionId, streamId)) return
-                    val forcedH264 = forceH264(desc.description)
-                    val answer =
-                        if (forcedH264 == null) desc
-                        else SessionDescription(desc.type, forcedH264)
-                    connection.setLocalDescription(
-                        object : SimpleSdpObserver("setLocalDescription-answer-secondary") {
-                            override fun onSetSuccess() {
-                                super.onSetSuccess()
-                                val pending: List<IceCandidate>
-                                val outgoing: List<IceCandidate>
-                                synchronized(streamLock) {
-                                    val current = secondarySessions[sessionId]
-                                    if (current == null || current.streamId != streamId) return
-                                    pending = drainPendingIceCandidatesLocked(current)
-                                    outgoing = enableOutgoingIceAndDrainLocked(current)
-                                }
-                                pending.forEach { connection.addIceCandidate(it) }
-                                sendAnswer(answer, sessionId)
-                                outgoing.forEach { sendIceCandidate(it, sessionId) }
+        prepareTvNegotiation(connection, sessionId) {
+            val constraints = MediaConstraints()
+            connection.createAnswer(
+                object : StreamSdpObserver("createAnswer-secondary", sessionId, connection) {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        super.onCreateSuccess(desc)
+                        if (!isCurrentSecondary(sessionId, streamId)) return
+                        if (TvStreamPolicy.enabled) {
+                            TvStreamPolicy.log(sessionId, "generatedAnswerCodecs=${TvStreamPolicy.codecs(desc.description)}")
+                            if (tvPeerRequiresH264(connection) && !TvStreamPolicy.codecs(desc.description).contains(":H264")) {
+                                failTvNegotiation(sessionId, connection, "no_h264_answer")
+                                return
                             }
-                        },
-                        answer,
-                    )
-                }
-            },
-            constraints,
-        )
+                        }
+                        val forcedH264 = if (!TvStreamPolicy.enabled || tvPeerRequiresH264(connection)) forceH264(desc.description) else null
+                        val answer =
+                            if (forcedH264 == null) desc
+                            else SessionDescription(desc.type, forcedH264)
+                        connection.setLocalDescription(
+                            object : StreamSdpObserver("setLocalDescription-answer-secondary", sessionId, connection) {
+                                override fun onSetSuccess() {
+                                    finishTvNegotiation(connection)
+                                    super.onSetSuccess()
+                                    val pending: List<IceCandidate>
+                                    val outgoing: List<IceCandidate>
+                                    synchronized(streamLock) {
+                                        val current = secondarySessions[sessionId]
+                                        if (current == null || current.streamId != streamId) return
+                                        pending = drainPendingIceCandidatesLocked(current)
+                                        outgoing = enableOutgoingIceAndDrainLocked(current)
+                                    }
+                                    pending.forEach { connection.addIceCandidate(it) }
+                                    sendAnswer(answer, sessionId)
+                                    outgoing.forEach { sendIceCandidate(it, sessionId) }
+                                }
+                            },
+                            answer,
+                        )
+                    }
+                },
+                constraints,
+            )
+        }
     }
 
     private fun handleAnswerForSecondary(sdp: String, sessionId: String) {
@@ -2485,8 +2828,9 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
         val connection = session.peerConnection
         val streamId = session.streamId
+        if (rejectTvAnswerWithoutH264(sdp, sessionId, connection)) return
         connection.setRemoteDescription(
-            object : SimpleSdpObserver("setRemoteDescription-secondary") {
+            object : StreamSdpObserver("setRemoteDescription-secondary", sessionId, connection) {
                 override fun onSetSuccess() {
                     super.onSetSuccess()
                     val pending: List<IceCandidate>
@@ -2563,6 +2907,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         null
                     } else {
                         streamGeneration.incrementAndGet()
+                        if (TvStreamPolicy.enabled) cancelAllKeepAlives("capture_stopped")
                         primarySessionId = null
                         staleSecondary = secondarySessions.values.toList()
                         staleSecondary.forEach { clearSessionLivenessStateLocked(it.sessionId) }
@@ -2586,6 +2931,7 @@ class WebRtcManager private constructor(private val context: Context) {
             } else {
                 streamGeneration.incrementAndGet()
                 disconnectedSessionId = primarySessionId
+                if (TvStreamPolicy.enabled) clearSessionLivenessStateLocked(primarySessionId, reason)
                 if (streamRequestId == primarySessionId) {
                     streamRequestId = null
                 }
@@ -2594,7 +2940,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
         if (peerResources != null) {
-            disconnectedSessionId?.let { cancelKeepAlive(it) }
+            if (!TvStreamPolicy.enabled) disconnectedSessionId?.let { cancelKeepAlive(it) }
             cleanupPeerResources(peerResources)
             val hasActiveSessions = isStreamActive()
             if (!hasActiveSessions) {
@@ -2746,7 +3092,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         val newControlChannel = newPeerConnection.createDataChannel("control", dcInit)
         val newScrcpyControlHandler = newControlChannel?.let { dc ->
-            val handler = ScrcpyControlChannel()
+            val handler = ScrcpyControlChannel(context)
             dc.registerObserver(
                 LoggingDataChannelObserver(
                     channel = dc,
@@ -2862,35 +3208,39 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun createOffer(streamId: Int) {
-        val constraints = MediaConstraints()
-        peerConnection?.createOffer(
-            object : SimpleSdpObserver("createOffer") {
-                override fun onCreateSuccess(desc: SessionDescription) {
-                    super.onCreateSuccess(desc)
-                    val connection =
-                        synchronized(streamLock) {
-                            if (!isCurrentStreamLocked(streamId)) null else peerConnection
-                        }
-                            ?: return
+        val sessionId = synchronized(streamLock) { primarySessionId }.orEmpty()
+        val connectionAtStart = peerConnection ?: return
+        prepareTvNegotiation(connectionAtStart, sessionId) {
+            val constraints = MediaConstraints()
+            connectionAtStart.createOffer(
+                object : StreamSdpObserver("createOffer", sessionId, connectionAtStart) {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        super.onCreateSuccess(desc)
+                        val connection =
+                            synchronized(streamLock) {
+                                if (!isCurrentStreamLocked(streamId)) null else peerConnection
+                            }
+                                ?: return
 
-                    val mungedSdp = preferH264(desc.description)
-                    val offer =
-                        if (mungedSdp == desc.description) {
-                            desc
-                        } else {
-                            SessionDescription(desc.type, mungedSdp)
-                        }
-                    setLocalDescriptionAndSendOffer(
-                        connection,
-                        streamId,
-                        offer,
-                        desc,
-                        offer != desc
-                    )
-                }
-            },
-            constraints
-        )
+                        val mungedSdp = if (!TvStreamPolicy.enabled || tvPeerRequiresH264(connectionAtStart)) preferH264(desc.description) else desc.description
+                        val offer =
+                            if (mungedSdp == desc.description) {
+                                desc
+                            } else {
+                                SessionDescription(desc.type, mungedSdp)
+                            }
+                        setLocalDescriptionAndSendOffer(
+                            connection,
+                            streamId,
+                            offer,
+                            desc,
+                            offer != desc
+                        )
+                    }
+                },
+                constraints
+            )
+        }
     }
 
     private fun setLocalDescriptionAndSendOffer(
@@ -2900,9 +3250,12 @@ class WebRtcManager private constructor(private val context: Context) {
         fallback: SessionDescription,
         allowFallback: Boolean,
     ) {
+        val sessionId = synchronized(streamLock) { primarySessionId }.orEmpty()
+        TvStreamPolicy.log(sessionId, "setLocalDescription phase=offer original=${offer === fallback}")
         connection.setLocalDescription(
-            object : SimpleSdpObserver("setLocalDescription") {
+            object : StreamSdpObserver("setLocalDescription", sessionId, connection) {
                 override fun onSetSuccess() {
+                    finishTvNegotiation(connection)
                     if (!isCurrentStream(streamId)) {
                         Log.w(TAG, "Offer set for stale stream; ignoring")
                         return
@@ -2918,7 +3271,9 @@ class WebRtcManager private constructor(private val context: Context) {
 
                 override fun onSetFailure(p0: String?) {
                     Log.e(TAG, "setLocalDescription failed: $p0")
+                    TvStreamPolicy.log(sessionId, "setLocalDescription phase=offer failed=true original=${offer === fallback} retry=$allowFallback")
                     if (!allowFallback || !isCurrentStream(streamId)) {
+                        if (TvStreamPolicy.enabled) super.onSetFailure(p0)
                         return
                     }
                     Log.w(TAG, "Retrying setLocalDescription with original SDP")
@@ -2935,11 +3290,30 @@ class WebRtcManager private constructor(private val context: Context) {
         )
     }
 
-    private fun configureVideoSender(sender: RtpSender?, width: Int, height: Int, fps: Int) {
+    private fun configureVideoSender(
+        sender: RtpSender?, width: Int, height: Int, fps: Int,
+        sessionId: String, connection: PeerConnection?,
+    ) {
         if (sender == null) return
         val parameters = sender.parameters
         var updated = false
-        val maxBitrateBps = computeMaxBitrateBps(width, height, fps)
+        val fallback = if (TvStreamPolicy.enabled) synchronized(streamLock) {
+            if (tvNegotiations[connection]?.codecs == setOf("VP8")) {
+                tvFallbackSenderLimits(
+                    captureWidth.takeIf { it > 0 } ?: width,
+                    captureHeight.takeIf { it > 0 } ?: height,
+                    captureFps.takeIf { it > 0 } ?: fps,
+                )
+            } else null
+        } else null
+        val maxBitrateBps = minOf(computeMaxBitrateBps(width, height, fps), fallback?.maxBitrateBps ?: Int.MAX_VALUE)
+        val maxFps = fallback?.maxFps ?: fps
+        TvStreamPolicy.log(sessionId, "capture effective=${width}x$height fps=$fps maxBitrateBps=$maxBitrateBps")
+        if (TvStreamPolicy.enabled) {
+            val startBitrateBps = minOf(1_000_000, maxBitrateBps)
+            val success = connection?.setBitrate(null, startBitrateBps, maxBitrateBps)
+            TvStreamPolicy.log(sessionId, "startupBitrate currentBps=$startBitrateBps maxBps=$maxBitrateBps success=$success")
+        }
         for (encoding in parameters.encodings) {
             val currentMax = encoding.maxBitrateBps
             if (currentMax == null || currentMax > maxBitrateBps) {
@@ -2947,8 +3321,12 @@ class WebRtcManager private constructor(private val context: Context) {
                 updated = true
             }
             val currentFps = encoding.maxFramerate
-            if (currentFps == null || currentFps > fps) {
-                encoding.maxFramerate = fps
+            if (currentFps == null || currentFps > maxFps) {
+                encoding.maxFramerate = maxFps
+                updated = true
+            }
+            if (fallback != null && encoding.scaleResolutionDownBy != fallback.scaleDownBy) {
+                encoding.scaleResolutionDownBy = fallback.scaleDownBy
                 updated = true
             }
         }
@@ -2956,11 +3334,15 @@ class WebRtcManager private constructor(private val context: Context) {
             parameters.degradationPreference = RtpParameters.DegradationPreference.BALANCED
             updated = true
         }
+        val success = if (updated) sender.setParameters(parameters) else true
+        if (fallback != null) {
+            TvStreamPolicy.log(sessionId, "fallbackSender scaleDownBy=${fallback.scaleDownBy} maxFps=$maxFps maxBitrateBps=$maxBitrateBps success=$success")
+        }
         if (updated) {
-            val success = sender.setParameters(parameters)
+            TvStreamPolicy.log(sessionId, "senderParameters maxBitrateBps=$maxBitrateBps success=$success")
             Log.i(
                 TAG,
-                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$fps, success=$success)"
+                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$maxFps, success=$success)"
             )
         }
     }
@@ -3132,20 +3514,24 @@ class WebRtcManager private constructor(private val context: Context) {
         consecutiveZeroSentStatsIntervals = 0
     }
 
+    private data class OutboundVideoStats(val stats: RTCStats, val framesSent: Long?, val framesEncoded: Long?) {
+        val frames: Long? get() = framesSent ?: framesEncoded
+    }
+
+    private fun outboundVideoStats(report: RTCStatsReport): OutboundVideoStats? {
+        val stats = report.statsMap.values.firstOrNull {
+            it.type == "outbound-rtp" && !getBooleanMember(it.members, "isRemote", false) && isVideoStats(it.members)
+        } ?: return null
+        return OutboundVideoStats(stats, getLongMember(stats.members, "framesSent"), getLongMember(stats.members, "framesEncoded"))
+    }
+
     private fun logStats(report: RTCStatsReport) {
         val statsMap = report.statsMap
-        val outboundVideo =
-            statsMap.values.firstOrNull { stats ->
-                stats.type == "outbound-rtp" &&
-                        !getBooleanMember(stats.members, "isRemote", false) &&
-                        isVideoStats(stats.members)
-            }
-                ?: return
-
+        val video = outboundVideoStats(report) ?: return
+        val outboundVideo = video.stats
         val members = outboundVideo.members
         val bytesSent = getLongMember(members, "bytesSent")
-        val framesSent =
-            getLongMember(members, "framesSent") ?: getLongMember(members, "framesEncoded")
+        val framesSent = video.frames
         val framesDropped = getLongMember(members, "framesDropped")
         val fps = getDoubleMember(members, "framesPerSecond")
         val width = getLongMember(members, "frameWidth")
@@ -3344,12 +3730,22 @@ class WebRtcManager private constructor(private val context: Context) {
         return drainOutgoingIceCandidatesLocked(session)
     }
 
-    fun handleKeepAlive(sessionId: String) {
+    fun handleKeepAlive(sessionId: String) = handleViewerSignal(sessionId, "keep_alive")
+
+    private fun handleViewerSignal(sessionId: String, signal: String) {
         if (sessionId.isBlank()) return
         synchronized(streamLock) {
             if (!isTrackedSessionLocked(sessionId)) return
             val state = ensureSessionLivenessStateLocked(sessionId)
-            state.lastLivenessAtMs = SystemClock.elapsedRealtime()
+            val nowMs = SystemClock.elapsedRealtime()
+            state.lastLivenessAtMs = nowMs
+            if (TvStreamPolicy.enabled) {
+                val lease = tvViewerLeases[sessionId] ?: return
+                val intervalMs = lease.renew(nowMs, requestFrame = signal == "requestFrame")
+                TvStreamPolicy.log(sessionId, "viewerSignal=$signal intervalMs=${intervalMs ?: -1} sameSignalIntervalMs=${lease.sameSignalIntervalMs ?: -1} renewals=${lease.renewals}")
+                scheduleTvLeaseLocked(sessionId, lease, nowMs)
+                return
+            }
             state.runnable?.let { stopHandler.removeCallbacks(it) }
             val runnable = Runnable { handleSessionLivenessTimeout(sessionId) }
             state.runnable = runnable
@@ -3357,7 +3753,9 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    fun handleRequestFrame(sessionId: String) {
+    fun handleRequestFrame(sessionId: String) = handleRequestFrame(sessionId, fromViewer = true)
+
+    private fun handleRequestFrame(sessionId: String, fromViewer: Boolean) {
         if (sessionId.isBlank()) return
         val shouldLogFirst =
             synchronized(streamLock) {
@@ -3366,7 +3764,7 @@ class WebRtcManager private constructor(private val context: Context) {
         if (shouldLogFirst) {
             Log.i(TAG, "First requestFrame received for session=$sessionId")
         }
-        handleKeepAlive(sessionId)
+        if (fromViewer || !TvStreamPolicy.enabled) handleViewerSignal(sessionId, "requestFrame")
         val nowMs = SystemClock.elapsedRealtime()
         var scheduledRequest: PendingKeyframeRequest? = null
         val decision =
@@ -3431,7 +3829,7 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.i(TAG, "requestKeyFrame called but no tracked session is active")
             return
         }
-        handleRequestFrame(sessionId)
+        handleRequestFrame(sessionId, fromViewer = false)
     }
 
     private fun handleSessionLivenessTimeout(sessionId: String) {
@@ -3488,17 +3886,17 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private fun cancelAllKeepAlives() {
+    private fun cancelAllKeepAlives(reason: String = "all_sessions_stopped") {
         synchronized(streamLock) {
-            sessionLivenessStates.keys.toList().forEach { sessionId ->
-                clearSessionLivenessStateLocked(sessionId)
+            (sessionLivenessStates.keys + tvViewerLeases.keys).toList().forEach { sessionId ->
+                clearSessionLivenessStateLocked(sessionId, reason)
             }
         }
     }
 
-    private fun sendStreamError(error: String, message: String) {
+    private fun sendStreamError(error: String, message: String, sessionId: String? = null) {
         try {
-            val requestId = getStreamRequestId()
+            val requestId = sessionId ?: getStreamRequestId()
             val json =
                 JSONObject().apply {
                     put("method", "stream/error")
@@ -3616,11 +4014,15 @@ class WebRtcManager private constructor(private val context: Context) {
     private class FilteringVideoEncoderFactory(
         private val delegate: VideoEncoderFactory,
         allowedCodecNames: Set<String>,
+        private val vp8Delegate: VideoEncoderFactory?,
     ) : VideoEncoderFactory {
         private val allowed = allowedCodecNames.map { it.uppercase(Locale.US) }.toSet()
 
         override fun createEncoder(info: VideoCodecInfo): VideoEncoder? {
-            return if (isAllowed(info)) delegate.createEncoder(info) else null
+            if (!isAllowed(info)) return null
+            return if (vp8Delegate != null && info.name.equals("VP8", ignoreCase = true)) {
+                vp8Delegate.createEncoder(info)
+            } else delegate.createEncoder(info)
         }
 
         override fun getSupportedCodecs(): Array<VideoCodecInfo> {
@@ -3679,6 +4081,125 @@ class WebRtcManager private constructor(private val context: Context) {
         override fun onMessage(buffer: DataChannel.Buffer?) {
             if (!isCurrent()) return
             delegate?.onMessage(buffer)
+        }
+    }
+
+    private fun isCurrentPeerLocked(sessionId: String, connection: PeerConnection): Boolean =
+        (if (primarySessionId == sessionId) peerConnection else secondarySessions[sessionId]?.peerConnection) === connection
+
+    private fun isCurrentPeer(sessionId: String, connection: PeerConnection): Boolean = synchronized(streamLock) {
+        isCurrentPeerLocked(sessionId, connection)
+    }
+
+    private fun tvPeerRequiresH264(connection: PeerConnection): Boolean = synchronized(streamLock) {
+        tvNegotiations[connection]?.codecs == setOf("H264")
+    }
+
+    private fun finishTvNegotiation(connection: PeerConnection) {
+        if (TvStreamPolicy.enabled) synchronized(streamLock) { tvNegotiations[connection]?.inProgress = false }
+    }
+
+    private fun prepareTvNegotiation(connection: PeerConnection, sessionId: String, ready: () -> Unit) {
+        if (!TvStreamPolicy.enabled) {
+            ready()
+            return
+        }
+        statsHandler.post {
+            val negotiation: TvNegotiation
+            val startProbe: Boolean
+            val alreadyReady: Boolean
+            val size: Triple<Int, Int, Int>
+            val cooldown: Boolean
+            synchronized(streamLock) {
+                // Identity check and insertion are atomic with cleanup.
+                if (!isCurrentPeerLocked(sessionId, connection)) return@post
+                startProbe = !tvNegotiations.containsKey(connection)
+                negotiation = tvNegotiations.getOrPut(connection) { TvNegotiation() }
+                if (negotiation.inProgress) return@post
+                alreadyReady = negotiation.codecs != null
+                if (alreadyReady) negotiation.inProgress = true else negotiation.ready = ready
+                size = Triple(captureWidth, captureHeight, captureFps)
+                cooldown = tvEncoderCooldownActive(tvEncoderUnavailableAtMs, SystemClock.elapsedRealtime())
+            }
+            if (alreadyReady) {
+                ready()
+            } else if (startProbe) {
+                val (width, height, fps) = size
+                val complete: (TvEncoderProbe.Result) -> Unit = complete@ { result ->
+                    if (!isCurrentPeer(sessionId, connection)) return@complete
+                    val coolingDown = synchronized(streamLock) {
+                        tvEncoderCooldownActive(tvEncoderUnavailableAtMs, SystemClock.elapsedRealtime())
+                    }
+                    val effectiveResult = if (coolingDown) TvEncoderProbe.Result.COOLDOWN else result
+                    val codecs = tvNegotiationCodecs(effectiveResult, previousProbeStuck = coolingDown)
+                    TvStreamPolicy.log(sessionId, "encoderProbe=${effectiveResult.name.lowercase(Locale.US)} codec=${codecs.single()}")
+                    try {
+                        val available = peerConnectionFactory?.getRtpReceiverCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO)
+                            ?.codecs.orEmpty()
+                        val supported = tvCodecPreferences(available, codecs)
+                        check(supported.any { it.name.uppercase(Locale.US) in codecs }) { "Selected TV codec unavailable" }
+                        val video = connection.transceivers.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }
+                        check(video.isNotEmpty()) { "TV video transceiver unavailable" }
+                        video.forEach { it.setCodecPreferences(supported).throwError() }
+                        val pending = synchronized(streamLock) {
+                            if (!isCurrentPeerLocked(sessionId, connection) || tvNegotiations[connection] !== negotiation) return@complete
+                            negotiation.codecs = codecs
+                            negotiation.inProgress = true
+                            negotiation.ready.also { negotiation.ready = null }
+                        }
+                        if (isCurrentPeer(sessionId, connection)) {
+                            // Initial sender setup precedes the asynchronous codec probe. Apply the
+                            // per-peer fallback limits now, without restarting the shared capture.
+                            if (codecs == setOf("VP8")) {
+                                video.forEach { configureVideoSender(it.sender, width, height, fps, sessionId, connection) }
+                            }
+                            pending?.invoke()
+                        }
+                    } catch (_: Exception) {
+                        failTvNegotiation(sessionId, connection, "codec_preferences")
+                    }
+                }
+                if (cooldown) complete(TvEncoderProbe.Result.COOLDOWN)
+                else TvEncoderProbe.request(width, height, fps, statsHandler, complete)
+            }
+        }
+    }
+
+    private fun rejectTvAnswerWithoutH264(sdp: String, sessionId: String, connection: PeerConnection): Boolean {
+        if (!TvStreamPolicy.enabled) return false
+        val codecs = TvStreamPolicy.codecs(sdp)
+        TvStreamPolicy.log(sessionId, "remoteAnswerCodecs=$codecs")
+        if (!tvPeerRequiresH264(connection) || codecs.contains(":H264")) return false
+        failTvNegotiation(sessionId, connection, "no_h264_remote_answer")
+        return true
+    }
+
+    private fun failTvNegotiation(sessionId: String, connection: PeerConnection, stage: String) {
+        if (!TvStreamPolicy.enabled) return
+        TvStreamPolicy.log(sessionId, "negotiationFailure stage=$stage")
+        stopHandler.post {
+            if (stopStream(sessionId, "tv_negotiation_failed", expectedConnection = connection)) {
+                sendStreamError("stream_negotiation_failed", "TV stream negotiation failed ($stage)", sessionId)
+            }
+        }
+    }
+
+    private inner open class StreamSdpObserver(
+        private val stage: String,
+        private val sessionId: String,
+        private val connection: PeerConnection,
+    ) : SimpleSdpObserver(stage) {
+        override fun onCreateFailure(p0: String?) {
+            super.onCreateFailure(p0)
+            failTvNegotiation(sessionId, connection, stage)
+        }
+
+        override fun onSetFailure(p0: String?) {
+            super.onSetFailure(p0)
+            // Stage/attempt is enough to identify failures without logging native error text,
+            // which may contain user SDP or network addresses.
+            TvStreamPolicy.log(sessionId, "sdpFailure stage=$stage")
+            failTvNegotiation(sessionId, connection, stage)
         }
     }
 

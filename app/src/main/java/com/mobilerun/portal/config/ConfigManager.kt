@@ -38,6 +38,10 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
         private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
+        const val CREDENTIAL_API_KEY = "api_key"
+        const val CREDENTIAL_SESSION = "session"
+        private const val KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE = "reverse_connection_credential_type"
+        private const val KEY_SESSION_CHECKED_AT = "session_checked_at"
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
@@ -262,19 +266,34 @@ class ConfigManager private constructor(private val context: Context) {
         get() = CloudTokenNormalizer.normalize(
             secretsPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, ""),
         ) ?: ""
-        set(value) {
-            val normalizedValue = CloudTokenNormalizer.normalize(value).orEmpty()
-            val changed = normalizedValue != reverseConnectionToken
-            secretsPrefs.edit {
-                putString(
-                    KEY_REVERSE_CONNECTION_TOKEN,
-                    normalizedValue,
-                )
-            }
-            if (changed) {
-                reverseJoinBlockedByHttp402 = false
-            }
+        set(value) { setReverseConnectionCredential(value) }
+
+    val reverseConnectionCredentialType: String
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE, CREDENTIAL_API_KEY) ?: CREDENTIAL_API_KEY
+
+    /** Every legacy property writer remains an API-key writer; only TV login opts into session. */
+    @Synchronized fun setReverseConnectionCredential(token: String, credentialType: String = CREDENTIAL_API_KEY) {
+        require(credentialType == CREDENTIAL_API_KEY || credentialType == CREDENTIAL_SESSION)
+        val normalized = CloudTokenNormalizer.normalize(token).orEmpty()
+        // Settings may echo an unchanged token while editing the URL. Preserve known session
+        // provenance so that an API-key default cannot bypass the session host restriction.
+        val type = when {
+            normalized.isEmpty() -> CREDENTIAL_API_KEY
+            normalized == reverseConnectionToken && reverseConnectionCredentialType == CREDENTIAL_SESSION -> CREDENTIAL_SESSION
+            else -> credentialType
         }
+        val changed = normalized != reverseConnectionToken || type != reverseConnectionCredentialType
+        secretsPrefs.edit {
+            putString(KEY_REVERSE_CONNECTION_TOKEN, normalized)
+            putString(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE, type)
+            if (changed) putLong(KEY_SESSION_CHECKED_AT, 0L)
+        }
+        if (changed) reverseJoinBlockedByHttp402 = false
+    }
+
+    var sessionCheckedAt: Long
+        get() = secretsPrefs.getLong(KEY_SESSION_CHECKED_AT, 0L)
+        set(value) { secretsPrefs.edit { putLong(KEY_SESSION_CHECKED_AT, value) } }
 
     // Reverse Connection Service Key (Header: X-Remote-Device-Key)
     var reverseConnectionServiceKey: String
@@ -958,8 +977,10 @@ class ConfigManager private constructor(private val context: Context) {
         }
     }
 
-    fun clearCloudCredentials() {
+    @Synchronized fun clearCloudCredentials() {
         secretsPrefs.edit(commit = true) {
+            remove(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE)
+            remove(KEY_SESSION_CHECKED_AT)
             remove(KEY_REVERSE_CONNECTION_TOKEN)
             remove(KEY_REVERSE_CONNECTION_SERVICE_KEY)
         }
