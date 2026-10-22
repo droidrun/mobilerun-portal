@@ -32,6 +32,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresApi
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.util.Base64
@@ -55,6 +57,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             "com.mobilerun.portal.action.DISABLE_LOCAL_WS_SERVER"
         @Volatile
         private var instance: MobilerunAccessibilityService? = null
+        private val connectedState = MutableLiveData(false)
+        val isConnected: LiveData<Boolean> = connectedState
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
@@ -307,6 +311,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         Log.d(TAG, "Accessibility service connected and configured")
+        connectedState.value = true
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -1539,7 +1544,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         // connection is gone, and release the read-gate thread. (Do NOT do this
         // in onInterrupt — interrupt is not an unbind.)
         Log.d(TAG, "Accessibility service unbound")
-        if (instance === this) instance = null
+        if (instance === this) {
+            instance = null
+            connectedState.value = false
+        }
         apiHandler?.close()
         return super.onUnbind(intent)
     }
@@ -1554,7 +1562,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         clearVisibleElementSnapshot()
         configManager.removeListener(this)
         apiHandler?.close()
-        if (instance === this) instance = null
+        if (instance === this) {
+            instance = null
+            connectedState.value = false
+        }
         Log.d(TAG, "Accessibility service destroyed")
     }
 
