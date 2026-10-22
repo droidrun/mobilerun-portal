@@ -77,6 +77,17 @@ class WebRtcManager private constructor(private val context: Context) {
         internal fun tvNegotiationCodecs(probe: TvEncoderProbe.Result, previousProbeStuck: Boolean = false): Set<String> =
             if (probe == TvEncoderProbe.Result.OK && !previousProbeStuck) setOf("H264") else setOf("VP8")
 
+        internal data class TvFallbackSenderLimits(
+            val scaleDownBy: Double, val maxFps: Int, val maxBitrateBps: Int,
+        )
+
+        internal fun tvFallbackSenderLimits(width: Int, height: Int, fps: Int): TvFallbackSenderLimits =
+            TvFallbackSenderLimits(
+                maxOf(1.0, width.toDouble() / 640, height.toDouble() / 360),
+                fps.coerceIn(1, 15),
+                800_000,
+            )
+
         internal fun tvEncoderCooldownActive(stoppedAtMs: Long?, nowMs: Long): Boolean =
             stoppedAtMs != null && nowMs - stoppedAtMs in 0 until TV_ENCODER_COOLDOWN_MS
 
@@ -3286,7 +3297,17 @@ class WebRtcManager private constructor(private val context: Context) {
         if (sender == null) return
         val parameters = sender.parameters
         var updated = false
-        val maxBitrateBps = computeMaxBitrateBps(width, height, fps)
+        val fallback = if (TvStreamPolicy.enabled) synchronized(streamLock) {
+            if (tvNegotiations[connection]?.codecs == setOf("VP8")) {
+                tvFallbackSenderLimits(
+                    captureWidth.takeIf { it > 0 } ?: width,
+                    captureHeight.takeIf { it > 0 } ?: height,
+                    captureFps.takeIf { it > 0 } ?: fps,
+                )
+            } else null
+        } else null
+        val maxBitrateBps = minOf(computeMaxBitrateBps(width, height, fps), fallback?.maxBitrateBps ?: Int.MAX_VALUE)
+        val maxFps = fallback?.maxFps ?: fps
         TvStreamPolicy.log(sessionId, "capture effective=${width}x$height fps=$fps maxBitrateBps=$maxBitrateBps")
         if (TvStreamPolicy.enabled) {
             val startBitrateBps = minOf(1_000_000, maxBitrateBps)
@@ -3300,8 +3321,12 @@ class WebRtcManager private constructor(private val context: Context) {
                 updated = true
             }
             val currentFps = encoding.maxFramerate
-            if (currentFps == null || currentFps > fps) {
-                encoding.maxFramerate = fps
+            if (currentFps == null || currentFps > maxFps) {
+                encoding.maxFramerate = maxFps
+                updated = true
+            }
+            if (fallback != null && encoding.scaleResolutionDownBy != fallback.scaleDownBy) {
+                encoding.scaleResolutionDownBy = fallback.scaleDownBy
                 updated = true
             }
         }
@@ -3309,12 +3334,15 @@ class WebRtcManager private constructor(private val context: Context) {
             parameters.degradationPreference = RtpParameters.DegradationPreference.BALANCED
             updated = true
         }
+        val success = if (updated) sender.setParameters(parameters) else true
+        if (fallback != null) {
+            TvStreamPolicy.log(sessionId, "fallbackSender scaleDownBy=${fallback.scaleDownBy} maxFps=$maxFps maxBitrateBps=$maxBitrateBps success=$success")
+        }
         if (updated) {
-            val success = sender.setParameters(parameters)
             TvStreamPolicy.log(sessionId, "senderParameters maxBitrateBps=$maxBitrateBps success=$success")
             Log.i(
                 TAG,
-                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$fps, success=$success)"
+                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$maxFps, success=$success)"
             )
         }
     }
@@ -4119,7 +4147,14 @@ class WebRtcManager private constructor(private val context: Context) {
                             negotiation.inProgress = true
                             negotiation.ready.also { negotiation.ready = null }
                         }
-                        if (isCurrentPeer(sessionId, connection)) pending?.invoke()
+                        if (isCurrentPeer(sessionId, connection)) {
+                            // Initial sender setup precedes the asynchronous codec probe. Apply the
+                            // per-peer fallback limits now, without restarting the shared capture.
+                            if (codecs == setOf("VP8")) {
+                                video.forEach { configureVideoSender(it.sender, width, height, fps, sessionId, connection) }
+                            }
+                            pending?.invoke()
+                        }
                     } catch (_: Exception) {
                         failTvNegotiation(sessionId, connection, "codec_preferences")
                     }

@@ -6,6 +6,35 @@ import org.webrtc.RtpCapabilities
 
 class TvEncoderNegotiationTest {
     @Test
+    fun fallbackSenderFitsCaptureInto360pWithoutUpscaling() {
+        for ((width, height, expectedScale) in listOf(
+            Triple(1280, 720, 2.0), Triple(1920, 1080, 3.0),
+            Triple(640, 360, 1.0), Triple(320, 180, 1.0),
+            Triple(720, 1280, 1280.0 / 360), Triple(1024, 768, 768.0 / 360),
+        )) {
+            val limits = WebRtcManager.tvFallbackSenderLimits(width, height, 30)
+            assertEquals(expectedScale, limits.scaleDownBy, 0.000001)
+            assertTrue(width / limits.scaleDownBy <= 640.000001)
+            assertTrue(height / limits.scaleDownBy <= 360.000001)
+            assertEquals(15, limits.maxFps)
+            assertEquals(800_000, limits.maxBitrateBps)
+        }
+    }
+
+    @Test
+    fun fallbackSenderBoundsInvalidSizesAndFrameRates() {
+        for (size in listOf(0, -1, Int.MIN_VALUE)) {
+            assertEquals(1.0, WebRtcManager.tvFallbackSenderLimits(size, size, 0).scaleDownBy, 0.0)
+        }
+        for ((fps, expected) in listOf(-1 to 1, 0 to 1, 1 to 1, 10 to 10, 15 to 15, Int.MAX_VALUE to 15)) {
+            assertEquals(expected, WebRtcManager.tvFallbackSenderLimits(1280, 720, fps).maxFps)
+        }
+        val largest = WebRtcManager.tvFallbackSenderLimits(Int.MAX_VALUE, Int.MAX_VALUE, 30)
+        assertTrue(largest.scaleDownBy.isFinite())
+        assertTrue(Int.MAX_VALUE / largest.scaleDownBy <= 360.000001)
+    }
+
+    @Test
     fun onlySuccessfulProbeWithoutCooldownSelectsH264() {
         for (result in TvEncoderProbe.Result.values()) {
             assertEquals(if (result == TvEncoderProbe.Result.OK) setOf("H264") else setOf("VP8"),
