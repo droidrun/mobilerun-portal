@@ -37,10 +37,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
-    normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link"
+    normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link" ||
+        normalizedMethod == "app/deep-link/resolve"
 
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
-    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link"
+    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link" ||
+        normalizedMethod == "app/deep-link/resolve"
 
 internal enum class ReverseMediaRelease {
     STOP_CAPTURE,

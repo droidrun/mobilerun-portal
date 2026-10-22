@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.mobilerun.fixture.links" android:versionCode="42" android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <application android:label="Fixture Café 📱" android:enabled="true">
+        <activity android:name=".LinkActivity" android:exported="true">
+            <intent-filter android:priority="-7" android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture" android:host="example.com" android:pathPrefix="/orders/" />
+                <data android:scheme="https" android:host="例え.example" android:pathPattern="/products/.*" />
+                <data android:scheme="@string/link_scheme" android:host="@string/link_host" />
+            </intent-filter>
+            <layout android:defaultWidth="300dp" android:defaultHeight="80%" android:gravity="center" />
+        </activity>
+        <activity android:name=".HiddenActivity" android:enabled="false" android:exported="false" />
+        <activity-alias android:name=".Alias" android:targetActivity=".LinkActivity"
+            android:permission="com.example.PERMISSION" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="alias" />
+            </intent-filter>
+        </activity-alias>
+        <meta-data android:name="long-text" android:value="éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé" />
+    </application>
+</manifest>

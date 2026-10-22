@@ -103,7 +103,16 @@ Reverse connection supports the same app commands as local WebSocket:
 
 - `app` with optional `stopBeforeLaunch` (default `false`)
 - `app/deep-link` with required `deepLink`, optional `package`, optional `action`, and `displayId` (default `0`)
+- `app/deep-links` with required `package`, to inspect installed manifest declarations
+- `app/deep-link/resolve` with required `package` and `deepLink`, plus optional `action`, to check Android resolver matches
 - `app/stop` to request a best-effort stop
+
+The two inspection methods are read-only, do not launch activities, and remain
+available in the headless subset without Accessibility. They use the established
+reverse connection session. URI-bearing resolver requests and responses are
+redacted in reverse connection logs. See [Deep-link inspection](deep-links.md)
+for response schemas and discovery limits, and [Screenshot response format](local-api.md#screenshot-response-format)
+for the JSON/base64 screenshot contract shared by all socket transports.
 
 Example:
 

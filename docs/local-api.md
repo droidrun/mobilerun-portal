@@ -24,6 +24,7 @@ Response example:
 | Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
+| Deep-link discovery / resolution | No | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
@@ -69,6 +70,8 @@ Response format:
 | `global` | `action` | Accessibility global action ID |
 | `app` | `package`, `activity`, `stopBeforeLaunch` | `activity` optional; `stopBeforeLaunch` defaults to `false` |
 | `app/deep-link` | `deepLink`, `displayId`, `package`, `action` | Opens an implicit URI intent; `displayId` defaults to `0`, `action` defaults to `android.intent.action.VIEW`, and `package` is optional (`packageName` is also accepted) |
+| `app/deep-links` | `package` | Read manifest declarations without launching; no Accessibility required |
+| `app/deep-link/resolve` | `package`, `deepLink`, `action` | Read Android resolver matches without launching; `action` defaults to `android.intent.action.VIEW` |
 | `app/stop` | `package` | Best-effort stop (non-privileged app) |
 | `keyboard/input` | `base64_text`, `clear` | `clear` defaults to `true` |
 | `keyboard/clear` | - | Clears focused input |
@@ -96,6 +99,9 @@ Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
+Deep-link inspection is available over HTTP POST, local WebSocket, and reverse WebSocket,
+including headless mode. See [Deep-link inspection](deep-links.md) for response schemas,
+package visibility, pattern semantics, and limits on route discovery.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
 `?eventFormat=rpc` to request the same
@@ -109,14 +115,46 @@ Install notes:
 - The device must allow **Install unknown apps** for Mobilerun Portal.
 - Enable **Install Auto-Accept** in Settings to auto-confirm install prompts.
 
-### Binary screenshot responses
+### Screenshot response format
 
-When `screenshot` returns binary data, the local WebSocket sends a binary frame:
+`screenshot` returns a JSON response with a **base64-encoded PNG string** in `result`
+over HTTP, local WebSocket, and reverse WebSocket. HTTP uses
+`Content-Type: application/json`; both WebSocket transports send a **text frame**. Screenshots do
+not use binary frames or a request-ID prefix.
 
-- First 36 bytes: request ID string (UUID)
-- Remaining bytes: PNG image bytes
+WebSocket request and successful response (the `id` retains its original string or
+number type):
 
-If you prefer JSON, use the HTTP `/screenshot` endpoint or reverse connection (which base64-encodes the PNG).
+```json
+{"id":42,"method":"screenshot","params":{"hideOverlay":false}}
+{"id":42,"status":"success","result":"<base64-encoded PNG>"}
+```
+
+A capture failure returns an error envelope instead of image data, for example:
+
+```json
+{"id":42,"status":"error","error":"Screenshot failed: Secure window cannot be captured"}
+```
+
+HTTP responses use the same success/error fields without `id`. Check `status`
+before decoding `result`. The PNG bytes are obtained by base64-decoding that
+field, not by saving the HTTP response body directly as a `.png` file.
+
+For example, save an HTTP screenshot as `screenshot.png`:
+
+```bash
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  'http://localhost:8080/screenshot?hideOverlay=false' | \
+  python3 -c 'import base64, json, pathlib, sys
+response = json.load(sys.stdin)
+if response["status"] != "success":
+    raise SystemExit(response["error"])
+pathlib.Path("screenshot.png").write_bytes(base64.b64decode(response["result"]))'
+```
+
+`hideOverlay` defaults to `true`; set it to `false` to keep Portal's overlay in the
+capture. This changes the capture contents, not the response encoding.
 
 ## HTTP socket server
 
@@ -145,7 +183,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8080/ping
 - `/version`
 - `/packages`
 - `/clipboard/get` (requires Mobilerun Keyboard to be selected)
-- `/screenshot?hideOverlay=false` (binary PNG)
+- `/screenshot?hideOverlay=false` (JSON envelope containing base64 PNG; see [Screenshot response format](#screenshot-response-format))
 
 ### POST endpoints
 
@@ -161,7 +199,7 @@ curl -X POST \
   http://localhost:8080/tap
 ```
 
-Deep links are authenticated and require Accessibility, like `app` launches. Android resolves
+Opening deep links is authenticated and requires Accessibility, like `app` launches. Android resolves
 the URI and any optional package pin; custom schemes are supported.
 
 ```bash
@@ -172,11 +210,15 @@ curl -X POST \
   http://localhost:8080/app/deep-link
 ```
 
+Read-only inspection uses authenticated POST `/app/deep-links` and
+`/app/deep-link/resolve`. These two operations do not require Accessibility and
+never open the target app. They are not GET endpoints. See [Deep-link inspection](deep-links.md).
+
 ## ContentProvider (ADB)
 
 All commands use `content://com.mobilerun.portal/`.
 
-The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config flows. It does not expose direct screenshot, install, or WebRTC streaming endpoints.
+The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config flows. It does not expose direct screenshot, deep-link inspection, install, or WebRTC streaming endpoints.
 
 Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 
