@@ -86,4 +86,14 @@ class WebRtcManagerPrimarySignalingStateTest {
         assertTrue(WebRtcManager.canPublishSecondaryReservation(8, 8, capture, capture, false))
         assertTrue(publish(7, capture))
     }
+
+    @Test
+    fun routesSignalingToPrimary_keepsALaterSecondaryOnTheSecondaryPath() {
+        // Primary torn down while the latest stream request names a live secondary.
+        assertFalse(WebRtcManager.routesSignalingToPrimary("b", null, "b", isSecondarySession = true))
+        // A pending primary start that is not a secondary still queues as primary.
+        assertTrue(WebRtcManager.routesSignalingToPrimary("b", null, "b", isSecondarySession = false))
+        assertTrue(WebRtcManager.routesSignalingToPrimary("a", "a", "b", isSecondarySession = false))
+        assertFalse(WebRtcManager.routesSignalingToPrimary("b", "a", "b", isSecondarySession = true))
+    }
 }
