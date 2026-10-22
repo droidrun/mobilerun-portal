@@ -1,0 +1,5 @@
+<resources>
+    <string name="deep_link_fixture_scheme">fixture-resource</string>
+    <string name="deep_link_fixture_host">routes.example</string>
+    <string name="deep_link_fixture_prefix">/products/</string>
+</resources>

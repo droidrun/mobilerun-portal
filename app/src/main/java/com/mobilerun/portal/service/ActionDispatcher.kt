@@ -111,6 +111,26 @@ class ActionDispatcher(
                 apiHandler.startApp(pkg, finalActivity)
             }
 
+            "app/deep-links", "app/deep-link/resolve" -> {
+                val packageName = if (hasCanonicalPackage(params)) {
+                    optionalString(params, "package")
+                } else {
+                    optionalString(params, "packageName")
+                }
+                if (packageName.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'package'")
+                }
+                if (method == "app/deep-links") {
+                    apiHandler.getDeepLinks(packageName)
+                } else {
+                    val deepLink = optionalString(params, "deepLink")
+                    if (deepLink.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'deepLink'")
+                    }
+                    apiHandler.resolveDeepLink(packageName, deepLink, optionalString(params, "action"))
+                }
+            }
+
             "app/deep-link" -> {
                 val deepLink =
                     if (params.has("deepLink") && !params.isNull("deepLink")) {

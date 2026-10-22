@@ -1,0 +1,4 @@
+<resources>
+    <string name="link_scheme">from-resource</string>
+    <string name="link_host">resource.example.com</string>
+</resources>

@@ -61,6 +61,7 @@ import com.mobilerun.portal.ui.ScreenCaptureActivity
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Locale
+import com.mobilerun.portal.deeplinks.DeepLinkInspector
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -96,6 +97,7 @@ class ApiHandler(
 
     private val installLock = Any()
     private val fileOperations: FileOperations by lazy { FileOperations() }
+    private val deepLinkInspector by lazy { DeepLinkInspector(context, getPackageManager()) }
 
     // Bounds a11y reads so a wedged binder can't hang HTTP workers.
     private val a11yReads = A11yReadGate()
@@ -653,12 +655,7 @@ class ApiHandler(
             if (result.startsWith("error:")) {
                 ApiResponse.Error(result.substring(7))
             } else {
-                // Result is Base64 string from Service. 
-                // decode it back to bytes to pass as Binary response.
-                // In future, Service should return bytes directly to avoid this encode/decode cycle.
-                // val bytes = android.util.Base64.decode(result, android.util.Base64.DEFAULT)
-
-                // use base64 encoding to be compatible with json rpc 1.0.
+                // Preserve base64 PNG text in the JSON envelope across all transports.
                 ApiResponse.Text(result)
             }
         } catch (e: java.util.concurrent.TimeoutException) {
@@ -744,6 +741,24 @@ class ApiHandler(
             Log.e("ApiHandler", "Error starting app", e)
             ApiResponse.Error("Error starting app: ${e.message}")
         }
+    }
+
+    fun getDeepLinks(packageName: String): ApiResponse = deepLinkMetadata {
+        deepLinkInspector.discover(packageName)
+    }
+
+    fun resolveDeepLink(packageName: String, deepLink: String, action: String?): ApiResponse = deepLinkMetadata {
+        deepLinkInspector.resolve(packageName, deepLink, action)
+    }
+
+    private fun deepLinkMetadata(read: () -> JSONObject): ApiResponse = try {
+        ApiResponse.RawObject(read())
+    } catch (e: IllegalArgumentException) {
+        ApiResponse.Error(e.message ?: "Invalid deep-link inspection request")
+    } catch (_: SecurityException) {
+        ApiResponse.Error("Package metadata access denied")
+    } catch (_: Exception) {
+        ApiResponse.Error("Failed to inspect deep links")
     }
 
     fun openDeepLink(
