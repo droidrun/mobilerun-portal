@@ -151,6 +151,16 @@ class WebRtcManager private constructor(private val context: Context) {
             return IncomingSessionRoute.SECONDARY
         }
 
+        // A pending primary request can still be named by a secondary that started later; that id stays secondary.
+        internal fun routesSignalingToPrimary(
+            sessionId: String,
+            primarySessionId: String?,
+            streamRequestId: String?,
+            isSecondarySession: Boolean,
+        ): Boolean =
+            primarySessionId == sessionId ||
+                (primarySessionId == null && streamRequestId == sessionId && !isSecondarySession)
+
         internal fun canPublishSecondaryReservation(
             expectedToken: Int,
             currentToken: Int?,
@@ -2031,10 +2041,14 @@ class WebRtcManager private constructor(private val context: Context) {
             offer = pendingPrimaryOffer,
         )
 
+    private fun isSecondaryOrReservedLocked(sessionId: String?): Boolean =
+        sessionId != null &&
+            (secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId))
+
     private fun detachPeerResourcesLocked(): PeerResources {
         val resources = PeerResources(peerConnection, controlChannel)
         clearSessionLivenessStateLocked(primarySessionId)
-        if (streamRequestId != primarySessionId) {
+        if (streamRequestId != primarySessionId && !isSecondaryOrReservedLocked(streamRequestId)) {
             clearSessionLivenessStateLocked(streamRequestId)
         }
         peerConnection = null
@@ -2177,8 +2191,12 @@ class WebRtcManager private constructor(private val context: Context) {
         }
         val isPrimary =
             synchronized(streamLock) {
-                primarySessionId == sessionId ||
-                        (primarySessionId == null && streamRequestId == sessionId)
+                routesSignalingToPrimary(
+                    sessionId,
+                    primarySessionId,
+                    streamRequestId,
+                    isSecondaryOrReservedLocked(sessionId),
+                )
             }
         if (!isPrimary) {
             handleOfferForSecondary(sdp, sessionId)
@@ -2390,8 +2408,12 @@ class WebRtcManager private constructor(private val context: Context) {
         }
         val isPrimary =
             synchronized(streamLock) {
-                primarySessionId == sessionId ||
-                        (primarySessionId == null && streamRequestId == sessionId)
+                routesSignalingToPrimary(
+                    sessionId,
+                    primarySessionId,
+                    streamRequestId,
+                    isSecondaryOrReservedLocked(sessionId),
+                )
             }
         if (!isPrimary) {
             handleIceCandidateForSecondary(candidate, sessionId)
