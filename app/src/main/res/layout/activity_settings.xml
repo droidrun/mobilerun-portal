@@ -312,6 +312,56 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <!-- Max Concurrent Streams -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="24dp"
+                android:paddingVertical="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/stream_session_limit_label"
+                        android:textColor="@color/text_white"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/text_stream_session_limit_description"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_gray"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="100dp"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    app:boxStrokeColor="@color/text_gray"
+                    app:hintTextColor="@color/text_gray">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_stream_session_limit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionDone"
+                        android:inputType="number"
+                        android:maxLength="1"
+                        android:selectAllOnFocus="true"
+                        android:textColor="@color/text_white"
+                        android:gravity="center" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
             <!-- Install Prompt Auto-Accept -->
             <LinearLayout
                 android:layout_width="match_parent"

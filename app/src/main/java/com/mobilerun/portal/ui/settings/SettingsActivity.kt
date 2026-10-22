@@ -108,6 +108,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupServerSettings()
         setupWebSocketSettings()
         setupReverseConnectionSettings()
+        setupStreamSessionLimit()
         setupPermissions()
         setupAutomation()
         setupEventFilters()
@@ -148,6 +149,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onStop() {
         super.onStop()
         configManager.removeListener(this)
+        commitStreamSessionLimitInput(showError = false)
         persistReverseConnectionInputs()
         unregisterUpdateReceivers()
     }
@@ -213,6 +215,47 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 false
             }
         }
+    }
+
+    private fun setupStreamSessionLimit() {
+        binding.textStreamSessionLimitDescription.text = getString(
+            com.mobilerun.portal.R.string.stream_session_limit_description,
+            ConfigManager.MIN_STREAM_SESSION_LIMIT,
+            ConfigManager.MAX_STREAM_SESSION_LIMIT,
+        )
+        binding.inputStreamSessionLimit.setText(configManager.streamSessionLimit.toString())
+        binding.inputStreamSessionLimit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                if (commitStreamSessionLimitInput(showError = true)) {
+                    binding.inputStreamSessionLimit.clearFocus()
+                }
+                true
+            } else {
+                false
+            }
+        }
+        binding.inputStreamSessionLimit.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) commitStreamSessionLimitInput(showError = false)
+        }
+    }
+
+    // Invalid input shows an error on Done and is reverted when the field is left.
+    private fun commitStreamSessionLimitInput(showError: Boolean): Boolean {
+        val min = ConfigManager.MIN_STREAM_SESSION_LIMIT
+        val max = ConfigManager.MAX_STREAM_SESSION_LIMIT
+        val limit = binding.inputStreamSessionLimit.text?.toString()?.toIntOrNull()
+        if (limit != null && limit in min..max) {
+            if (limit != configManager.streamSessionLimit) {
+                configManager.setStreamSessionLimitWithNotification(limit)
+            }
+            return true
+        }
+        if (showError) {
+            binding.inputStreamSessionLimit.error = getString(com.mobilerun.portal.R.string.stream_session_limit_invalid, min, max)
+        } else {
+            updateStreamSessionLimitUi(configManager.streamSessionLimit)
+        }
+        return false
     }
 
     private fun setupReverseConnectionSettings() {
@@ -789,6 +832,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateSocketServerPortUi(configManager.socketServerPort)
         updateWebSocketEnabledUi(configManager.websocketEnabled)
         updateWebSocketPortUi(configManager.websocketPort)
+        updateStreamSessionLimitUi(configManager.streamSessionLimit)
         binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
     }
 
@@ -818,6 +862,15 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         if (current != expected) {
             binding.inputWsPort.setText(expected)
         }
+    }
+
+    private fun updateStreamSessionLimitUi(limit: Int) {
+        val current = binding.inputStreamSessionLimit.text?.toString()
+        val expected = limit.toString()
+        if (current != expected) {
+            binding.inputStreamSessionLimit.setText(expected)
+        }
+        binding.inputStreamSessionLimit.error = null
     }
 
     private fun updatePermissionSwitches() {
@@ -877,6 +930,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchKeepScreenAwake.isChecked = enabled
+        }
+    }
+
+    override fun onStreamSessionLimitChanged(limit: Int) {
+        runOnUiThread {
+            updateStreamSessionLimitUi(limit)
         }
     }
 

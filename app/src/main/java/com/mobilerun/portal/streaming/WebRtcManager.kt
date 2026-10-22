@@ -20,6 +20,7 @@ import android.widget.Toast
 import com.mobilerun.portal.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -46,7 +47,6 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val KEYFRAME_REQUEST_MIN_INTERVAL_MS = 250L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
-        private const val MAX_CONCURRENT_SESSIONS = 3
         private const val FRAME_TAP_TIMEOUT_MS = 2_000L
 
         @Volatile
@@ -115,6 +115,17 @@ class WebRtcManager private constructor(private val context: Context) {
                 "keep_alive_timeout" -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
                 else -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
             }
+        }
+
+        internal fun isStreamSessionLimitReached(
+            hasPrimary: Boolean,
+            secondarySessionCount: Int,
+            replacesExistingSession: Boolean,
+            sessionLimit: Int,
+        ): Boolean {
+            if (replacesExistingSession) return false
+            val activeCount = (if (hasPrimary) 1 else 0) + secondarySessionCount
+            return activeCount >= sessionLimit
         }
 
         internal fun resolveIncomingSessionRoute(
@@ -949,19 +960,7 @@ class WebRtcManager private constructor(private val context: Context) {
             "Starting WebRTC Stream: session=$sessionId ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
         )
         val effectiveIceServers = iceServers ?: consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -1087,19 +1086,7 @@ class WebRtcManager private constructor(private val context: Context) {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
         cancelIdleStop()
         val effectiveIceServers = consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -1180,6 +1167,60 @@ class WebRtcManager private constructor(private val context: Context) {
         flushPendingPrimarySignaling(sessionId)
     }
 
+    // A new primary (fresh or stale takeover) must fit under the limit next to the existing secondaries,
+    // including ones still being built. Gone peers are dropped only when they would block it; a FAILED one
+    // may still be in its ICE restart.
+    private fun admitIncomingSession(sessionId: String): Pair<IncomingSessionRoute, String?> {
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
+        if (synchronized(streamLock) { isPrimaryAdmissionBlockedLocked(sessionId, sessionLimit) }) {
+            reapDisconnectedSecondarySessions(includeFailed = false).forEach { cleanupSecondarySession(it) }
+        }
+        var promotedSecondary: SecondarySession? = null
+        val admission =
+            synchronized(streamLock) {
+                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
+                    return resolvedRoute to null
+                }
+                if (isPrimaryAdmissionBlockedLocked(sessionId, sessionLimit)) {
+                    Log.w(
+                        TAG,
+                        "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys} reserved=${secondaryReservations.keys})",
+                    )
+                    forgetRejectedStreamRequestLocked(sessionId)
+                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
+                }
+                // A secondary restarting as the new primary must not keep its old peer or a pending build.
+                secondaryReservations.remove(sessionId)
+                promotedSecondary = secondarySessions.remove(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
+                    IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
+                } else {
+                    resolvedRoute to null
+                }
+            }
+        promotedSecondary?.let { cleanupSecondarySession(it) }
+        return admission
+    }
+
+    private fun isPrimaryAdmissionBlockedLocked(sessionId: String, sessionLimit: Int): Boolean =
+        isStreamSessionLimitReached(
+            hasPrimary = false,
+            secondarySessionCount = (secondarySessions.keys + secondaryReservations.keys).count { it != sessionId },
+            replacesExistingSession =
+                primarySessionId == sessionId ||
+                    secondarySessions.containsKey(sessionId) ||
+                    secondaryReservations.containsKey(sessionId),
+            sessionLimit = sessionLimit,
+        )
+
+    // The caller records the request before admission; a rejected session must not stay current.
+    private fun forgetRejectedStreamRequestLocked(sessionId: String) {
+        if (streamRequestId == sessionId) {
+            streamRequestId = primarySessionId
+        }
+    }
+
     private data class PrimaryPublication(
         val connection: PeerConnection?, val sendReadyFor: String?, val activeTrack: VideoTrack?,
     )
@@ -1210,6 +1251,12 @@ class WebRtcManager private constructor(private val context: Context) {
         waitForOffer: Boolean,
     ) {
         cancelIdleStop()
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
+        // Decided before reaping, so a restart of a gone or failed secondary stays a replacement.
+        val replacesExistingSession =
+            synchronized(streamLock) {
+                secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId)
+            }
         reapDisconnectedSecondarySessions().forEach { cleanupSecondarySession(it) }
         val reservation: SecondaryReservation
         val staleSession: SecondarySession?
@@ -1218,12 +1265,21 @@ class WebRtcManager private constructor(private val context: Context) {
         val effectiveFps: Int
         synchronized(streamLock) {
             val activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
-            val existing = secondarySessions[sessionId]
             val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
-            val activeCount = (if (hasPrimary) 1 else 0) +
-                (secondarySessions.keys + secondaryReservations.keys).count { it != sessionId }
-            if (existing == null && activeCount >= MAX_CONCURRENT_SESSIONS) {
-                Log.w(TAG, "Rejecting secondary session $sessionId: max concurrent sessions reached (primary=$primarySessionId secondary=${secondarySessions.keys})")
+            if (
+                isStreamSessionLimitReached(
+                    hasPrimary = hasPrimary,
+                    secondarySessionCount =
+                        (secondarySessions.keys + secondaryReservations.keys).count { it != sessionId },
+                    replacesExistingSession = replacesExistingSession || secondarySessions.containsKey(sessionId),
+                    sessionLimit = sessionLimit,
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys} reserved=${secondaryReservations.keys})",
+                )
+                forgetRejectedStreamRequestLocked(sessionId)
                 throw IllegalStateException("max_concurrent_stream_sessions_reached")
             }
             staleSession = secondarySessions.remove(sessionId)
@@ -1505,13 +1561,14 @@ class WebRtcManager private constructor(private val context: Context) {
         cleanupPeerResources(PeerResources(session.peerConnection, session.controlChannel))
     }
 
-    private fun reapDisconnectedSecondarySessions(): List<SecondarySession> {
+    private fun reapDisconnectedSecondarySessions(includeFailed: Boolean = true): List<SecondarySession> {
         checkNativeCallOutsideStreamLock()
         val snapshot = synchronized(streamLock) { secondarySessions.values.toList() }
         val disconnected = snapshot.filter { session ->
             val state = session.peerConnection.iceConnectionState()
             state == PeerConnection.IceConnectionState.DISCONNECTED ||
-                state == PeerConnection.IceConnectionState.CLOSED || state == PeerConnection.IceConnectionState.FAILED
+                state == PeerConnection.IceConnectionState.CLOSED ||
+                (includeFailed && state == PeerConnection.IceConnectionState.FAILED)
         }
         return synchronized(streamLock) {
             disconnected.filter { session ->

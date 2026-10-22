@@ -199,6 +199,31 @@ internal fun handleWebSocketServerToggleInsert(
     return ApiResponse.Success("WebSocket server ${if (enabled) "enabled" else "disabled"} on port $port")
 }
 
+internal fun buildStreamSessionLimitResponse(configManager: ConfigManager): ApiResponse {
+    return ApiResponse.RawObject(
+        JSONObject().apply {
+            put("limit", configManager.streamSessionLimit)
+            put("min", ConfigManager.MIN_STREAM_SESSION_LIMIT)
+            put("max", ConfigManager.MAX_STREAM_SESSION_LIMIT)
+        },
+    )
+}
+
+internal fun handleStreamSessionLimitInsert(
+    configManager: ConfigManager,
+    values: ContentValues?,
+): ApiResponse {
+    val min = ConfigManager.MIN_STREAM_SESSION_LIMIT
+    val max = ConfigManager.MAX_STREAM_SESSION_LIMIT
+    val limit = values?.getAsInteger("limit")
+        ?: return ApiResponse.Error("Missing required integer field: limit")
+    if (limit !in min..max) {
+        return ApiResponse.Error("limit must be between $min and $max")
+    }
+    configManager.setStreamSessionLimitWithNotification(limit)
+    return ApiResponse.Success("Stream session limit set to $limit")
+}
+
 internal fun readProviderStringValue(
     values: ContentValues?,
     key: String,
@@ -563,6 +588,7 @@ class MobilerunContentProvider : ContentProvider() {
         private const val CLOUD_CONNECT = 34
         private const val CLOUD_STATUS = 35
         private const val CLOUD_TASKS_LAUNCH = 36
+        private const val STREAM_SESSION_LIMIT = 37
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -601,6 +627,7 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "cloud/connect", CLOUD_CONNECT)
             addURI(AUTHORITY, "cloud/status", CLOUD_STATUS)
             addURI(AUTHORITY, "cloud/tasks/launch", CLOUD_TASKS_LAUNCH)
+            addURI(AUTHORITY, "stream_session_limit", STREAM_SESSION_LIMIT)
         }
     }
 
@@ -694,6 +721,7 @@ class MobilerunContentProvider : ContentProvider() {
                 VERSION -> ApiResponse.Success(getAppVersion())
                 AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
                 CLOUD_STATUS -> buildCloudStatusResponse(configManager)
+                STREAM_SESSION_LIMIT -> buildStreamSessionLimitResponse(configManager)
                 SCREEN_KEEP_AWAKE_STATUS -> ApiResponse.RawObject(
                     KeepAliveController.getStatusJson(context ?: throw IllegalStateException("Provider context unavailable")),
                 )
@@ -865,6 +893,10 @@ class MobilerunContentProvider : ContentProvider() {
                 enabled,
             )
             return responseToResultUri(response)
+        }
+
+        if (match == STREAM_SESSION_LIMIT) {
+            return responseToResultUri(handleStreamSessionLimitInsert(configManager, values))
         }
 
         if (match == CLIPBOARD_SET) {
