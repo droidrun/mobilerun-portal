@@ -322,6 +322,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+        setupAccessibilityStateObserver()
         setupConnectionStateObserver()
         updateProductionModeUI()
         refreshTaskPromptUi()
@@ -1938,6 +1939,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error toggling overlay: ${e.message}")
+        }
+    }
+
+    private fun setupAccessibilityStateObserver() {
+        MobilerunAccessibilityService.isConnected.observe(this) {
+            updateStatusIndicators()
+            syncUIWithAccessibilityService()
+            updateSocketServerStatus()
         }
     }
 
