@@ -31,6 +31,7 @@ import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.triggers.TriggerRepository
+import com.mobilerun.portal.ui.BatteryOptimizationPrompt
 import com.mobilerun.portal.ui.addWhitespaceStrippingWatcher
 import com.mobilerun.portal.ui.triggers.TriggerRulesActivity
 import com.mobilerun.portal.update.InstallResult
@@ -174,6 +175,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchSocketServerEnabled.setOnCheckedChangeListener { _, isChecked ->
             if (suppressSocketServerSwitchCallback) return@setOnCheckedChangeListener
             configManager.setSocketServerEnabledWithNotification(isChecked)
+            if (isChecked) BatteryOptimizationPrompt.promptAfterEnable(this)
         }
 
         binding.inputSocketServerPort.setText(configManager.socketServerPort.toString())
@@ -198,6 +200,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchWsEnabled.setOnCheckedChangeListener { _, isChecked ->
             if (suppressWebSocketSwitchCallback) return@setOnCheckedChangeListener
             configManager.setWebSocketEnabledWithNotification(isChecked)
+            if (isChecked) BatteryOptimizationPrompt.promptAfterEnable(this)
         }
 
         binding.inputWsPort.setText(configManager.websocketPort.toString())

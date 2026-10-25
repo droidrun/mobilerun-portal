@@ -200,6 +200,9 @@
     <string name="keep_screen_awake_notification_title">Keep Screen Awake</string>
     <string name="keep_screen_awake_notification_text">Monitoring the device to prevent screen sleep</string>
     <string name="keep_screen_awake_notification_stop">Stop</string>
+    <string name="local_server_notification_channel">Local server</string>
+    <string name="local_server_notification_title">Portal local server running</string>
+    <string name="local_server_notification_text">Keeps the HTTP and WebSocket servers reachable</string>
 
     <!-- Permission Dialog -->
     <string name="permission_required_title">Permission Required</string>

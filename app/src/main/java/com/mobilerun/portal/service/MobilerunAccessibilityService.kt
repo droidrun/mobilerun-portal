@@ -945,6 +945,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 }
             }
         }
+        syncLocalServerForeground()
     }
 
     private fun stopSocketServer() {
@@ -954,6 +955,12 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 Log.i(TAG, "Socket server stopped")
             }
         }
+        syncLocalServerForeground()
+    }
+
+    private fun syncLocalServerForeground() {
+        val running = socketServer?.isRunning() == true || websocketServer != null
+        LocalServerForegroundService.sync(this, running)
     }
 
     fun inputText(text: String, clear: Boolean): Boolean {
@@ -1185,6 +1192,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             hideLocalWebSocketConnectionNotification()
             Log.e(TAG, "Failed to start WebSocket server", e)
         }
+        syncLocalServerForeground()
     }
 
     private fun showWebSocketServerStartedToastIfEnoughTimeIsPassed(port: Int) {
@@ -1228,6 +1236,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             Log.e(TAG, "Error stopping WebSocket server", e)
         } finally {
             hideLocalWebSocketConnectionNotification()
+            syncLocalServerForeground()
         }
     }
 
@@ -1351,6 +1360,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 }
             }
         }
+        syncLocalServerForeground()
     }
 
     override fun onWebSocketEnabledChanged(enabled: Boolean) {

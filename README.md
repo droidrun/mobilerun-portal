@@ -58,6 +58,12 @@ Mobilerun Portal exposes three local interfaces:
 - WebSocket server (default port 8081)
 - ContentProvider (ADB commands)
 
+While a local server is enabled, Portal runs a foreground service with a "Portal local server running" notification, and asks once to be exempted from battery optimization. Allow it: battery-optimized apps can be frozen or cut off from the network on many devices (for example by Samsung's app freezer), and the local servers then stop answering. To set it later, open Android **Settings** → **Apps** → **Mobilerun Portal** → **Battery** and choose **Unrestricted**. Over ADB:
+
+```bash
+adb shell dumpsys deviceidle whitelist +com.mobilerun.portal
+```
+
 See [Local API](docs/local-api.md) for full details and examples.
 See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 

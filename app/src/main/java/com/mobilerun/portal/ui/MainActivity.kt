@@ -355,6 +355,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         syncTaskPromptPolling(immediate = true)
         consumePendingUpdateInstallResult()
         checkForUpdates()
+        BatteryOptimizationPrompt.promptOnceIfNeeded(this)
     }
 
     override fun onStop() {
