@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -31,7 +32,6 @@ import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.triggers.TriggerRepository
-import com.mobilerun.portal.ui.BatteryOptimizationPrompt
 import com.mobilerun.portal.ui.addWhitespaceStrippingWatcher
 import com.mobilerun.portal.ui.triggers.TriggerRulesActivity
 import com.mobilerun.portal.update.InstallResult
@@ -175,7 +175,6 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchSocketServerEnabled.setOnCheckedChangeListener { _, isChecked ->
             if (suppressSocketServerSwitchCallback) return@setOnCheckedChangeListener
             configManager.setSocketServerEnabledWithNotification(isChecked)
-            if (isChecked) BatteryOptimizationPrompt.promptAfterEnable(this)
         }
 
         binding.inputSocketServerPort.setText(configManager.socketServerPort.toString())
@@ -200,7 +199,6 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchWsEnabled.setOnCheckedChangeListener { _, isChecked ->
             if (suppressWebSocketSwitchCallback) return@setOnCheckedChangeListener
             configManager.setWebSocketEnabledWithNotification(isChecked)
-            if (isChecked) BatteryOptimizationPrompt.promptAfterEnable(this)
         }
 
         binding.inputWsPort.setText(configManager.websocketPort.toString())
@@ -426,6 +424,28 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             }
             // Revert visual state until onResume confirms change
             binding.switchInstallUnknownApps.isChecked = !binding.switchInstallUnknownApps.isChecked
+        }
+
+        binding.switchUnrestrictedBattery.setOnClickListener {
+            // An exemption can only be revoked from the system list.
+            val intent = if (isIgnoringBatteryOptimizations()) {
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            } else {
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                    )
+                }
+            }
+            // Revert visual state until onResume confirms change
+            binding.switchUnrestrictedBattery.isChecked = !binding.switchUnrestrictedBattery.isChecked
         }
     }
 
@@ -894,7 +914,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         // Install Unknown Apps
         binding.switchInstallUnknownApps.isChecked = packageManager.canRequestPackageInstalls()
+
+        binding.switchUnrestrictedBattery.isChecked = isIgnoringBatteryOptimizations()
     }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
 
     private fun isNotificationServiceEnabled(): Boolean {
         val componentName = ComponentName(this, MobilerunNotificationListener::class.java)

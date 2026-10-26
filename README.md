@@ -58,7 +58,7 @@ Mobilerun Portal exposes three local interfaces:
 - WebSocket server (default port 8081)
 - ContentProvider (ADB commands)
 
-While the accessibility service runs an HTTP or WebSocket server, Portal shows a "Portal local server running" notification. While a server is enabled and Portal is battery-optimized, Portal asks to be exempted when you open it and when you turn a server on in Settings. To exempt it yourself, open Android **Settings** → **Apps** → **Mobilerun Portal** → **Battery** and choose **Unrestricted**, or over ADB:
+While the accessibility service runs an HTTP or WebSocket server, Portal shows a "Portal local server running" notification. To keep the servers reachable in the background, turn on **Unrestricted Battery** in Portal **Settings** → **Permissions**, or over ADB:
 
 ```bash
 adb shell dumpsys deviceidle whitelist +com.mobilerun.portal
