@@ -30,6 +30,7 @@ import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
 import org.java_websocket.client.WebSocketClient
+import org.java_websocket.framing.CloseFrame
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.URI
@@ -48,16 +49,12 @@ internal enum class ReverseMediaRelease {
     NONE,
 }
 
-// BYOD clean-leave protocol: wrtc-stream-bridge docs/portal-protocol.md §3.7
-internal const val CLEAN_LEAVE_CLOSE_CODE = 4000
-internal const val CLEAN_LEAVE_REASON_USER = "user"
-
-/** Clean leave closes with 4000 + "user" so devices-api stops the device now, not after the grace; anything else is an interruption. */
-internal fun closeRelaySocket(client: WebSocketClient, cleanLeave: Boolean) {
-    if (cleanLeave) {
-        client.close(CLEAN_LEAVE_CLOSE_CODE, CLEAN_LEAVE_REASON_USER)
+/** A real leave closes with a normal 1000 so the relay stops the device now; reconnect cleanup sends no close frame, so the relay sees an interruption. */
+internal fun closeRelaySocket(client: WebSocketClient, leave: Boolean) {
+    if (leave) {
+        client.close(CloseFrame.NORMAL, "user")
     } else {
-        client.close()
+        client.closeConnection(CloseFrame.ABNORMAL_CLOSE, "reconnect")
     }
 }
 
@@ -362,7 +359,7 @@ class ReverseConnectionService : Service() {
         try {
             Log.d(TAG, "connectToHost: Setting state to CONNECTING")
             ConnectionStateManager.setState(ConnectionState.CONNECTING)
-            val connectionGeneration = closeWebSocket() // Prevent resource leaks from zombie connections
+            val connectionGeneration = closeWebSocket(leave = false) // Prevent resource leaks from zombie connections
             val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
             val uri = URI(finalUrl)
             val headers = buildHeaders()
@@ -523,10 +520,10 @@ class ReverseConnectionService : Service() {
         ConnectionStateManager.setState(state)
     }
 
-    private fun closeWebSocket(cleanLeave: Boolean = false): Long {
+    private fun closeWebSocket(leave: Boolean): Long {
         val connectionGeneration = webSocketGeneration.advance()
         try {
-            webSocketClient?.let { closeRelaySocket(it, cleanLeave) }
+            webSocketClient?.let { closeRelaySocket(it, leave) }
             webSocketClient = null
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
@@ -534,8 +531,8 @@ class ReverseConnectionService : Service() {
         return connectionGeneration
     }
 
-    private fun disconnect(cleanLeave: Boolean = false) {
-        closeWebSocket(cleanLeave)
+    private fun disconnect() {
+        closeWebSocket(leave = true)
     }
 
     private fun isCurrentWebSocketCallback(connectionGeneration: Long, callback: String): Boolean {
@@ -553,7 +550,7 @@ class ReverseConnectionService : Service() {
         handler.removeCallbacksAndMessages(null)
         ScreenCaptureService.requestStop("user_disconnect")
         reverseMediaReleased = true
-        disconnect(cleanLeave = true)
+        disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         // A newer queued start must still reach onStartCommand, and its sender owns the enabled flag.
         if (stopSelfResult(startId)) {
