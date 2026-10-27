@@ -150,8 +150,6 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8080/ping
 ### POST endpoints
 
 POST requests map to the same method names as WebSocket (e.g., `/tap`, `/action/tap`, `/keyboard/input`).
-Bodies are either JSON (`{...}`) or `application/x-www-form-urlencoded`. In form bodies `+` decodes to a
-space; send a literal `+` (for example in `base64_text`) as `%2B`, as `curl --data-urlencode` does.
 
 Example:
 
