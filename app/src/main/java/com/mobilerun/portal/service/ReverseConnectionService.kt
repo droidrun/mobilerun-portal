@@ -48,6 +48,19 @@ internal enum class ReverseMediaRelease {
     NONE,
 }
 
+// BYOD clean-leave protocol: wrtc-stream-bridge docs/portal-protocol.md §3.7
+internal const val CLEAN_LEAVE_CLOSE_CODE = 4000
+internal const val CLEAN_LEAVE_REASON_USER = "user"
+
+/** Clean leave closes with 4000 + "user" so devices-api stops the device now, not after the grace; anything else is an interruption. */
+internal fun closeRelaySocket(client: WebSocketClient, cleanLeave: Boolean) {
+    if (cleanLeave) {
+        client.close(CLEAN_LEAVE_CLOSE_CODE, CLEAN_LEAVE_REASON_USER)
+    } else {
+        client.close()
+    }
+}
+
 /** Capture-only (shared screenshot) captures are left to their own idle stop. */
 internal fun reverseMediaReleaseFor(
     captureServiceRunning: Boolean,
@@ -510,10 +523,10 @@ class ReverseConnectionService : Service() {
         ConnectionStateManager.setState(state)
     }
 
-    private fun closeWebSocket(): Long {
+    private fun closeWebSocket(cleanLeave: Boolean = false): Long {
         val connectionGeneration = webSocketGeneration.advance()
         try {
-            webSocketClient?.close()
+            webSocketClient?.let { closeRelaySocket(it, cleanLeave) }
             webSocketClient = null
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
@@ -521,8 +534,8 @@ class ReverseConnectionService : Service() {
         return connectionGeneration
     }
 
-    private fun disconnect() {
-        closeWebSocket()
+    private fun disconnect(cleanLeave: Boolean = false) {
+        closeWebSocket(cleanLeave)
     }
 
     private fun isCurrentWebSocketCallback(connectionGeneration: Long, callback: String): Boolean {
@@ -540,7 +553,7 @@ class ReverseConnectionService : Service() {
         handler.removeCallbacksAndMessages(null)
         ScreenCaptureService.requestStop("user_disconnect")
         reverseMediaReleased = true
-        disconnect()
+        disconnect(cleanLeave = true)
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         // A newer queued start must still reach onStartCommand, and its sender owns the enabled flag.
         if (stopSelfResult(startId)) {
