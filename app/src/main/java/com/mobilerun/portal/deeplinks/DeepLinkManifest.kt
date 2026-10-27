@@ -18,24 +18,44 @@ internal data class DeepLinkManifestResult(
     val warnings: List<String>,
 )
 
+internal data class ManifestResourceValue(val value: String, val configurationDependent: Boolean = false)
+
+/** Characters of declaration text a filter contributes to discovery output. */
+internal fun DeclaredDeepLinkFilter.outputSize(): Long =
+    activity.length.toLong() + actions.sumOf { it.length.toLong() } + categories.sumOf { it.length.toLong() } +
+        data.sumOf { element -> element.entries.sumOf { (name, value) -> name.length.toLong() + value.length } } +
+        additionalRules.sumOf { it.outputSize() }
+
+private fun ManifestElement.outputSize(): Long = name.length.toLong() +
+    attributes.sumOf { (it.namespaceUri?.length ?: 0).toLong() + it.name.length + it.value.length } +
+    children.sumOf { it.outputSize() }
+
 internal object DeepLinkManifest {
     fun extract(
         manifest: ManifestElement,
         packageName: String,
-        resolveResource: (Int) -> String?,
+        resolveResource: (Int) -> ManifestResourceValue?,
     ): DeepLinkManifestResult {
         require(manifest.name == "manifest") { "Not an Android manifest" }
         val warnings = linkedSetOf<String>()
-        fun attributes(element: ManifestElement, names: Set<String>? = null): Map<String, String> =
-            element.attributes.filter {
-                it.namespaceUri == ANDROID_NAMESPACE && (names == null || it.name in names)
-            }.associate { attribute ->
-                val resolved = attribute.resourceId?.let(resolveResource)
-                if (attribute.resourceId != null && resolved == null) {
-                    warnings += "unresolved_manifest_resource"
-                }
-                attribute.name to (resolved ?: attribute.value)
+        fun attributes(
+            element: ManifestElement,
+            names: Set<String>? = null,
+            nonConfiguration: Boolean = false,
+        ): Map<String, String> = element.attributes.filter {
+            it.namespaceUri == ANDROID_NAMESPACE && (names == null || it.name in names)
+        }.mapNotNull { attribute ->
+            val resolved = attribute.resourceId?.let(resolveResource)
+            if (attribute.resourceId != null && resolved == null) {
+                warnings += "unresolved_manifest_resource"
             }
+            // Android ignores <data> attributes whose resource value varies by configuration.
+            if (nonConfiguration && resolved?.configurationDependent == true) {
+                warnings += "configuration_dependent_data_ignored"
+                return@mapNotNull null
+            }
+            attribute.name to (resolved?.value ?: attribute.value)
+        }.toMap()
 
         val filters = mutableListOf<DeclaredDeepLinkFilter>()
         for (application in manifest.children.filter { it.name == "application" }) {
@@ -63,7 +83,7 @@ internal object DeepLinkManifest {
                         actions,
                         categories,
                         attributes(filter, setOf("autoVerify"))["autoVerify"] in setOf("true", "1"),
-                        filter.children.filter { it.name == "data" }.map { attributes(it) },
+                        filter.children.filter { it.name == "data" }.map { attributes(it, nonConfiguration = true) },
                         extra,
                     )
                 }

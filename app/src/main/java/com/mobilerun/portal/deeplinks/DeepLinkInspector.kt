@@ -90,12 +90,16 @@ class DeepLinkInspector(
             @Suppress("DEPRECATION")
             packageManager.queryIntentActivities(intent, flags)
         }
+        // Android throws FileUriExposedException when a file:// URI leaves Portal's package.
+        val fileUriExposed = uri.scheme == "file" && uri.path?.startsWith("/system/") == false &&
+            packageName != context.packageName
         val matches = JSONArray()
         var callable = false
         for (result in resolved) {
             val activity = result.activityInfo ?: continue
             if (activity.packageName != packageName) continue
             val entry = componentJson(activity, activity.name)
+            if (fileUriExposed) entry.put("callable", false)
             callable = callable || entry.getBoolean("callable")
             entry.put("filter", result.filter?.let(::filterJson) ?: JSONObject.NULL)
             matches.put(entry)
@@ -106,6 +110,7 @@ class DeepLinkInspector(
             put("canResolve", callable)
             put("navigationVerified", false)
             put("matches", matches)
+            put("warnings", JSONArray(if (fileUriExposed) listOf("file_uri_exposed") else emptyList()))
         }
     }
 
@@ -129,9 +134,10 @@ class DeepLinkInspector(
         val warnings = linkedSetOf<String>()
         val resources = runCatching { packageManager.getResourcesForApplication(packageName) }.getOrNull()
         var totalBytes = 0
+        var outputChars = 0L
         if (paths.isEmpty()) warnings += "manifest_paths_unavailable"
         if (paths.size > MAX_APKS) warnings += "manifest_limit_exceeded"
-        for ((index, path) in paths.take(MAX_APKS).withIndex()) {
+        apks@ for ((index, path) in paths.take(MAX_APKS).withIndex()) {
             if (totalBytes >= MAX_TOTAL_MANIFEST_BYTES) {
                 warnings += "manifest_limit_exceeded"
                 break
@@ -159,16 +165,25 @@ class DeepLinkInspector(
                     runCatching {
                         val value = TypedValue()
                         resources?.getValue(id, value, true)
-                        if (resources == null) null else value.coerceToString()?.toString()
+                        if (resources == null) null else value.coerceToString()?.let {
+                            ManifestResourceValue(it.toString(), value.changingConfigurations != 0)
+                        }
                     }.getOrNull()
                 }
                 warnings += result.warnings
-                if (filters.size + result.filters.size > MAX_FILTERS) {
-                    warnings += "filter_limit_exceeded"
-                    filters += result.filters.take((MAX_FILTERS - filters.size).coerceAtLeast(0)).map { SourceFilter(it, source) }
-                    break
+                for (filter in result.filters) {
+                    if (filters.size >= MAX_FILTERS) {
+                        warnings += "filter_limit_exceeded"
+                        break@apks
+                    }
+                    // Shared pool strings can repeat across many attributes; bound the emitted text.
+                    outputChars += filter.outputSize()
+                    if (outputChars > MAX_OUTPUT_CHARS) {
+                        warnings += "output_limit_exceeded"
+                        break@apks
+                    }
+                    filters += SourceFilter(filter, source)
                 }
-                filters += result.filters.map { SourceFilter(it, source) }
             } catch (_: Exception) {
                 warnings += "manifest_unreadable:$source"
             }
@@ -244,5 +259,6 @@ class DeepLinkInspector(
         const val MAX_TOTAL_MANIFEST_BYTES = 16 * 1024 * 1024
         const val MAX_APKS = 128
         const val MAX_FILTERS = 1000
+        const val MAX_OUTPUT_CHARS = 1024 * 1024
     }
 }

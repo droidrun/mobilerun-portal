@@ -10,6 +10,7 @@ import android.content.ClipboardManager
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.FileUriExposedException
 import android.os.Handler
 import android.content.Intent
 import android.os.Looper
@@ -790,6 +791,8 @@ class ApiHandler(
             ApiResponse.Success("Deep link opened")
         } catch (_: ActivityNotFoundException) {
             ApiResponse.Error("No activity found to handle deep link")
+        } catch (_: FileUriExposedException) {
+            ApiResponse.Error("file:// URIs cannot be opened in another app; use a content:// URI")
         } catch (_: SecurityException) {
             ApiResponse.Error("Deep link launch not permitted")
         } catch (_: IllegalArgumentException) {

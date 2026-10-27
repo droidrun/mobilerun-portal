@@ -27,6 +27,7 @@ class DeepLinkManifestTest {
         val root = BinaryAndroidManifestReader.read(javaClass.getResourceAsStream("/deeplinks/manifest-aapt2.axml")!!.use { it.readBytes() })
         val result = DeepLinkManifest.extract(root, "com.mobilerun.fixture.links") { id ->
             when (id) { 0x7f010001 -> "resource-scheme"; 0x7f010000 -> "resource.example"; else -> null }
+                ?.let(::ManifestResourceValue)
         }
         assertTrue(result.warnings.isEmpty())
         val activity = result.filters.single { it.activity.endsWith(".LinkActivity") }
@@ -45,6 +46,28 @@ class DeepLinkManifestTest {
         val result = DeepLinkManifest.extract(root, "com.mobilerun.fixture.links") { null }
         assertEquals(listOf("unresolved_manifest_resource"), result.warnings)
         assertTrue(result.filters.flatMap { it.data }.any { it["scheme"] == "@0x7f010001" })
+    }
+
+    @Test
+    fun configurationDependentDataAttributesAreDroppedLikeAndroid() {
+        val root = BinaryAndroidManifestReader.read(javaClass.getResourceAsStream("/deeplinks/manifest-aapt2.axml")!!.use { it.readBytes() })
+        val result = DeepLinkManifest.extract(root, "com.mobilerun.fixture.links") { id ->
+            when (id) {
+                0x7f010001 -> ManifestResourceValue("resource-scheme")
+                0x7f010000 -> ManifestResourceValue("localized.example", configurationDependent = true)
+                else -> null
+            }
+        }
+        assertEquals(listOf("configuration_dependent_data_ignored"), result.warnings)
+        val data = result.filters.single { it.activity.endsWith(".LinkActivity") }.data[2]
+        assertEquals(mapOf("scheme" to "resource-scheme"), data)
+    }
+
+    @Test
+    fun outputSizeCountsEveryEmittedString() {
+        val rule = ManifestElement("uri-relative-filter-group", listOf(ManifestAttribute(ANDROID_NAMESPACE, "allow", "true")), emptyList())
+        val filter = DeclaredDeepLinkFilter("a.B", listOf("view"), listOf("cat"), false, listOf(mapOf("host" to "h.example")), listOf(rule))
+        assertEquals(3L + 4 + 3 + 4 + 9 + 25 + ANDROID_NAMESPACE.length + 5 + 4, filter.outputSize())
     }
 
     @Test

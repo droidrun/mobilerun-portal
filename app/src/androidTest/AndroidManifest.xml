@@ -46,6 +46,23 @@
             </intent-filter>
         </activity-alias>
         <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkEdgeFixtureActivity"
+            android:exported="true">
+            <!-- The host string has a values-fr variant, so Android ignores it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="fixture-localized"
+                    android:host="@string/deep_link_fixture_localized_host" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name="com.mobilerun.portal.deeplinks.DeepLinkPrivateFixtureActivity"
             android:exported="false">
             <intent-filter>

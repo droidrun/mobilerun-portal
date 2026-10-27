@@ -63,8 +63,11 @@ categories and separate `<data>` elements. Android combines data elements within
 a filter: an individual element is not necessarily a complete URL. Patterns such
 as `pathPrefix`, `pathPattern`, and `pathAdvancedPattern` are matching rules, not a
 list of concrete routes. Resource-valued attributes are resolved from the target
-app when possible. `autoVerify` records a manifest request, not verified domain
-ownership or the user's preferred handler.
+app when possible. Like Android, discovery omits a `<data>` attribute whose
+resource value varies by configuration (for example a string with locale
+variants) and reports `configuration_dependent_data_ignored`; a filter that loses
+its `host` this way matches any host for its scheme. `autoVerify` records a
+manifest request, not verified domain ownership or the user's preferred handler.
 
 `enabled`, `exported`, `permission`, and `callable` describe current component
 availability to Portal. Discovery's `callable` also requires `CATEGORY_DEFAULT`;
@@ -80,8 +83,9 @@ empty `filters` list means no `ACTION_VIEW` declaration was found in the manifes
 that were read.
 
 Inspection is bounded to 128 APKs, 4 MiB per manifest, 16 MiB of total manifest
-reads, and 1,000 filters. Complete declarations are cached for up to 16 packages;
-package version/update/path or resource configuration changes invalidate them.
+reads, 1,000 filters, and 1 MiB of declaration text in `filters`. Complete
+declarations are cached for up to 16 packages; package version/update/path or
+resource configuration changes invalidate them.
 Enabled state and permission checks are refreshed on each request.
 
 ## Resolve a candidate URI without launching
@@ -124,14 +128,18 @@ resolver for default activities in that package and returns:
       "paths":[{"type":"prefix","value":"/orders/"}],
       "schemeSpecificParts":[]
     }
-  }]
+  }],
+  "warnings":[]
 }
 ```
 
 `canResolve` is true if Android returns at least one currently callable activity.
-It is a resolver check, not proof that the app navigates to the intended page or
-accepts the URI after login. An unmatched URI returns `canResolve:false` and
-`matches:[]`. A missing or package-visibility-restricted app returns an error:
+Android does not let a `file://` URI outside `/system/` leave Portal
+(`FileUriExposedException`), so such a URI reports `callable:false` on every
+match, `canResolve:false`, and the `file_uri_exposed` warning; `app/deep-link`
+rejects it. Use a `content://` URI instead. Resolution is a resolver check, not
+proof that the app navigates to the intended page or accepts the URI after login.
+An unmatched URI returns `canResolve:false` and `matches:[]`. A missing or package-visibility-restricted app returns an error:
 `Package is not installed or not visible to Portal`. The API does not broaden
 Android package visibility permissions. URI inputs and resolver responses are
 redacted in reverse connection logs; the response does not echo the input URI.

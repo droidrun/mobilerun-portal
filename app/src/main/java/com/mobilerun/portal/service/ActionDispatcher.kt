@@ -132,15 +132,8 @@ class ActionDispatcher(
             }
 
             "app/deep-link" -> {
-                val deepLink =
-                    if (params.has("deepLink") && !params.isNull("deepLink")) {
-                        params.optString("deepLink", "")
-                    } else {
-                        ""
-                    }
-                if (deepLink.isBlank() || deepLink.trim() == "null") {
-                    return ApiResponse.Error("Missing required param: 'deepLink'")
-                }
+                val deepLink = optionalString(params, "deepLink")
+                    ?: return ApiResponse.Error("Missing required param: 'deepLink'")
 
                 val displayId = params.optInt("displayId", 0)
                 if (displayId < 0) {

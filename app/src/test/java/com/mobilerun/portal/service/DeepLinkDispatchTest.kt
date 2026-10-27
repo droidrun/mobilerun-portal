@@ -36,6 +36,17 @@ class DeepLinkDispatchTest {
     }
 
     @Test
+    fun openAndResolveReceiveTheSameTrimmedDeepLink() {
+        val handler = mockk<ApiHandler>()
+        every { handler.resolveDeepLink("example.app", "example://one", null) } returns ApiResponse.Success("resolved")
+        every { handler.openDeepLink(0, "example.app", null, "example://one") } returns ApiResponse.Success("opened")
+        val dispatcher = ActionDispatcher(handler)
+        val params = { JSONObject().put("package", "example.app").put("deepLink", " example://one\n") }
+        assertEquals(ApiResponse.Success("resolved"), dispatcher.dispatch("app/deep-link/resolve", params()))
+        assertEquals(ApiResponse.Success("opened"), dispatcher.dispatch("app/deep-link", params()))
+    }
+
+    @Test
     fun resolutionKeepsExplicitActionAndIsHeadlessSafeWithoutAllowingLaunch() {
         val handler = mockk<ApiHandler>()
         every { handler.resolveDeepLink("example.app", "example://one", "example.OPEN") } returns ApiResponse.Success("ok")

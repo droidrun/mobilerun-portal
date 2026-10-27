@@ -57,7 +57,8 @@ class DeepLinkContractInstrumentedTest {
         val result = dispatch("app/deep-links", JSONObject().put("package", fixturePackage))
         assertEquals(fixturePackage, result.getString("package"))
         assertEquals("manifest", result.getString("scope"))
-        assertTrue(result.toString(), result.getBoolean("declarationsComplete"))
+        assertEquals(result.toString(), listOf("configuration_dependent_data_ignored"), result.getJSONArray("warnings").strings())
+        assertFalse(result.getBoolean("declarationsComplete"))
         assertTrue(result.has("versionCode"))
         assertTrue(result.has("lastUpdateTime"))
         val limitations = result.getJSONArray("limitations").strings()
@@ -101,6 +102,28 @@ class DeepLinkContractInstrumentedTest {
         val protectedActivity = filters.single { it.getString("activity") == DeepLinkProtectedFixtureActivity::class.java.name }
         assertEquals("android.permission.MASTER_CLEAR", protectedActivity.getString("permission"))
         assertFalse(protectedActivity.getBoolean("callable"))
+
+        val localizedData = filters.filter { it.getString("activity") == DeepLinkEdgeFixtureActivity::class.java.name }
+            .flatMap { it.getJSONArray("data").objects() }
+            .single { it.optString("scheme") == "fixture-localized" }
+        assertFalse("Android ignores configuration-dependent <data> values", localizedData.has("host"))
+    }
+
+    @Test
+    fun androidIgnoresConfigurationDependentHostsAndBlocksFileUrisLikeDiscoveryReports() {
+        // The dropped host leaves a scheme-only filter, so any host resolves.
+        assertTrue(resolve("fixture-localized://unrelated.example/any").getBoolean("canResolve"))
+
+        val file = resolve("file:///fixture/report.txt")
+        assertFalse(file.getBoolean("canResolve"))
+        assertEquals(listOf("file_uri_exposed"), file.getJSONArray("warnings").strings())
+        val match = file.getJSONArray("matches").objects().single()
+        assertEquals(DeepLinkEdgeFixtureActivity::class.java.name, match.getString("activity"))
+        assertFalse(match.getBoolean("callable"))
+
+        val system = resolve("file:///system/fixture.txt")
+        assertTrue(system.getBoolean("canResolve"))
+        assertEquals(0, system.getJSONArray("warnings").length())
     }
 
     @Test
@@ -162,7 +185,7 @@ class DeepLinkContractInstrumentedTest {
         return response.getJSONObject("result")
     }
 
-    private fun aliasName(): String = DeepLinkFixtureActivity::class.java.packageName + ".DeepLinkFixtureAlias"
+    private fun aliasName(): String = "com.mobilerun.portal.deeplinks.DeepLinkFixtureAlias"
 
     private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map(::getJSONObject)
     private fun JSONArray.strings(): List<String> = (0 until length()).map(::getString)
@@ -170,6 +193,7 @@ class DeepLinkContractInstrumentedTest {
 
 // These classes are declared only in the instrumented test APK and are never started.
 open class DeepLinkFixtureActivity : Activity()
+class DeepLinkEdgeFixtureActivity : DeepLinkFixtureActivity()
 class DeepLinkPrivateFixtureActivity : DeepLinkFixtureActivity()
 class DeepLinkDisabledFixtureActivity : DeepLinkFixtureActivity()
 class DeepLinkProtectedFixtureActivity : DeepLinkFixtureActivity()

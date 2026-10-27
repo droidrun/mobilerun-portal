@@ -45,6 +45,7 @@ class DeepLinkInspectorTest {
     private var configuration = mockk<Configuration>()
     private var resourceScheme = "resource-scheme"
     private var resolvedResourceValue: String? = null
+    private var hostChangingConfigurations = 0
 
     @Before
     fun setUp() {
@@ -68,6 +69,8 @@ class DeepLinkInspectorTest {
                 else -> error("Unexpected fixture resource")
             }
             secondArg<TypedValue>().string = resolvedResourceValue
+            secondArg<TypedValue>().changingConfigurations =
+                if (firstArg<Int>() == 0x7f010000) hostChangingConfigurations else 0
         }
         every { anyConstructed<TypedValue>().coerceToString() } answers { resolvedResourceValue }
 
@@ -166,6 +169,33 @@ class DeepLinkInspectorTest {
 
         assertEquals("localized-scheme", resolvedScheme(result))
         verify(exactly = 2) { packageManager.getResourcesForApplication(PACKAGE) }
+    }
+
+    @Test
+    fun configurationDependentDataValuesAreOmittedAndReported() {
+        hostChangingConfigurations = ActivityInfo.CONFIG_LOCALE
+
+        val result = inspector.discover(PACKAGE)
+
+        assertFalse(result.getBoolean("declarationsComplete"))
+        assertEquals(listOf("configuration_dependent_data_ignored"), result.getJSONArray("warnings").strings())
+        val data = link(result).getJSONArray("data").objects()
+        assertTrue(data.none { it.has("host") && it.getString("host") == "resource.example" })
+        assertTrue(data.any { it.optString("scheme") == "resource-scheme" && !it.has("host") })
+    }
+
+    @Test
+    fun emittedDeclarationTextIsBoundedAcrossApks() {
+        application.splitPublicSourceDirs = arrayOf(apk("feature.apk").absolutePath)
+        resourceScheme = "s".repeat(600_000)
+
+        val result = inspector.discover(PACKAGE)
+        val filters = result.getJSONArray("filters").objects()
+
+        assertFalse(result.getBoolean("declarationsComplete"))
+        assertEquals(listOf("output_limit_exceeded"), result.getJSONArray("warnings").strings())
+        assertEquals(listOf("base", "base"), filters.map { it.getString("source") })
+        assertTrue(result.toString().length < 1_200_000)
     }
 
     @Test
