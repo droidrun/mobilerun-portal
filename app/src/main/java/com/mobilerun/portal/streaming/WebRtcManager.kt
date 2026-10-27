@@ -17,8 +17,10 @@ import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
+import com.mobilerun.portal.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -45,7 +47,6 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val KEYFRAME_REQUEST_MIN_INTERVAL_MS = 250L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
-        private const val MAX_CONCURRENT_SESSIONS = 3
         private const val FRAME_TAP_TIMEOUT_MS = 2_000L
 
         @Volatile
@@ -116,6 +117,17 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
 
+        internal fun isStreamSessionLimitReached(
+            hasPrimary: Boolean,
+            secondarySessionCount: Int,
+            replacesExistingSession: Boolean,
+            sessionLimit: Int,
+        ): Boolean {
+            if (replacesExistingSession) return false
+            val activeCount = (if (hasPrimary) 1 else 0) + secondarySessionCount
+            return activeCount >= sessionLimit
+        }
+
         internal fun resolveIncomingSessionRoute(
             currentPrimarySessionId: String?,
             incomingSessionId: String,
@@ -138,6 +150,24 @@ class WebRtcManager private constructor(private val context: Context) {
             }
             return IncomingSessionRoute.SECONDARY
         }
+
+        // A pending primary request can still be named by a secondary that started later; that id stays secondary.
+        internal fun routesSignalingToPrimary(
+            sessionId: String,
+            primarySessionId: String?,
+            streamRequestId: String?,
+            isSecondarySession: Boolean,
+        ): Boolean =
+            primarySessionId == sessionId ||
+                (primarySessionId == null && streamRequestId == sessionId && !isSecondarySession)
+
+        internal fun canPublishSecondaryReservation(
+            expectedToken: Int,
+            currentToken: Int?,
+            expectedCapture: Any,
+            currentCapture: Any?,
+            hasPublishedSession: Boolean,
+        ): Boolean = expectedToken == currentToken && expectedCapture === currentCapture && !hasPublishedSession
 
         internal enum class KeyframeRequestScheduleDisposition {
             SKIP_NO_STREAM,
@@ -481,6 +511,14 @@ class WebRtcManager private constructor(private val context: Context) {
         CAPTURE_ONLY,
     }
 
+    private data class SecondaryReservation(
+        val token: Int,
+        val sessionId: String,
+        val captureIdentity: VideoTrack,
+        var pendingOffer: String? = null,
+        val pendingIce: MutableList<IceCandidate> = mutableListOf(),
+    )
+
     private data class SecondarySession(
         val sessionId: String,
         val peerConnection: PeerConnection,
@@ -505,6 +543,8 @@ class WebRtcManager private constructor(private val context: Context) {
     @Volatile
     private var primarySessionId: String? = null
     private val secondarySessions = LinkedHashMap<String, SecondarySession>()
+    private val secondaryReservations = LinkedHashMap<String, SecondaryReservation>()
+    private val secondaryTokens = AtomicInteger(0)
     private val eglBase: EglBase by lazy { EglBase.create() }
 
     private var screenCapturer: VideoCapturer? = null
@@ -852,7 +892,7 @@ class WebRtcManager private constructor(private val context: Context) {
         return synchronized(streamLock) {
             primarySessionId == sessionId ||
                     streamRequestId == sessionId ||
-                    secondarySessions.containsKey(sessionId)
+                    secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId)
         }
     }
 
@@ -867,6 +907,7 @@ class WebRtcManager private constructor(private val context: Context) {
     fun isCaptureActive(): Boolean = captureFastState.captureActive
 
     private fun initializePeerConnectionFactory() {
+        checkNativeCallOutsideStreamLock()
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(true)
@@ -929,19 +970,7 @@ class WebRtcManager private constructor(private val context: Context) {
             "Starting WebRTC Stream: session=$sessionId ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
         )
         val effectiveIceServers = iceServers ?: consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -981,35 +1010,19 @@ class WebRtcManager private constructor(private val context: Context) {
         val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
         val activeTrack =
             createVideoTrack(permissionResultData, width, height, fps, streamId) ?: return
-        val sendReadyFor: String?
-        val shouldCreateOffer: Boolean
-        val connectionForSender: PeerConnection?
-        synchronized(streamLock) {
-            if (streamGeneration.get() != streamId) {
-                newResources?.let {
-                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
-                }
-                return
+        var publication: PrimaryPublication? = null
+        val published = synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) false else {
+                publication = publishPrimaryPeerLocked(newResources, waitForOffer, sessionId)
+                true
             }
-            peerConnection = newResources?.peerConnection
-            controlChannel = newResources?.controlChannel
-            scrcpyControlHandler = newResources?.scrcpyControlHandler
-            connectionForSender = peerConnection
-            if (!waitForOffer) {
-                shouldCreateOffer = true
-                sendReadyFor = null
-            } else {
-                shouldCreateOffer = false
-                if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendReadyFor = sessionId
-                } else {
-                    sendReadyFor = null
-                    Log.i(
-                        TAG,
-                        "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
-                    )
-                }
-            }
+        }
+        val connectionForSender = publication?.connection
+        val shouldCreateOffer = !waitForOffer
+        val sendReadyFor = publication?.sendReadyFor
+        if (!published) {
+            newResources?.let { cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel)) }
+            return
         }
         try {
             if (isCurrentStream(streamId)) {
@@ -1083,19 +1096,7 @@ class WebRtcManager private constructor(private val context: Context) {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
         cancelIdleStop()
         val effectiveIceServers = consumePendingIceServers()
-        var takeoverPrimarySessionId: String? = null
-        val route =
-            synchronized(streamLock) {
-                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
-                when (resolvedRoute) {
-                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
-                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
-                        IncomingSessionRoute.PRIMARY
-                    }
-
-                    else -> resolvedRoute
-                }
-            }
+        val (route, takeoverPrimarySessionId) = admitIncomingSession(sessionId)
         if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
@@ -1138,37 +1139,21 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
         val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
-        val sendReadyFor: String?
-        val shouldCreateOffer: Boolean
-        val activeTrack: VideoTrack
-        val connectionForSender: PeerConnection?
-        synchronized(streamLock) {
-            if (streamGeneration.get() != streamId) {
-                newResources?.let {
-                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
-                }
-                return
+        var activeTrack: VideoTrack? = null
+        var publication: PrimaryPublication? = null
+        val published = synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) false else {
+                publication = publishPrimaryPeerLocked(newResources, waitForOffer, sessionId, requireCapture = true)
+                activeTrack = publication?.activeTrack
+                true
             }
-            peerConnection = newResources?.peerConnection
-            controlChannel = newResources?.controlChannel
-            scrcpyControlHandler = newResources?.scrcpyControlHandler
-            activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
-            connectionForSender = peerConnection
-            if (!waitForOffer) {
-                shouldCreateOffer = true
-                sendReadyFor = null
-            } else {
-                shouldCreateOffer = false
-                if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendReadyFor = sessionId
-                } else {
-                    sendReadyFor = null
-                    Log.i(
-                        TAG,
-                        "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
-                    )
-                }
-            }
+        }
+        val connectionForSender = publication?.connection
+        val shouldCreateOffer = !waitForOffer
+        val sendReadyFor = publication?.sendReadyFor
+        if (!published) {
+            newResources?.let { cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel)) }
+            return
         }
         try {
             if (isCurrentStream(streamId)) {
@@ -1192,6 +1177,81 @@ class WebRtcManager private constructor(private val context: Context) {
         flushPendingPrimarySignaling(sessionId)
     }
 
+    // A new primary (fresh or stale takeover) must fit under the limit next to the existing secondaries,
+    // including ones still being built. Gone peers are dropped only when they would block it; a FAILED one
+    // may still be in its ICE restart.
+    private fun admitIncomingSession(sessionId: String): Pair<IncomingSessionRoute, String?> {
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
+        if (synchronized(streamLock) { isPrimaryAdmissionBlockedLocked(sessionId, sessionLimit) }) {
+            reapDisconnectedSecondarySessions(includeFailed = false).forEach { cleanupSecondarySession(it) }
+        }
+        var promotedSecondary: SecondarySession? = null
+        val admission =
+            synchronized(streamLock) {
+                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.SECONDARY) {
+                    return resolvedRoute to null
+                }
+                if (isPrimaryAdmissionBlockedLocked(sessionId, sessionLimit)) {
+                    Log.w(
+                        TAG,
+                        "Rejecting primary session $sessionId: max concurrent sessions reached (limit=$sessionLimit secondary=${secondarySessions.keys} reserved=${secondaryReservations.keys})",
+                    )
+                    forgetRejectedStreamRequestLocked(sessionId)
+                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
+                }
+                // A secondary restarting as the new primary must not keep its old peer or a pending build.
+                secondaryReservations.remove(sessionId)
+                promotedSecondary = secondarySessions.remove(sessionId)
+                if (resolvedRoute == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY) {
+                    IncomingSessionRoute.PRIMARY to clearPrimarySessionForTakeoverLocked()
+                } else {
+                    resolvedRoute to null
+                }
+            }
+        promotedSecondary?.let { cleanupSecondarySession(it) }
+        return admission
+    }
+
+    private fun isPrimaryAdmissionBlockedLocked(sessionId: String, sessionLimit: Int): Boolean =
+        isStreamSessionLimitReached(
+            hasPrimary = false,
+            secondarySessionCount = (secondarySessions.keys + secondaryReservations.keys).count { it != sessionId },
+            replacesExistingSession =
+                primarySessionId == sessionId ||
+                    secondarySessions.containsKey(sessionId) ||
+                    secondaryReservations.containsKey(sessionId),
+            sessionLimit = sessionLimit,
+        )
+
+    // The caller records the request before admission; a rejected session must not stay current.
+    private fun forgetRejectedStreamRequestLocked(sessionId: String) {
+        if (streamRequestId == sessionId) {
+            streamRequestId = primarySessionId
+        }
+    }
+
+    private data class PrimaryPublication(
+        val connection: PeerConnection?, val sendReadyFor: String?, val activeTrack: VideoTrack?,
+    )
+
+    private fun publishPrimaryPeerLocked(
+        resources: PrimaryPeerResources?,
+        waitForOffer: Boolean,
+        sessionId: String,
+        requireCapture: Boolean = false,
+    ): PrimaryPublication {
+        peerConnection = resources?.peerConnection
+        controlChannel = resources?.controlChannel
+        scrcpyControlHandler = resources?.scrcpyControlHandler
+        val activeTrack = if (requireCapture) videoTrack ?: throw IllegalStateException("No active capture to reuse") else null
+        val sendReady = waitForOffer && !hasQueuedPrimaryOfferLocked(sessionId)
+        if (waitForOffer && !sendReady) {
+            Log.i(TAG, "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)")
+        }
+        return PrimaryPublication(peerConnection, sessionId.takeIf { sendReady }, activeTrack)
+    }
+
     private fun startSecondaryStreamWithExistingCapture(
         sessionId: String,
         width: Int,
@@ -1201,79 +1261,112 @@ class WebRtcManager private constructor(private val context: Context) {
         waitForOffer: Boolean,
     ) {
         cancelIdleStop()
-        val staleSessions: List<SecondarySession>
-        val staleSession =
+        val sessionLimit = ConfigManager.getInstance(context).streamSessionLimit
+        // Decided before reaping, so a restart of a gone or failed secondary stays a replacement.
+        val replacesExistingSession =
             synchronized(streamLock) {
-                staleSessions = reapDisconnectedSecondarySessionsLocked()
-                val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
-                val existing = secondarySessions[sessionId]
-                val activeCount =
-                    (if (hasPrimary) 1 else 0) + secondarySessions.size - if (existing != null) 1 else 0
-                if (existing == null && activeCount >= MAX_CONCURRENT_SESSIONS) {
-                    Log.w(
-                        TAG,
-                        "Rejecting secondary session $sessionId: max concurrent sessions reached (primary=$primarySessionId secondary=${secondarySessions.keys})",
-                    )
-                    throw IllegalStateException("max_concurrent_stream_sessions_reached")
-                }
-                secondarySessions.remove(sessionId)
+                secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId)
             }
-        staleSessions.forEach { cleanupSecondarySession(it) }
-        staleSession?.let { cleanupSecondarySession(it) }
-
-        val streamId = streamGeneration.incrementAndGet()
-        lateinit var activeTrack: VideoTrack
-        lateinit var session: SecondarySession
-        var effectiveWidth = width
-        var effectiveHeight = height
-        var effectiveFps = fps
+        reapDisconnectedSecondarySessions().forEach { cleanupSecondarySession(it) }
+        val reservation: SecondaryReservation
+        val staleSession: SecondarySession?
+        val effectiveWidth: Int
+        val effectiveHeight: Int
+        val effectiveFps: Int
         synchronized(streamLock) {
-            activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
-            session =
-                createSecondaryPeerConnectionLocked(
-                    sessionId = sessionId,
-                    customIceServers = customIceServers,
-                    waitForOffer = waitForOffer,
-                    streamId = streamId,
+            val activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
+            val hasPrimary = peerConnection != null && !primarySessionId.isNullOrBlank()
+            if (
+                isStreamSessionLimitReached(
+                    hasPrimary = hasPrimary,
+                    secondarySessionCount =
+                        (secondarySessions.keys + secondaryReservations.keys).count { it != sessionId },
+                    replacesExistingSession = replacesExistingSession || secondarySessions.containsKey(sessionId),
+                    sessionLimit = sessionLimit,
                 )
-            effectiveWidth = if (captureWidth > 0) captureWidth else width
-            effectiveHeight = if (captureHeight > 0) captureHeight else height
-            effectiveFps = if (captureFps > 0) captureFps else fps
-            secondarySessions[sessionId] = session
+            ) {
+                Log.w(
+                    TAG,
+                    "Rejecting secondary session $sessionId: max concurrent sessions reached (limit=$sessionLimit primary=$primarySessionId secondary=${secondarySessions.keys} reserved=${secondaryReservations.keys})",
+                )
+                forgetRejectedStreamRequestLocked(sessionId)
+                throw IllegalStateException("max_concurrent_stream_sessions_reached")
+            }
+            staleSession = secondarySessions.remove(sessionId)
+            clearSessionLivenessStateLocked(sessionId)
+            reservation = SecondaryReservation(secondaryTokens.decrementAndGet(), sessionId, activeTrack)
+            secondaryReservations[sessionId] = reservation
+            effectiveWidth = captureWidth.takeIf { it > 0 } ?: width
+            effectiveHeight = captureHeight.takeIf { it > 0 } ?: height
+            effectiveFps = captureFps.takeIf { it > 0 } ?: fps
         }
-
+        staleSession?.let { cleanupSecondarySession(it) }
+        val streamId = reservation.token
+        val session = try {
+            createSecondaryPeerConnection(sessionId, customIceServers, waitForOffer, streamId)
+        } catch (e: Exception) {
+            synchronized(streamLock) {
+                if (secondaryReservations[sessionId] === reservation) {
+                    secondaryReservations.remove(sessionId)
+                    clearSessionLivenessStateLocked(sessionId)
+                }
+            }
+            throw e
+        }
+        var pendingOffer: String? = null
+        var published = false
+        synchronized(streamLock) {
+            if (!canPublishSecondaryReservation(
+                    streamId, secondaryReservations[sessionId]?.token, reservation.captureIdentity,
+                    videoTrack, secondarySessions.containsKey(sessionId),
+                )) return@synchronized
+            secondaryReservations.remove(sessionId)
+            session.pendingIceCandidates.addAll(reservation.pendingIce)
+            pendingOffer = reservation.pendingOffer
+            secondarySessions[sessionId] = session
+            published = true
+        }
+        if (!published) {
+            cleanupSecondaryNativeResources(session)
+            return
+        }
         try {
-            val sender = session.peerConnection.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+            if (!isCurrentSecondary(sessionId, streamId)) return
+            val sender = session.peerConnection.addTrack(reservation.captureIdentity, listOf(VIDEO_TRACK_ID))
             configureVideoSender(sender, effectiveWidth, effectiveHeight, effectiveFps)
             synchronized(streamLock) {
-                val current = secondarySessions[sessionId]
-                if (current === session && current.streamId == streamId) {
-                    current.videoSender = sender
-                }
+                if (secondarySessions[sessionId] === session) session.videoSender = sender
             }
         } catch (e: Exception) {
             synchronized(streamLock) {
                 if (secondarySessions[sessionId] === session) {
                     secondarySessions.remove(sessionId)
+                    clearSessionLivenessStateLocked(sessionId)
                 }
             }
             cleanupSecondarySession(session)
             throw e
         }
-
-        if (!waitForOffer) {
+        if (!isCurrentSecondary(sessionId, streamId)) return
+        if (pendingOffer != null) {
+            handleOfferForSecondary(pendingOffer!!, sessionId)
+        } else if (!waitForOffer) {
             createOfferForSecondary(sessionId, streamId)
         } else {
             sendStreamReady(sessionId)
         }
     }
 
-    private fun createSecondaryPeerConnectionLocked(
+    private fun isCurrentSecondary(sessionId: String, streamId: Int): Boolean =
+        synchronized(streamLock) { secondarySessions[sessionId]?.streamId == streamId }
+
+    private fun createSecondaryPeerConnection(
         sessionId: String,
         customIceServers: List<PeerConnection.IceServer>?,
         waitForOffer: Boolean,
         streamId: Int,
     ): SecondarySession {
+        checkNativeCallOutsideStreamLock()
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
             iceServers.addAll(customIceServers)
@@ -1385,29 +1478,38 @@ class WebRtcManager private constructor(private val context: Context) {
                 negotiated = true
                 id = 1
             }
-        val dataChannel = connection.createDataChannel("control", dcInit)
-        val controlHandler = ScrcpyControlChannel()
-        dataChannel.registerObserver(
-            LoggingDataChannelObserver(
-                channel = dataChannel,
-                label = "secondary:$sessionId:$streamId",
-                delegate = controlHandler,
-                onStateChanged = { state ->
-                    synchronized(streamLock) {
-                        updateSessionControlStateLocked(sessionId, state)
-                    }
-                },
-            ),
-        )
+        var dataChannel: DataChannel? = null
+        try {
+            val channel = connection.createDataChannel("control", dcInit)
+                ?: throw IllegalStateException("Failed to create secondary control channel")
+            dataChannel = channel
+            val controlHandler = ScrcpyControlChannel()
+            channel.registerObserver(
+                LoggingDataChannelObserver(
+                    channel = channel,
+                    isCurrent = { isCurrentSecondary(sessionId, streamId) },
+                    label = "secondary:$sessionId:$streamId",
+                    delegate = controlHandler,
+                    onStateChanged = { state ->
+                        synchronized(streamLock) {
+                            updateSessionControlStateLocked(sessionId, state)
+                        }
+                    },
+                ),
+            )
 
-        return SecondarySession(
-            sessionId = sessionId,
-            peerConnection = connection,
-            controlChannel = dataChannel,
-            controlHandler = controlHandler,
-            waitingForOffer = waitForOffer,
-            streamId = streamId,
-        )
+            return SecondarySession(
+                sessionId = sessionId,
+                peerConnection = connection,
+                controlChannel = dataChannel,
+                controlHandler = controlHandler,
+                waitingForOffer = waitForOffer,
+                streamId = streamId,
+            )
+        } catch (e: Exception) {
+            cleanupPeerResources(PeerResources(connection, dataChannel))
+            throw e
+        }
     }
 
     private fun createOfferForSecondary(sessionId: String, streamId: Int) {
@@ -1435,6 +1537,7 @@ class WebRtcManager private constructor(private val context: Context) {
                     activeSession.peerConnection.setLocalDescription(
                         object : SimpleSdpObserver("setLocalDescription-secondary") {
                             override fun onSetSuccess() {
+                                if (!isCurrentSecondary(sessionId, streamId)) return
                                 sendOffer(offer.description, sessionId)
                             }
                         },
@@ -1446,43 +1549,52 @@ class WebRtcManager private constructor(private val context: Context) {
         )
     }
 
-    private fun cleanupSecondarySession(session: SecondarySession) {
-        cancelKeepAlive(session.sessionId)
-        session.videoSender = null
-        try {
-            session.controlChannel?.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error closing secondary control channel", e)
-        }
-        try {
-            session.peerConnection.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error closing secondary peer connection", e)
-        }
+    private fun checkNativeCallOutsideStreamLock() {
+        if (BuildConfig.DEBUG) check(!Thread.holdsLock(streamLock)) { "Native call under streamLock" }
     }
 
-    private fun reapDisconnectedSecondarySessionsLocked(): List<SecondarySession> {
-        if (secondarySessions.isEmpty()) return emptyList()
-        val staleSessions = mutableListOf<SecondarySession>()
-        val iterator = secondarySessions.entries.iterator()
-        while (iterator.hasNext()) {
-            val session = iterator.next().value
+    private fun cleanupSecondarySession(session: SecondarySession) {
+        checkNativeCallOutsideStreamLock()
+        synchronized(streamLock) {
+            val current = secondarySessions[session.sessionId]
+            val canClearState = current === session ||
+                (current == null && !secondaryReservations.containsKey(session.sessionId) && primarySessionId != session.sessionId)
+            if (canClearState) clearSessionLivenessStateLocked(session.sessionId)
+        }
+        cleanupSecondaryNativeResources(session)
+    }
+
+    // Unpublished/stale resources must never clear liveness belonging to a newer same-ID session.
+    private fun cleanupSecondaryNativeResources(session: SecondarySession) {
+        checkNativeCallOutsideStreamLock()
+        session.videoSender = null
+        cleanupPeerResources(PeerResources(session.peerConnection, session.controlChannel))
+    }
+
+    private fun reapDisconnectedSecondarySessions(includeFailed: Boolean = true): List<SecondarySession> {
+        checkNativeCallOutsideStreamLock()
+        val snapshot = synchronized(streamLock) { secondarySessions.values.toList() }
+        val disconnected = snapshot.filter { session ->
             val state = session.peerConnection.iceConnectionState()
-            if (state == PeerConnection.IceConnectionState.DISCONNECTED ||
+            state == PeerConnection.IceConnectionState.DISCONNECTED ||
                 state == PeerConnection.IceConnectionState.CLOSED ||
-                state == PeerConnection.IceConnectionState.FAILED
-            ) {
-                staleSessions += session
-                iterator.remove()
+                (includeFailed && state == PeerConnection.IceConnectionState.FAILED)
+        }
+        return synchronized(streamLock) {
+            disconnected.filter { session ->
+                if (secondarySessions[session.sessionId] !== session) false else {
+                    secondarySessions.remove(session.sessionId)
+                    clearSessionLivenessStateLocked(session.sessionId)
+                    true
+                }
             }
         }
-        return staleSessions
     }
 
     private fun showCloudStreamConnectedToastOnce(streamId: Int) {
         val shouldShow =
             synchronized(streamLock) {
-                if (!isCurrentStreamLocked(streamId)) {
+                if (!isCurrentStreamLocked(streamId) && secondarySessions.values.none { it.streamId == streamId }) {
                     false
                 } else if (connectionToastStreamId == streamId) {
                     false
@@ -1636,6 +1748,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val secondaryResources: SecondarySession?
         val hasRemaining =
             synchronized(streamLock) {
+                secondaryReservations.remove(sessionId)
                 if (primarySessionId == sessionId) {
                     streamGeneration.incrementAndGet()
                     primarySessionId = null
@@ -1675,6 +1788,7 @@ class WebRtcManager private constructor(private val context: Context) {
             primaryResources = detachPeerResourcesLocked()
             staleSecondary = secondarySessions.values.toList()
             secondarySessions.clear()
+            secondaryReservations.clear()
         }
         primaryResources?.let { cleanupPeerResources(it) }
         staleSecondary.forEach { cleanupSecondarySession(it) }
@@ -1725,7 +1839,9 @@ class WebRtcManager private constructor(private val context: Context) {
                         streamGeneration.incrementAndGet()
                         primarySessionId = null
                         staleSecondary = secondarySessions.values.toList()
+                        staleSecondary.forEach { clearSessionLivenessStateLocked(it.sessionId) }
                         secondarySessions.clear()
+                        secondaryReservations.clear()
                         streamRequestId = null
                         invokeCallback = true
                         detachStreamResourcesLocked()
@@ -1782,7 +1898,7 @@ class WebRtcManager private constructor(private val context: Context) {
         if (sessionId.isBlank()) return false
         return primarySessionId == sessionId ||
                 streamRequestId == sessionId ||
-                secondarySessions.containsKey(sessionId)
+                secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId)
     }
 
     private fun ensureSessionLivenessStateLocked(sessionId: String): SessionLivenessState {
@@ -1871,6 +1987,7 @@ class WebRtcManager private constructor(private val context: Context) {
         screenCapturer = null
         videoSource = null
         videoTrack = null
+        secondaryReservations.clear()
         surfaceTextureHelper = null
         captureLogStreamId = 0
         captureWidth = 0
@@ -1924,10 +2041,14 @@ class WebRtcManager private constructor(private val context: Context) {
             offer = pendingPrimaryOffer,
         )
 
+    private fun isSecondaryOrReservedLocked(sessionId: String?): Boolean =
+        sessionId != null &&
+            (secondarySessions.containsKey(sessionId) || secondaryReservations.containsKey(sessionId))
+
     private fun detachPeerResourcesLocked(): PeerResources {
         val resources = PeerResources(peerConnection, controlChannel)
         clearSessionLivenessStateLocked(primarySessionId)
-        if (streamRequestId != primarySessionId) {
+        if (streamRequestId != primarySessionId && !isSecondaryOrReservedLocked(streamRequestId)) {
             clearSessionLivenessStateLocked(streamRequestId)
         }
         peerConnection = null
@@ -1948,6 +2069,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun cleanupStreamResources(resources: StreamResources) {
+        checkNativeCallOutsideStreamLock()
         clearCaptureFrameTapState("capture_stopped")
         try {
             resources.screenCapturer?.stopCapture()
@@ -1983,6 +2105,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun cleanupPeerResources(resources: PeerResources) {
+        checkNativeCallOutsideStreamLock()
         try {
             resources.controlChannel?.close()
         } catch (e: Exception) {
@@ -2068,8 +2191,12 @@ class WebRtcManager private constructor(private val context: Context) {
         }
         val isPrimary =
             synchronized(streamLock) {
-                primarySessionId == sessionId ||
-                        (primarySessionId == null && streamRequestId == sessionId)
+                routesSignalingToPrimary(
+                    sessionId,
+                    primarySessionId,
+                    streamRequestId,
+                    isSecondaryOrReservedLocked(sessionId),
+                )
             }
         if (!isPrimary) {
             handleOfferForSecondary(sdp, sessionId)
@@ -2281,8 +2408,12 @@ class WebRtcManager private constructor(private val context: Context) {
         }
         val isPrimary =
             synchronized(streamLock) {
-                primarySessionId == sessionId ||
-                        (primarySessionId == null && streamRequestId == sessionId)
+                routesSignalingToPrimary(
+                    sessionId,
+                    primarySessionId,
+                    streamRequestId,
+                    isSecondaryOrReservedLocked(sessionId),
+                )
             }
         if (!isPrimary) {
             handleIceCandidateForSecondary(candidate, sessionId)
@@ -2354,6 +2485,10 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun handleOfferForSecondary(sdp: String, sessionId: String) {
         val session =
             synchronized(streamLock) {
+                secondaryReservations[sessionId]?.let {
+                    it.pendingOffer = sdp
+                    return
+                }
                 secondarySessions[sessionId]
             }
                 ?: run {
@@ -2388,6 +2523,7 @@ class WebRtcManager private constructor(private val context: Context) {
             object : SimpleSdpObserver("createAnswer-secondary") {
                 override fun onCreateSuccess(desc: SessionDescription) {
                     super.onCreateSuccess(desc)
+                    if (!isCurrentSecondary(sessionId, streamId)) return
                     val forcedH264 = forceH264(desc.description)
                     val answer =
                         if (forcedH264 == null) desc
@@ -2450,22 +2586,22 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun handleIceCandidateForSecondary(candidate: IceCandidate, sessionId: String) {
-        val session =
-            synchronized(streamLock) {
-                secondarySessions[sessionId]
+        val connection = synchronized(streamLock) {
+            secondaryReservations[sessionId]?.let {
+                it.pendingIce.add(candidate)
+                return
             }
-                ?: run {
-                    Log.w(
-                        TAG,
-                        "handleIceCandidate called for unknown secondary session: $sessionId"
-                    )
-                    return
-                }
-        if (!session.isRemoteDescriptionSet) {
-            session.pendingIceCandidates.add(candidate)
-            return
+            val session = secondarySessions[sessionId] ?: run {
+                Log.w(TAG, "handleIceCandidate called for unknown secondary session: $sessionId")
+                return
+            }
+            if (!session.isRemoteDescriptionSet) {
+                session.pendingIceCandidates.add(candidate)
+                return
+            }
+            session.peerConnection
         }
-        session.peerConnection.addIceCandidate(candidate)
+        connection.addIceCandidate(candidate)
     }
 
     private fun drainPendingIceCandidatesLocked(): List<IceCandidate> {
@@ -2508,7 +2644,9 @@ class WebRtcManager private constructor(private val context: Context) {
                         streamGeneration.incrementAndGet()
                         primarySessionId = null
                         staleSecondary = secondarySessions.values.toList()
+                        staleSecondary.forEach { clearSessionLivenessStateLocked(it.sessionId) }
                         secondarySessions.clear()
+                        secondaryReservations.clear()
                         streamRequestId = null
                         detachStreamResourcesLocked()
                     }
@@ -2549,6 +2687,7 @@ class WebRtcManager private constructor(private val context: Context) {
         streamId: Int,
         sessionId: String,
     ): PrimaryPeerResources? {
+        checkNativeCallOutsideStreamLock()
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
             iceServers.addAll(customIceServers)
@@ -2715,6 +2854,7 @@ class WebRtcManager private constructor(private val context: Context) {
         fps: Int,
         streamId: Int,
     ): VideoTrack? {
+        checkNativeCallOutsideStreamLock()
         val capturer =
             ScreenCapturerAndroid(
                 permissionResultData,
@@ -3600,12 +3740,15 @@ class WebRtcManager private constructor(private val context: Context) {
         private val label: String,
         private val delegate: DataChannel.Observer?,
         private val onStateChanged: ((DataChannel.State?) -> Unit)? = null,
+        private val isCurrent: () -> Boolean = { true },
     ) : DataChannel.Observer {
         override fun onBufferedAmountChange(previousAmount: Long) {
+            if (!isCurrent()) return
             delegate?.onBufferedAmountChange(previousAmount)
         }
 
         override fun onStateChange() {
+            if (!isCurrent()) return
             val state = channel.state()
             Log.i(TAG, "Control data channel state changed: $label state=$state")
             onStateChanged?.invoke(state)
@@ -3613,6 +3756,7 @@ class WebRtcManager private constructor(private val context: Context) {
         }
 
         override fun onMessage(buffer: DataChannel.Buffer?) {
+            if (!isCurrent()) return
             delegate?.onMessage(buffer)
         }
     }
@@ -3641,6 +3785,7 @@ class WebRtcManager private constructor(private val context: Context) {
             pendingKeyframeRequest = null
             staleSecondary = secondarySessions.values.toList()
             secondarySessions.clear()
+            secondaryReservations.clear()
             resources = detachStreamResourcesLocked()
         }
         staleSecondary.forEach { cleanupSecondarySession(it) }

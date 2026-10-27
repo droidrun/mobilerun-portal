@@ -58,6 +58,12 @@ Mobilerun Portal exposes three local interfaces:
 - WebSocket server (default port 8081)
 - ContentProvider (ADB commands)
 
+While the accessibility service runs an HTTP or WebSocket server, Portal shows a "Portal local server running" notification. To keep the servers reachable in the background, turn on **Unrestricted Battery** in Portal **Settings** → **Permissions**, or over ADB:
+
+```bash
+adb shell dumpsys deviceidle whitelist +com.mobilerun.portal
+```
+
 See [Local API](docs/local-api.md) for full details and examples.
 See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 
@@ -160,6 +166,9 @@ adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 
 # Get keep-screen-awake watchdog status
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
+
+# Get the max number of concurrent stream viewers (limit, min, max)
+adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
 ```
 
 #### Insert Commands (Actions & Configuration)
@@ -206,6 +215,10 @@ adb shell content insert --uri content://com.mobilerun.portal/set_no_a11y_mode -
 # Enable or disable the keep-screen-awake watchdog
 adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:false
+
+# Set the max number of concurrent stream viewers, the main stream included (1-5, default: 3).
+# Applies to new viewers; viewers already connected keep streaming.
+adb shell content insert --uri content://com.mobilerun.portal/stream_session_limit --bind limit:i:4
 
 # Configure reverse connection (host URL + optional token/service key)
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true

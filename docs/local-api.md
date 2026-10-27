@@ -194,6 +194,7 @@ adb shell content query --uri content://com.mobilerun.portal/packages
 adb shell content query --uri content://com.mobilerun.portal/auth_token
 adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
+adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
 ```
 
 ### Insert
@@ -213,6 +214,9 @@ adb shell content insert --uri content://com.mobilerun.portal/socket_port --bind
 adb shell content insert --uri content://com.mobilerun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
 adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:false
+
+# Max concurrent stream viewers, the main stream included (1-5, default 3); applies to new viewers
+adb shell content insert --uri content://com.mobilerun.portal/stream_session_limit --bind limit:i:4
 
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="

@@ -70,4 +70,30 @@ class WebRtcManagerPrimarySignalingStateTest {
             ),
         )
     }
+    @Test
+    fun secondaryPublication_requiresCurrentReservationAndExactCaptureIdentity() {
+        val capture = Any()
+        fun publish(current: Int?, currentCapture: Any?, published: Boolean = false) =
+            WebRtcManager.canPublishSecondaryReservation(7, current, capture, currentCapture, published)
+
+        assertTrue(publish(7, capture))
+        assertFalse(publish(null, capture)) // stopped reservation
+        assertFalse(publish(8, capture)) // same-ID replacement
+        assertFalse(publish(7, null)) // capture gone
+        assertFalse(publish(7, Any())) // capture replaced
+        assertFalse(publish(7, capture, true)) // newer published session
+        // Another session's reservation does not affect this session's token.
+        assertTrue(WebRtcManager.canPublishSecondaryReservation(8, 8, capture, capture, false))
+        assertTrue(publish(7, capture))
+    }
+
+    @Test
+    fun routesSignalingToPrimary_keepsALaterSecondaryOnTheSecondaryPath() {
+        // Primary torn down while the latest stream request names a live secondary.
+        assertFalse(WebRtcManager.routesSignalingToPrimary("b", null, "b", isSecondarySession = true))
+        // A pending primary start that is not a secondary still queues as primary.
+        assertTrue(WebRtcManager.routesSignalingToPrimary("b", null, "b", isSecondarySession = false))
+        assertTrue(WebRtcManager.routesSignalingToPrimary("a", "a", "b", isSecondarySession = false))
+        assertFalse(WebRtcManager.routesSignalingToPrimary("b", "a", "b", isSecondarySession = true))
+    }
 }

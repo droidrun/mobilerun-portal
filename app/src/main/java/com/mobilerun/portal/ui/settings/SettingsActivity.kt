@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -108,6 +109,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupServerSettings()
         setupWebSocketSettings()
         setupReverseConnectionSettings()
+        setupStreamSessionLimit()
         setupPermissions()
         setupAutomation()
         setupEventFilters()
@@ -148,6 +150,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onStop() {
         super.onStop()
         configManager.removeListener(this)
+        commitStreamSessionLimitInput(showError = false)
         persistReverseConnectionInputs()
         unregisterUpdateReceivers()
     }
@@ -213,6 +216,47 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 false
             }
         }
+    }
+
+    private fun setupStreamSessionLimit() {
+        binding.textStreamSessionLimitDescription.text = getString(
+            com.mobilerun.portal.R.string.stream_session_limit_description,
+            ConfigManager.MIN_STREAM_SESSION_LIMIT,
+            ConfigManager.MAX_STREAM_SESSION_LIMIT,
+        )
+        binding.inputStreamSessionLimit.setText(configManager.streamSessionLimit.toString())
+        binding.inputStreamSessionLimit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                if (commitStreamSessionLimitInput(showError = true)) {
+                    binding.inputStreamSessionLimit.clearFocus()
+                }
+                true
+            } else {
+                false
+            }
+        }
+        binding.inputStreamSessionLimit.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) commitStreamSessionLimitInput(showError = false)
+        }
+    }
+
+    // Invalid input shows an error on Done and is reverted when the field is left.
+    private fun commitStreamSessionLimitInput(showError: Boolean): Boolean {
+        val min = ConfigManager.MIN_STREAM_SESSION_LIMIT
+        val max = ConfigManager.MAX_STREAM_SESSION_LIMIT
+        val limit = binding.inputStreamSessionLimit.text?.toString()?.toIntOrNull()
+        if (limit != null && limit in min..max) {
+            if (limit != configManager.streamSessionLimit) {
+                configManager.setStreamSessionLimitWithNotification(limit)
+            }
+            return true
+        }
+        if (showError) {
+            binding.inputStreamSessionLimit.error = getString(com.mobilerun.portal.R.string.stream_session_limit_invalid, min, max)
+        } else {
+            updateStreamSessionLimitUi(configManager.streamSessionLimit)
+        }
+        return false
     }
 
     private fun setupReverseConnectionSettings() {
@@ -380,6 +424,28 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             }
             // Revert visual state until onResume confirms change
             binding.switchInstallUnknownApps.isChecked = !binding.switchInstallUnknownApps.isChecked
+        }
+
+        binding.switchUnrestrictedBattery.setOnClickListener {
+            // An exemption can only be revoked from the system list.
+            val intent = if (isIgnoringBatteryOptimizations()) {
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            } else {
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                    )
+                }
+            }
+            // Revert visual state until onResume confirms change
+            binding.switchUnrestrictedBattery.isChecked = !binding.switchUnrestrictedBattery.isChecked
         }
     }
 
@@ -789,6 +855,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateSocketServerPortUi(configManager.socketServerPort)
         updateWebSocketEnabledUi(configManager.websocketEnabled)
         updateWebSocketPortUi(configManager.websocketPort)
+        updateStreamSessionLimitUi(configManager.streamSessionLimit)
         binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
     }
 
@@ -820,6 +887,15 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         }
     }
 
+    private fun updateStreamSessionLimitUi(limit: Int) {
+        val current = binding.inputStreamSessionLimit.text?.toString()
+        val expected = limit.toString()
+        if (current != expected) {
+            binding.inputStreamSessionLimit.setText(expected)
+        }
+        binding.inputStreamSessionLimit.error = null
+    }
+
     private fun updatePermissionSwitches() {
         // Notification Access
         binding.switchNotificationAccess.isChecked = isNotificationServiceEnabled()
@@ -838,7 +914,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         // Install Unknown Apps
         binding.switchInstallUnknownApps.isChecked = packageManager.canRequestPackageInstalls()
+
+        binding.switchUnrestrictedBattery.isChecked = isIgnoringBatteryOptimizations()
     }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
 
     private fun isNotificationServiceEnabled(): Boolean {
         val componentName = ComponentName(this, MobilerunNotificationListener::class.java)
@@ -877,6 +958,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchKeepScreenAwake.isChecked = enabled
+        }
+    }
+
+    override fun onStreamSessionLimitChanged(limit: Int) {
+        runOnUiThread {
+            updateStreamSessionLimitUi(limit)
         }
     }
 

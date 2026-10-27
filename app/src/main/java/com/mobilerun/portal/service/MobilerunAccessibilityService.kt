@@ -32,6 +32,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresApi
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.util.Base64
@@ -55,6 +57,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             "com.mobilerun.portal.action.DISABLE_LOCAL_WS_SERVER"
         @Volatile
         private var instance: MobilerunAccessibilityService? = null
+        private val connectedState = MutableLiveData(false)
+        val isConnected: LiveData<Boolean> = connectedState
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
@@ -307,6 +311,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         Log.d(TAG, "Accessibility service connected and configured")
+        connectedState.value = true
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -940,6 +945,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 }
             }
         }
+        syncLocalServerForeground()
     }
 
     private fun stopSocketServer() {
@@ -949,6 +955,18 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 Log.i(TAG, "Socket server stopped")
             }
         }
+        syncLocalServerForeground()
+    }
+
+    private val localServerForegroundSync = Runnable {
+        val running = socketServer?.isRunning() == true || websocketServer != null
+        LocalServerForegroundService.sync(applicationContext, running)
+    }
+
+    // Servers change on binder and main threads; apply the latest state on main.
+    private fun syncLocalServerForeground() {
+        mainHandler.removeCallbacks(localServerForegroundSync)
+        mainHandler.post(localServerForegroundSync)
     }
 
     fun inputText(text: String, clear: Boolean): Boolean {
@@ -1180,6 +1198,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             hideLocalWebSocketConnectionNotification()
             Log.e(TAG, "Failed to start WebSocket server", e)
         }
+        syncLocalServerForeground()
     }
 
     private fun showWebSocketServerStartedToastIfEnoughTimeIsPassed(port: Int) {
@@ -1223,6 +1242,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             Log.e(TAG, "Error stopping WebSocket server", e)
         } finally {
             hideLocalWebSocketConnectionNotification()
+            syncLocalServerForeground()
         }
     }
 
@@ -1346,6 +1366,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 }
             }
         }
+        syncLocalServerForeground()
     }
 
     override fun onWebSocketEnabledChanged(enabled: Boolean) {
@@ -1391,15 +1412,15 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             // We use the property setter which persists but doesn't notify listeners
             configManager.socketServerPort = port
             Log.i(TAG, "Successfully updated socket server port to $port")
-            return true
         } else {
             Log.e(TAG, "Failed to bind to new port $port, reverting to $oldPort")
             // Revert to old port if it was running
             if (wasRunning) {
                 server.start(oldPort)
             }
-            return false
         }
+        syncLocalServerForeground()
+        return success
     }
 
     // Screenshot functionality
@@ -1539,7 +1560,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         // connection is gone, and release the read-gate thread. (Do NOT do this
         // in onInterrupt — interrupt is not an unbind.)
         Log.d(TAG, "Accessibility service unbound")
-        if (instance === this) instance = null
+        if (instance === this) {
+            instance = null
+            connectedState.value = false
+        }
         apiHandler?.close()
         return super.onUnbind(intent)
     }
@@ -1554,7 +1578,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         clearVisibleElementSnapshot()
         configManager.removeListener(this)
         apiHandler?.close()
-        if (instance === this) instance = null
+        if (instance === this) {
+            instance = null
+            connectedState.value = false
+        }
         Log.d(TAG, "Accessibility service destroyed")
     }
 
