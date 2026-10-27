@@ -58,6 +58,12 @@ Mobilerun Portal exposes three local interfaces:
 - WebSocket server (default port 8081)
 - ContentProvider (ADB commands)
 
+While the accessibility service runs an HTTP or WebSocket server, Portal shows a "Portal local server running" notification. To keep the servers reachable in the background, turn on **Unrestricted Battery** in Portal **Settings** → **Permissions**, or over ADB:
+
+```bash
+adb shell dumpsys deviceidle whitelist +com.mobilerun.portal
+```
+
 See [Local API](docs/local-api.md) for full details and examples.
 See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 

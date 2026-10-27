@@ -557,6 +557,42 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <!-- Unrestricted Battery -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="24dp"
+                android:paddingVertical="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/unrestricted_battery_label"
+                        android:textColor="@color/text_white"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/unrestricted_battery_description"
+                        android:textColor="@color/text_gray"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_unrestricted_battery"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -672,6 +708,7 @@
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_socket_server_enabled"
+                        android:saveEnabled="false"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -758,6 +795,7 @@
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_ws_enabled"
+                        android:saveEnabled="false"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
