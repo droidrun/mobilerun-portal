@@ -1,5 +1,6 @@
 package com.mobilerun.portal.service
 
+import com.mobilerun.portal.core.GenerationGate
 import java.util.concurrent.atomic.AtomicLong
 
 internal class ReverseWebSocketGenerationGate {
@@ -7,14 +8,14 @@ internal class ReverseWebSocketGenerationGate {
         const val NO_RECONNECT_OWNER = -1L
     }
 
-    private val generation = AtomicLong(0L)
+    private val generation = GenerationGate()
     private val reconnectOwner = AtomicLong(NO_RECONNECT_OWNER)
 
-    fun current(): Long = generation.get()
+    fun current(): Long = generation.current()
 
-    fun advance(): Long = generation.incrementAndGet()
+    fun advance(): Long = generation.advance()
 
-    fun isCurrent(candidate: Long): Boolean = generation.get() == candidate
+    fun isCurrent(candidate: Long): Boolean = generation.isCurrent(candidate)
 
     fun markReconnectScheduled(candidate: Long) {
         reconnectOwner.set(candidate)

@@ -1,0 +1,5 @@
+<resources>
+    <dimen name="tv_focus_elevation">6dp</dimen>
+    <dimen name="tv_button_padding">18dp</dimen>
+    <dimen name="tv_update_loading_padding">50dp</dimen>
+</resources>

@@ -2,6 +2,7 @@ package com.mobilerun.portal.streaming
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.content.res.Resources
 import android.graphics.Path
 import android.graphics.Rect
@@ -13,12 +14,13 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.service.MobilerunAccessibilityService
+import com.mobilerun.portal.service.DpadController
 import com.mobilerun.portal.service.GestureController
 import org.webrtc.DataChannel
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class ScrcpyControlChannel : DataChannel.Observer {
+class ScrcpyControlChannel(private val context: Context) : DataChannel.Observer {
     companion object {
         private const val TYPE_INJECT_KEYCODE = 0
         private const val TYPE_INJECT_TEXT = 1
@@ -301,7 +303,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
                     }
                 }
 
-                typeText("\n")
+                if (!typeText("\n")) {
+                    DpadController.activate()
+                }
                 return
 
             }
@@ -327,6 +331,8 @@ class ScrcpyControlChannel : DataChannel.Observer {
         if (unicodeChar > 0) {
             val char = unicodeChar.toChar()
             typeText(char.toString())
+        } else {
+            DpadController.handleKey(context, keycode)
         }
     }
 
@@ -363,9 +369,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
         GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
     }
 
-    private fun typeText(text: String) {
-        val service = MobilerunAccessibilityService.getInstance() ?: return
-        service.inputText(text, false)
+    private fun typeText(text: String): Boolean {
+        val service = MobilerunAccessibilityService.getInstance() ?: return false
+        return service.inputText(text, false)
     }
 
     private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): ScreenPoint? {

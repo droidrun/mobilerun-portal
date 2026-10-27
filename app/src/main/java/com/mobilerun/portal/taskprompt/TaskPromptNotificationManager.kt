@@ -10,7 +10,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.mobilerun.portal.R
-import com.mobilerun.portal.ui.MainActivity
+import com.mobilerun.portal.ui.PortalEntry
 import androidx.core.net.toUri
 
 object TaskPromptNotificationManager {
@@ -162,7 +162,7 @@ object TaskPromptNotificationManager {
     }
 
     private fun buildOpenPortalPendingIntent(context: Context): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
+        val intent = PortalEntry.mainIntent(context).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(

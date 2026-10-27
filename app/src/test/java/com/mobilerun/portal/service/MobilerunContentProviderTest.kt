@@ -522,9 +522,8 @@ class MobilerunContentProviderTest {
         verifySequence {
             configManager.defaultReverseConnectionUrl
             configManager.reverseConnectionUrl = defaultUrl
-            configManager.reverseConnectionToken = "real-token"
+            configManager.setReverseConnectionCredential("real-token", ConfigManager.CREDENTIAL_API_KEY)
             configManager.forceLoginOnNextConnect = false
-            configManager.reverseConnectionEnabled = true
         }
     }
 
@@ -559,9 +558,8 @@ class MobilerunContentProviderTest {
         assertTrue(started.get())
         verifySequence {
             configManager.reverseConnectionUrl = url
-            configManager.reverseConnectionToken = "aliased-token"
+            configManager.setReverseConnectionCredential("aliased-token", ConfigManager.CREDENTIAL_API_KEY)
             configManager.forceLoginOnNextConnect = false
-            configManager.reverseConnectionEnabled = true
         }
     }
 

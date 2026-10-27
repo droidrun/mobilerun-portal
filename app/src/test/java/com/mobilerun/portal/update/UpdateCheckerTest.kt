@@ -57,6 +57,11 @@ class UpdateCheckerTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun parseFeed_rejectsForeignPackageByDefault() {
+        UpdateChecker.parseFeed(validFeed(packageName = "com.example.foreign"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun parseFeed_rejectsMissingApkUrl() {
         val feed = """
             {

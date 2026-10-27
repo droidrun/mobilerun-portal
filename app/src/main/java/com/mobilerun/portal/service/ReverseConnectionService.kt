@@ -7,9 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -22,6 +22,10 @@ import androidx.core.app.NotificationCompat
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
+import com.mobilerun.portal.auth.DeviceCodeAuthClient.Companion.SESSION_CHECK_INTERVAL_MS
+import com.mobilerun.portal.auth.SessionCredential
+import com.mobilerun.portal.auth.SessionResult
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
@@ -29,12 +33,13 @@ import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
-import org.java_websocket.client.WebSocketClient
-import org.java_websocket.handshake.ServerHandshake
-import org.json.JSONObject
+import com.mobilerun.portal.taskprompt.PortalCloudClient
 import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import org.json.JSONObject
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link"
@@ -97,6 +102,27 @@ class ReverseConnectionService : Service() {
 
         fun getInstance(): ReverseConnectionService? = instance
 
+        fun start(context: Context, action: String = "") {
+            ConfigManager.getInstance(context).reverseConnectionEnabled = true
+            context.startForegroundService(Intent(action, null, context, ReverseConnectionService::class.java))
+        }
+
+        fun clearSession(context: Context, expectedToken: String): Boolean {
+            if (!SessionCredential.clear(ConfigManager.getInstance(context), expectedToken)) return false
+            val running = instance
+            if (running != null) {
+                running.stopAfterTerminalState(ConnectionState.UNAUTHORIZED, running.webSocketGeneration.current(), expectedToken)
+            } else {
+                context.stopService(Intent(context, ReverseConnectionService::class.java))
+                ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
+            }
+            return true
+        }
+
+        internal fun sessionConnectionAllowed(url: String, defaultUrl: String): Boolean =
+            runCatching { URI(url).scheme == "wss" && PortalCloudClient.isOfficialMobilerunCloudConnection(url, defaultUrl) }
+                .getOrDefault(false)
+
         internal fun shouldNotifyStreamStoppedAfterReconnect(
             captureActive: Boolean,
             streamActive: Boolean,
@@ -122,6 +148,44 @@ class ReverseConnectionService : Service() {
     private val lightweightExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val authClient = DeviceCodeAuthClient()
+    private val sessionCheckInFlight = AtomicBoolean(false)
+    private val sessionCheck: Runnable = object : Runnable {
+        override fun run() {
+            checkSessionIfDue()
+            scheduleSessionCheck()
+        }
+    }
+
+    private fun scheduleSessionCheck() {
+        handler.removeCallbacks(sessionCheck)
+        if (SessionCredential.isActive(configManager)) {
+            handler.postDelayed(sessionCheck, SESSION_CHECK_INTERVAL_MS)
+        }
+    }
+
+    internal fun checkSessionIfDue() {
+        val checkedToken = synchronized(configManager) {
+            if (!isServiceRunning.get() || !SessionCredential.isActive(configManager) ||
+                !DeviceCodeAuthClient.sessionCheckDue(configManager.sessionCheckedAt, System.currentTimeMillis())) return
+            configManager.reverseConnectionToken
+        }
+        if (checkedToken.isBlank() || !sessionCheckInFlight.compareAndSet(false, true)) return
+        lightweightExecutor.execute {
+            val result = authClient.session(checkedToken)
+            handler.post {
+                sessionCheckInFlight.set(false)
+                if (!isServiceRunning.get() || configManager.reverseConnectionToken != checkedToken) return@post
+                when (result) {
+                    SessionResult.Invalid -> stopAfterTerminalState(ConnectionState.UNAUTHORIZED, webSocketGeneration.current(), checkedToken)
+                    is SessionResult.Valid -> synchronized(configManager) {
+                        if (configManager.reverseConnectionToken == checkedToken) configManager.sessionCheckedAt = System.currentTimeMillis()
+                    }
+                    SessionResult.Unavailable -> Unit
+                }
+            }
+        }
+    }
     private var lastReverseToastAtMs = 0L
     private var isForeground = false
 
@@ -160,6 +224,7 @@ class ReverseConnectionService : Service() {
         reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
         reverseDeviceEventRelay.start()
         createNotificationChannel()
+        scheduleSessionCheck()
         Log.d(TAG, "Service Created")
     }
 
@@ -182,6 +247,11 @@ class ReverseConnectionService : Service() {
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
+        if (configManager.reverseConnectionCredentialType == SessionCredential.TYPE &&
+            configManager.reverseConnectionToken.isBlank()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         terminalState = null
         reverseMediaReleased = false
         val explicitReconnect = intent?.action == ACTION_RECONNECT
@@ -287,12 +357,14 @@ class ReverseConnectionService : Service() {
         }
     }
 
-    fun buildHeaders(): MutableMap<String, String> {
+    fun buildHeaders(effectiveUrl: String = configManager.reverseConnectionUrlOrDefault): MutableMap<String, String> = synchronized(configManager) {
         val authToken = configManager.reverseConnectionToken
 
         val headers = mutableMapOf<String, String>()
-        if (authToken.isNotBlank())
+        if (authToken.isNotBlank() && (configManager.reverseConnectionCredentialType != SessionCredential.TYPE ||
+                sessionConnectionAllowed(effectiveUrl, configManager.defaultReverseConnectionUrl))) {
             headers["Authorization"] = "Bearer $authToken"
+        }
 
         headers["X-Device-ID"] = configManager.deviceID
         headers["X-Device-Name"] = configManager.deviceName
@@ -303,7 +375,7 @@ class ReverseConnectionService : Service() {
             headers["X-Remote-Device-Key"] = serviceKey
         }
 
-        return headers
+        headers
     }
 
     private fun logConnectionAttempt(uri: URI, headers: Map<String, String>) {
@@ -340,6 +412,11 @@ class ReverseConnectionService : Service() {
         }
 
         val hostUrl = configManager.reverseConnectionUrlOrDefault
+        if (configManager.reverseConnectionCredentialType == SessionCredential.TYPE &&
+            !sessionConnectionAllowed(hostUrl, configManager.defaultReverseConnectionUrl)) {
+            clearSession(this, configManager.reverseConnectionToken)
+            return
+        }
         if (hostUrl.isBlank()) {
             Log.w(TAG, "connectToHost: No host URL configured")
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
@@ -352,7 +429,8 @@ class ReverseConnectionService : Service() {
             val connectionGeneration = closeWebSocket() // Prevent resource leaks from zombie connections
             val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
             val uri = URI(finalUrl)
-            val headers = buildHeaders()
+            val checkedToken = configManager.reverseConnectionToken
+            val headers = buildHeaders(hostUrl)
             logConnectionAttempt(uri, headers)
 
             webSocketClient = object : WebSocketClient(uri, headers) {
@@ -363,6 +441,8 @@ class ReverseConnectionService : Service() {
                         "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
                     )
                     retryController.onConnected()
+                    checkSessionIfDue()
+                    scheduleSessionCheck()
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
@@ -397,7 +477,7 @@ class ReverseConnectionService : Service() {
                                 "onClose: Terminal error ($state), stopping service",
                             )
                             ConnectionStateManager.setState(state)
-                            stopAfterTerminalState(state, connectionGeneration)
+                            stopAfterTerminalState(state, connectionGeneration, checkedToken)
                             return
                         }
 
@@ -549,11 +629,15 @@ class ReverseConnectionService : Service() {
     }
 
     /** Stops the service after a terminal close so it is not left sticky in the foreground. */
-    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long) {
+    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long, checkedToken: String) {
         handler.post {
             if (!webSocketGeneration.isCurrent(connectionGeneration)) {
                 Log.d(TAG, "Skipping stale terminal stop for generation $connectionGeneration")
                 return@post
+            }
+            if (state == ConnectionState.UNAUTHORIZED) {
+                if (configManager.reverseConnectionToken.isNotBlank() && configManager.reverseConnectionToken != checkedToken) return@post
+                SessionCredential.clear(configManager, checkedToken)
             }
             terminalState = state
             isServiceRunning.set(false)
@@ -688,7 +772,7 @@ class ReverseConnectionService : Service() {
     }
 
     private fun createNotification(deferred: Boolean): Notification {
-        val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
+        val intent = com.mobilerun.portal.ui.PortalEntry.mainIntent(this)
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,

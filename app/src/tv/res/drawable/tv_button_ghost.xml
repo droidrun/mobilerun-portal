@@ -1,0 +1,18 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <inset android:inset="5dp">
+            <shape>
+                <solid android:color="@color/tv_destructive_tint" />
+                <corners android:radius="14dp" />
+            </shape>
+        </inset>
+    </item>
+    <item>
+        <inset android:inset="5dp">
+            <shape>
+                <solid android:color="@android:color/transparent" />
+                <corners android:radius="14dp" />
+            </shape>
+        </inset>
+    </item>
+</selector>
