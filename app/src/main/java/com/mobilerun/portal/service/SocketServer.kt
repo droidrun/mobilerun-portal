@@ -17,6 +17,9 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** application/x-www-form-urlencoded: '+' is a space, "%2B" is a literal '+'. */
+internal fun decodeFormComponent(value: String): String = Uri.decode(value.replace('+', ' '))
+
 class SocketServer(
     private val apiHandler: ApiHandler,
     private val configManager: ConfigManager,
@@ -337,8 +340,8 @@ class SocketServer(
                 data.split("&").forEach { pair ->
                     val parts = pair.split("=", limit = 2)
                     if (parts.size == 2) {
-                        val key = Uri.decode(parts[0])
-                        val value = Uri.decode(parts[1])
+                        val key = decodeFormComponent(parts[0])
+                        val value = decodeFormComponent(parts[1])
                         val intValue = value.toIntOrNull()
                         if (intValue != null) {
                             values.put(key, intValue)
