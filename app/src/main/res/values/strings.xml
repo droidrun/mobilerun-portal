@@ -217,6 +217,7 @@
     <string name="unrestricted_battery_label">Unrestricted Battery</string>
     <string name="unrestricted_battery_description">Keep local servers reachable in the background</string>
     <string name="sms_gateway_label">SMS Gateway</string>
+    <string name="sms_gateway_description">Allow API clients to send and read SMS</string>
     <string name="sms_permission_send">Send</string>
     <string name="sms_permission_read">Read</string>
     <string name="sms_permission_receive">Receive</string>

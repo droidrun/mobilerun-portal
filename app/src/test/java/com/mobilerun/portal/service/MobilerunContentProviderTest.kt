@@ -491,6 +491,45 @@ class MobilerunContentProviderTest {
     }
 
     @Test
+    fun handleSmsGatewayInsert_setsSwitch() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+
+        every { values.getAsBoolean("enabled") } returns true
+        assertEquals(
+            ApiResponse.Success("SMS gateway set to true"),
+            handleSmsGatewayInsert(configManager, values),
+        )
+        every { values.getAsBoolean("enabled") } returns false
+        assertEquals(
+            ApiResponse.Success("SMS gateway set to false"),
+            handleSmsGatewayInsert(configManager, values),
+        )
+
+        verifySequence {
+            configManager.smsGatewayEnabled = true
+            configManager.smsGatewayEnabled = false
+        }
+    }
+
+    @Test
+    fun handleSmsGatewayInsert_rejectsMissingEnabled() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsBoolean("enabled") } returns null
+
+        assertEquals(
+            ApiResponse.Error("Missing required field: enabled"),
+            handleSmsGatewayInsert(configManager, values),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required field: enabled"),
+            handleSmsGatewayInsert(configManager, null),
+        )
+        verify(exactly = 0) { configManager.smsGatewayEnabled = any() }
+    }
+
+    @Test
     fun handleCloudConnectInsert_storesApiKeyAndStartsReverseService() {
         val context = mockk<Context>(relaxed = true)
         val configManager = mockk<ConfigManager>(relaxed = true)

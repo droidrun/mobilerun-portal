@@ -455,6 +455,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             binding.switchUnrestrictedBattery.isChecked = !binding.switchUnrestrictedBattery.isChecked
         }
 
+        binding.switchSmsGateway.setOnCheckedChangeListener { _, isChecked ->
+            configManager.smsGatewayEnabled = isChecked
+        }
         binding.buttonRequestSendSms.setOnClickListener {
             requestSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
         }
@@ -944,6 +947,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
 
     private fun updateSmsDiagnosticsStatus() {
+        binding.switchSmsGateway.isChecked = configManager.smsGatewayEnabled
         val send = grantLabel(Manifest.permission.SEND_SMS)
         val read = grantLabel(Manifest.permission.READ_SMS)
         val receive = grantLabel(Manifest.permission.RECEIVE_SMS)
@@ -1008,6 +1012,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchKeepScreenAwake.isChecked = enabled
+        }
+    }
+
+    override fun onSmsGatewayEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            binding.switchSmsGateway.isChecked = enabled
         }
     }
 

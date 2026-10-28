@@ -65,7 +65,13 @@ def main():
         return 2
 
     try:
-        assert_ok("http sms/capabilities", http_post(args.base_url, args.token, "sms/capabilities", {}))
+        capabilities = http_post(args.base_url, args.token, "sms/capabilities", {})
+        assert_ok("http sms/capabilities", capabilities)
+        if not capabilities["result"].get("gateway_enabled"):
+            raise AssertionError(
+                "SMS gateway is disabled; enable it in Portal Settings or with "
+                "adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true"
+            )
         messages = http_post(args.base_url, args.token, "sms/messages/list", {"box": "inbox", "limit": 1})
         if messages.get("status") == "success":
             print("ok: http sms/messages/list")

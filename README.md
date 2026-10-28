@@ -117,6 +117,7 @@ adb shell content insert --uri content://com.mobilerun.portal/set_no_a11y_mode -
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
 | Deep-link discovery / resolution | Query | POST | Yes | Yes, including headless mode |
+| SMS (`sms/*`) | Query + `sms/send` insert | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
@@ -209,6 +210,10 @@ adb shell content insert --uri content://com.mobilerun.portal/toggle_socket_serv
 # Enable/disable local WebSocket server (default port: 8081)
 adb shell content insert --uri content://com.mobilerun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
 adb shell content insert --uri content://com.mobilerun.portal/toggle_websocket_server --bind enabled:b:false
+
+# Enable/disable the SMS gateway (default: off)
+adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:false
 
 # Enable/disable explicit no-accessibility local server mode
 adb shell content insert --uri content://com.mobilerun.portal/set_no_a11y_mode --bind enabled:b:true

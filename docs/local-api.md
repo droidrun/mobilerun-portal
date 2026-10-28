@@ -86,7 +86,7 @@ Response format:
 | `state` | `filter` | Full state; `filter=false` keeps small elements |
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
-| `sms/capabilities` | - | SMS permissions, SMS messaging availability, active subscriptions |
+| `sms/capabilities` | - | Gateway switch (`gateway_enabled`), SMS permissions, SMS messaging availability, active subscriptions |
 | `sms/send` | `phone_number`, `message`, optional `message_id`, `subscription_id` or `sim_slot`, `delivery_report` | Sends one text SMS; multipart bodies are split automatically |
 | `sms/status` | `message_id` | Returns in-memory send state for recent sends |
 | `sms/messages/list` | `box`, `limit`, `since`, `phone_number` | Reads stored SMS when `READ_SMS` is granted |
@@ -106,6 +106,7 @@ Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
 SMS methods (`sms/*`) are available over HTTP POST, local WebSocket, and reverse connection. `sms/send` requires `SEND_SMS`; `sms/messages/*` requires `READ_SMS`; SIM slot lookup requires `READ_PHONE_STATE`.
+The SMS gateway is off by default. While it is off, every `sms/*` method except `sms/capabilities` returns the error `SMS gateway is disabled in Portal settings`. Turn it on with the **SMS Gateway** switch in Settings > Permissions or the `sms/gateway` ContentProvider insert; it cannot be changed over HTTP or WebSocket.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
 `?eventFormat=rpc` to request the same
@@ -285,6 +286,9 @@ adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
+
+adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:false
 
 adb shell content insert --uri content://com.mobilerun.portal/sms/send \
   --bind phone_number:s:+15550001111 \

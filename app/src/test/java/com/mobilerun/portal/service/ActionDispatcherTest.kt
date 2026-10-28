@@ -5,6 +5,7 @@ import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.triggers.TriggerApi
 import com.mobilerun.portal.triggers.TriggerApiResult
+import io.mockk.confirmVerified
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -382,6 +383,24 @@ class ActionDispatcherTest {
         verify(exactly = 1) { apiHandler.getSmsStatus(statusParams) }
         verify(exactly = 1) { apiHandler.listSmsMessages(listParams) }
         verify(exactly = 1) { apiHandler.getSmsMessage(getParams) }
+    }
+
+    @Test
+    fun dispatch_smsGatewaySwitch_isNotExposed() {
+        val apiHandler = mockk<ApiHandler>()
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().put("enabled", true)
+
+        ActionDispatcher.Origin.entries.forEach { origin ->
+            listOf("sms/gateway", "/action/sms/gateway", "sms/gateway/set").forEach { method ->
+                val normalized = method.removePrefix("/action/")
+                assertEquals(
+                    ApiResponse.Error("Unknown method: $normalized"),
+                    dispatcher.dispatch(method, params, origin),
+                )
+            }
+        }
+        confirmVerified(apiHandler)
     }
 
     @Test

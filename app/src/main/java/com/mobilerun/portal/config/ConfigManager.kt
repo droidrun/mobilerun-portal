@@ -27,6 +27,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val PREFS_NAME = "mobilerun_config"
         private const val DEVICE_PREFS_NAME = "mobilerun_device"
         private const val SECRET_PREFS_NAME = "mobilerun_secrets"
+        private const val SMS_PREFS_NAME = "mobilerun_sms"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
@@ -50,6 +51,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
+        private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
             "keep_alive_last_recovery_attempt_at_ms"
@@ -128,6 +130,10 @@ class ConfigManager private constructor(private val context: Context) {
 
     private val secretsPrefs: SharedPreferences =
         context.getSharedPreferences(SECRET_PREFS_NAME, Context.MODE_PRIVATE)
+
+    // Excluded from backup and device transfer, so a restore never re-enables the SMS gateway.
+    private val smsPrefs: SharedPreferences =
+        context.getSharedPreferences(SMS_PREFS_NAME, Context.MODE_PRIVATE)
 
     init {
         migrateSecretPrefsIfNeeded()
@@ -452,6 +458,15 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, value) }
+        }
+
+    // Set only from Settings and the ContentProvider, never over HTTP, WebSocket or reverse.
+    var smsGatewayEnabled: Boolean
+        get() = smsPrefs.getBoolean(KEY_SMS_GATEWAY_ENABLED, false)
+        set(value) {
+            if (smsGatewayEnabled == value) return
+            smsPrefs.edit { putBoolean(KEY_SMS_GATEWAY_ENABLED, value) }
+            listeners.forEach { it.onSmsGatewayEnabledChanged(value) }
         }
 
     var keepAliveLastRecoveryAtMs: Long
@@ -812,6 +827,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
+        fun onSmsGatewayEnabledChanged(enabled: Boolean) {}
         fun onStreamSessionLimitChanged(limit: Int) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
@@ -1024,6 +1040,7 @@ class ConfigManager private constructor(private val context: Context) {
             putBoolean("screen_share_auto_accept_enabled", true)
             putBoolean("force_login_on_next_connect", false)
         }
+        smsPrefs.edit(commit = true) { clear() }
         // Notify listeners
         listeners.forEach {
             it.onOverlayVisibilityChanged(false)
@@ -1033,6 +1050,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onWebSocketEnabledChanged(false)
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
             it.onKeepScreenAwakeEnabledChanged(false)
+            it.onSmsGatewayEnabledChanged(false)
             it.onStreamSessionLimitChanged(DEFAULT_STREAM_SESSION_LIMIT)
             it.onProductionModeChanged(false)
         }

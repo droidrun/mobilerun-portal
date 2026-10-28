@@ -224,6 +224,16 @@ internal fun handleStreamSessionLimitInsert(
     return ApiResponse.Success("Stream session limit set to $limit")
 }
 
+internal fun handleSmsGatewayInsert(
+    configManager: ConfigManager,
+    values: ContentValues?,
+): ApiResponse {
+    val enabled = values?.getAsBoolean("enabled")
+        ?: return ApiResponse.Error("Missing required field: enabled")
+    configManager.smsGatewayEnabled = enabled
+    return ApiResponse.Success("SMS gateway set to $enabled")
+}
+
 internal fun readProviderStringValue(
     values: ContentValues?,
     key: String,
@@ -596,6 +606,7 @@ class MobilerunContentProvider : ContentProvider() {
         private const val SMS_MESSAGES = 42
         private const val SMS_MESSAGE = 43
         private const val SMS_SEND = 44
+        private const val SMS_GATEWAY = 45
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -642,6 +653,7 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "sms/messages", SMS_MESSAGES)
             addURI(AUTHORITY, "sms/messages/*", SMS_MESSAGE)
             addURI(AUTHORITY, "sms/send", SMS_SEND)
+            addURI(AUTHORITY, "sms/gateway", SMS_GATEWAY)
         }
     }
 
@@ -926,6 +938,10 @@ class MobilerunContentProvider : ContentProvider() {
 
         if (match == SMS_SEND) {
             return responseToResultUri(handleSmsSendInsert(values))
+        }
+
+        if (match == SMS_GATEWAY) {
+            return responseToResultUri(handleSmsGatewayInsert(configManager, values))
         }
 
         if (match == CONFIGURE_REVERSE_CONNECTION) {
