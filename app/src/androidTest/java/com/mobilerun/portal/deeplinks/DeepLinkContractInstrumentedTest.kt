@@ -3,6 +3,7 @@ package com.mobilerun.portal.deeplinks
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
+import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mobilerun.portal.api.ApiHandler
@@ -169,6 +170,36 @@ class DeepLinkContractInstrumentedTest {
             assertFalse(deepLink, result.getBoolean("canResolve"))
             assertTrue(result.getJSONArray("matches").objects().none { it.getBoolean("callable") })
             assertFalse(result.getBoolean("navigationVerified"))
+        }
+    }
+
+    @Test
+    fun contentProviderServesInspectionWithEncodedQueryParameters() {
+        val pkg = Uri.encode(fixturePackage)
+        val links = providerQuery("app/deep-links?package=$pkg")
+        assertEquals(links.toString(), "success", links.getString("status"))
+        assertTrue(links.getJSONObject("result").getJSONArray("filters").length() > 0)
+
+        val link = Uri.encode("fixture-resource://routes.example/products/42?a=1&b=x+y")
+        val resolved = providerQuery("app/deep-link/resolve?packageName=$pkg&deepLink=$link")
+        assertTrue(resolved.toString(), resolved.getJSONObject("result").getBoolean("canResolve"))
+
+        assertEquals(
+            "Missing required param: 'package'",
+            providerQuery("app/deep-links").getString("error"),
+        )
+        assertEquals(
+            "Missing required param: 'deepLink'",
+            providerQuery("app/deep-link/resolve?package=$pkg").getString("error"),
+        )
+    }
+
+    private fun providerQuery(path: String): JSONObject {
+        val uri = Uri.parse("content://${instrumentation.targetContext.packageName}/$path")
+        instrumentation.targetContext.contentResolver.query(uri, null, null, null, null).use {
+            requireNotNull(it)
+            check(it.moveToFirst())
+            return JSONObject(it.getString(it.getColumnIndexOrThrow("result")))
         }
     }
 

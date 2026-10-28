@@ -7,10 +7,11 @@ and do not require Accessibility. Opening a URI still uses `app/deep-link`.
 ## Transports and authentication
 
 Use `app/deep-links` and `app/deep-link/resolve` over local WebSocket, reverse
-WebSocket, or HTTP **POST** to the matching path. They use the existing local API
-token and reverse connection session; no additional credential is introduced.
+WebSocket, HTTP **POST** to the matching path, or an ADB ContentProvider query with
+URL-encoded query parameters. They use the existing local API token, reverse
+connection session, or ADB access; no additional credential is introduced.
 They are available in local no-accessibility mode and the reverse headless subset.
-They are not HTTP GET endpoints or ContentProvider commands.
+They are not HTTP GET endpoints.
 
 See [Local API](local-api.md) for token setup and [Reverse Connection](reverse-connection.md)
 for connection configuration. Responses use the normal JSON `status` and
@@ -28,6 +29,12 @@ HTTP equivalent:
 curl -X POST -H "Authorization: Bearer YOUR_TOKEN" \
   --data-urlencode "package=com.example.app" \
   http://localhost:8080/app/deep-links
+```
+
+ContentProvider equivalent:
+
+```bash
+adb shell "content query --uri 'content://com.mobilerun.portal/app/deep-links?package=com.example.app'"
 ```
 
 `package` is required; `packageName` is accepted as an alias. The result includes:
@@ -101,6 +108,12 @@ curl -X POST -H "Authorization: Bearer YOUR_TOKEN" \
   --data-urlencode "package=com.example.app" \
   --data-urlencode "deepLink=https://example.com/orders/123" \
   http://localhost:8080/app/deep-link/resolve
+```
+
+ContentProvider equivalent:
+
+```bash
+adb shell "content query --uri 'content://com.mobilerun.portal/app/deep-link/resolve?package=com.example.app&deepLink=https%3A%2F%2Fexample.com%2Forders%2F123'"
 ```
 
 `package` and an absolute `deepLink` URI are required. Optional `action` defaults

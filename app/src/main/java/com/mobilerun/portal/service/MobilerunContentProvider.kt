@@ -589,6 +589,8 @@ class MobilerunContentProvider : ContentProvider() {
         private const val CLOUD_STATUS = 35
         private const val CLOUD_TASKS_LAUNCH = 36
         private const val STREAM_SESSION_LIMIT = 37
+        private const val APP_DEEP_LINKS = 38
+        private const val APP_DEEP_LINK_RESOLVE = 39
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -628,6 +630,8 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "cloud/status", CLOUD_STATUS)
             addURI(AUTHORITY, "cloud/tasks/launch", CLOUD_TASKS_LAUNCH)
             addURI(AUTHORITY, "stream_session_limit", STREAM_SESSION_LIMIT)
+            addURI(AUTHORITY, "app/deep-links", APP_DEEP_LINKS)
+            addURI(AUTHORITY, "app/deep-link/resolve", APP_DEEP_LINK_RESOLVE)
         }
     }
 
@@ -735,6 +739,9 @@ class MobilerunContentProvider : ContentProvider() {
                 TRIGGERS_RULE,
                 TRIGGERS_RUNS,
                 -> handleTriggerQuery(match, uri)
+                APP_DEEP_LINKS,
+                APP_DEEP_LINK_RESOLVE,
+                -> handleDeepLinkQuery(match, uri)
                 else -> {
                     val handler = getHandler()
                     if (handler == null) {
@@ -792,6 +799,20 @@ class MobilerunContentProvider : ContentProvider() {
             else -> ApiResponse.Error("Unknown trigger endpoint: ${uri.path}")
         }
     }
+
+    private fun handleDeepLinkQuery(match: Int, uri: Uri): ApiResponse {
+        val handler = getHeadlessCapableHandler() ?: return ApiResponse.Error("Provider context unavailable")
+        val packageName = uri.optionalQueryParameter("package")
+            ?: uri.optionalQueryParameter("packageName")
+            ?: return ApiResponse.Error("Missing required param: 'package'")
+        if (match == APP_DEEP_LINKS) return handler.getDeepLinks(packageName)
+        val deepLink = uri.optionalQueryParameter("deepLink")
+            ?: return ApiResponse.Error("Missing required param: 'deepLink'")
+        return handler.resolveDeepLink(packageName, deepLink, uri.optionalQueryParameter("action"))
+    }
+
+    private fun Uri.optionalQueryParameter(key: String): String? =
+        getQueryParameter(key)?.trim()?.takeUnless { it.isEmpty() || it == "null" }
 
     private fun getStringValue(values: ContentValues?, key: String): String? {
         return readProviderStringValue(values, key, TAG)

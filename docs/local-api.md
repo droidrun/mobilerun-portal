@@ -24,7 +24,7 @@ Response example:
 | Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
-| Deep-link discovery / resolution | No | POST | Yes | Yes, including headless mode |
+| Deep-link discovery / resolution | Query | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
@@ -99,8 +99,8 @@ Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
-Deep-link inspection is available over HTTP POST, local WebSocket, and reverse WebSocket,
-including headless mode. See [Deep-link inspection](deep-links.md) for response schemas,
+Deep-link inspection is available over HTTP POST, local WebSocket, reverse WebSocket,
+and ContentProvider query, including headless mode. See [Deep-link inspection](deep-links.md) for response schemas,
 package visibility, pattern semantics, and limits on route discovery.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
@@ -218,7 +218,7 @@ never open the target app. They are not GET endpoints. See [Deep-link inspection
 
 All commands use `content://com.mobilerun.portal/`.
 
-The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config flows. It does not expose direct screenshot, deep-link inspection, install, or WebRTC streaming endpoints.
+The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config flows. It does not expose direct screenshot, install, or WebRTC streaming endpoints.
 
 Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 
@@ -237,6 +237,7 @@ adb shell content query --uri content://com.mobilerun.portal/auth_token
 adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
+adb shell "content query --uri 'content://com.mobilerun.portal/app/deep-links?package=com.example.app'"
 ```
 
 ### Insert
