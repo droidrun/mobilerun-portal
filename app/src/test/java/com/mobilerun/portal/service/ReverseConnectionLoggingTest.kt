@@ -9,6 +9,7 @@ class ReverseConnectionLoggingTest {
     fun requestRedaction_coversSensitiveWritePayloads() {
         assertTrue(shouldRedactReverseRequestPayload("clipboard/set"))
         assertTrue(shouldRedactReverseRequestPayload("app/deep-link"))
+        assertTrue(shouldRedactReverseRequestPayload("app/deep-link/resolve"))
         assertFalse(shouldRedactReverseRequestPayload("clipboard/get"))
         assertFalse(shouldRedactReverseRequestPayload("app"))
     }
@@ -17,6 +18,7 @@ class ReverseConnectionLoggingTest {
     fun responseRedaction_coversSensitiveReadAndDeepLinkPayloads() {
         assertTrue(shouldRedactReverseResponsePayload("clipboard/get"))
         assertTrue(shouldRedactReverseResponsePayload("app/deep-link"))
+        assertTrue(shouldRedactReverseResponsePayload("app/deep-link/resolve"))
         assertFalse(shouldRedactReverseResponsePayload("clipboard/set"))
         assertFalse(shouldRedactReverseResponsePayload("app"))
     }

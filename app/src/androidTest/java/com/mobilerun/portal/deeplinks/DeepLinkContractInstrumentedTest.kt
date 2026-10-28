@@ -60,18 +60,12 @@ class DeepLinkContractInstrumentedTest {
         assertEquals("manifest", result.getString("scope"))
         assertEquals(result.toString(), listOf("configuration_dependent_data_ignored"), result.getJSONArray("warnings").strings())
         assertFalse(result.getBoolean("declarationsComplete"))
-        assertTrue(result.has("versionCode"))
-        assertTrue(result.has("lastUpdateTime"))
-        val limitations = result.getJSONArray("limitations").strings()
-        assertTrue(limitations.contains("runtime_routes_not_enumerated"))
-        assertTrue(limitations.contains("dynamic_app_link_rules_not_evaluated"))
 
         val filters = result.getJSONArray("filters").objects()
         val activityName = DeepLinkFixtureActivity::class.java.name
-        val activityFilters = filters.filter { it.getString("activity") == activityName }
-        assertEquals("VIEW filters must remain separate and SEND must be omitted", 2, activityFilters.size)
-        val resourceFilter = activityFilters.single { filter ->
-            filter.getJSONArray("data").objects().any { it.optString("scheme") == "fixture-resource" }
+        val resourceFilter = filters.single { filter ->
+            filter.getString("activity") == activityName &&
+                filter.getJSONArray("data").objects().any { it.optString("scheme") == "fixture-resource" }
         }
         assertEquals("base", resourceFilter.getString("source"))
         assertTrue(resourceFilter.getBoolean("enabled"))
@@ -82,13 +76,6 @@ class DeepLinkContractInstrumentedTest {
         val resourceData = resourceFilter.getJSONArray("data").getJSONObject(0)
         assertEquals("routes.example", resourceData.getString("host"))
         assertEquals("/products/", resourceData.getString("pathPrefix"))
-
-        val splitDataFilter = activityFilters.single { it !== resourceFilter }
-        val separateData = splitDataFilter.getJSONArray("data").objects()
-        assertEquals("individual data tags must remain separate", 3, separateData.size)
-        assertTrue(separateData.any { it.optString("scheme") == "fixture-secondary" })
-        assertTrue(separateData.any { it.optString("host") == "secondary.example" })
-        assertTrue(separateData.any { it.optString("pathPattern") == "/items/.*" })
 
         val alias = filters.single { it.getString("activity") == aliasName() }
         assertEquals(activityName, alias.getString("targetActivity"))

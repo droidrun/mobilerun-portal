@@ -106,6 +106,7 @@ class DeepLinkInspectorTest {
         assertEquals(4, filters.size)
         assertEquals(setOf("base", "split:1"), filters.map { it.getString("source") }.toSet())
         assertTrue(filters.any { it.getString("activity") == "$PACKAGE.Alias" })
+        assertTrue(link(result).getBoolean("autoVerify"))
         assertEquals("resource-scheme", resolvedScheme(result))
         assertEquals("manifest", result.getString("scope"))
         verify(exactly = 1) { packageManager.getResourcesForApplication(PACKAGE) }

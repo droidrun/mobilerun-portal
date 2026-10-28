@@ -27,6 +27,8 @@ class HeadlessActionSupportTest {
         assertTrue(HeadlessActionSupport.isAllowed("clipboard/get"))
         assertTrue(HeadlessActionSupport.isAllowed("clipboard/set"))
         assertTrue(HeadlessActionSupport.isAllowed("triggers/status"))
+        assertTrue(HeadlessActionSupport.isAllowed("app/deep-links"))
+        assertTrue(HeadlessActionSupport.isAllowed("app/deep-link/resolve"))
     }
 
     @Test

@@ -3,12 +3,7 @@
 `manifest-aapt2.axml` is the `AndroidManifest.xml` entry from an APK built by the
 Android SDK Build Tools 34.0.0 `aapt2`. It uses the manifest's UTF-16 string pool.
 `manifest-aapt2-utf8.axml` is the same source compiled as an ordinary XML resource,
-which makes `aapt2` use a UTF-8 pool. No Android runtime, downloaded app, or generated
-APK is required to run these JVM tests.
-
-The checked-in source manifest and `res/values/strings.xml` intentionally exercise
-Unicode, long UTF-8 lengths, aliases, namespaced attributes, booleans, signed
-integers, flags, dimensions/fractions, and string resource references.
+which makes `aapt2` use a UTF-8 pool.
 
 To regenerate, with `ANDROID_HOME` pointing to an Android SDK containing API 34:
 

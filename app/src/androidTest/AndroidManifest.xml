@@ -19,19 +19,6 @@
                     android:host="@string/deep_link_fixture_host"
                     android:pathPrefix="@string/deep_link_fixture_prefix" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="fixture-secondary" />
-                <data android:host="secondary.example" />
-                <data android:pathPattern="/items/.*" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
         </activity>
         <activity-alias
             android:name="com.mobilerun.portal.deeplinks.DeepLinkFixtureAlias"

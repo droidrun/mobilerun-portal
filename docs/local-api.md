@@ -99,9 +99,6 @@ Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
-Deep-link inspection is available over HTTP POST, local WebSocket, reverse WebSocket,
-and ContentProvider query, including headless mode. See [Deep-link inspection](deep-links.md) for response schemas,
-package visibility, pattern semantics, and limits on route discovery.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
 `?eventFormat=rpc` to request the same
@@ -136,25 +133,21 @@ A capture failure returns an error envelope instead of image data, for example:
 {"id":42,"status":"error","error":"Screenshot failed: Secure window cannot be captured"}
 ```
 
-HTTP responses use the same success/error fields without `id`. Check `status`
-before decoding `result`. The PNG bytes are obtained by base64-decoding that
-field, not by saving the HTTP response body directly as a `.png` file.
-
-For example, save an HTTP screenshot as `screenshot.png`:
+Save an HTTP screenshot as `screenshot.png`:
 
 ```bash
-curl --fail --silent --show-error \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  'http://localhost:8080/screenshot?hideOverlay=false' | \
-  python3 -c 'import base64, json, pathlib, sys
-response = json.load(sys.stdin)
-if response["status"] != "success":
-    raise SystemExit(response["error"])
-pathlib.Path("screenshot.png").write_bytes(base64.b64decode(response["result"]))'
+curl -s -H "Authorization: Bearer YOUR_TOKEN" 'http://localhost:8080/screenshot?hideOverlay=false' | jq -er 'select(.status=="success").result' | base64 -d > screenshot.png
 ```
 
 `hideOverlay` defaults to `true`; set it to `false` to keep Portal's overlay in the
-capture. This changes the capture contents, not the response encoding.
+capture.
+
+### Binary WebSocket responses
+
+Local WebSocket binary responses, such as `files/download`, use a binary frame:
+
+- First 36 bytes: request ID string (UUID)
+- Remaining bytes: raw binary payload
 
 ## HTTP socket server
 
@@ -210,9 +203,7 @@ curl -X POST \
   http://localhost:8080/app/deep-link
 ```
 
-Read-only inspection uses authenticated POST `/app/deep-links` and
-`/app/deep-link/resolve`. These two operations do not require Accessibility and
-never open the target app. They are not GET endpoints. See [Deep-link inspection](deep-links.md).
+See [Deep-link inspection](deep-links.md) for `/app/deep-links` and `/app/deep-link/resolve`.
 
 ## ContentProvider (ADB)
 

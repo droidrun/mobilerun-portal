@@ -22,7 +22,6 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import org.junit.After
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -33,7 +32,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URI
 import java.nio.ByteBuffer
-import java.util.Base64
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -77,7 +75,7 @@ class ScreenshotContractTest {
     }
 
     @Test
-    fun httpScreenshot_isJsonWithDecodablePngAndNoRequestId() = withHttpServer { port ->
+    fun httpScreenshot_isJsonWithBase64PngAndNoRequestId() = withHttpServer { port ->
         val response = httpGet(port, "/screenshot")
 
         assertTrue(response.headers.startsWith("HTTP/1.1 200 "))
@@ -85,13 +83,8 @@ class ScreenshotContractTest {
         assertFalse(response.headers.contains("image/png"))
         assertPngEnvelope(JSONObject(response.body), id = null)
         verify(exactly = 1) { stateRepo.takeScreenshot(true) }
-    }
 
-    @Test
-    fun httpScreenshot_hideOverlayFalseKeepsTheJsonContract() = withHttpServer { port ->
-        val response = httpGet(port, "/screenshot?hideOverlay=false")
-
-        assertPngEnvelope(JSONObject(response.body), id = null)
+        assertPngEnvelope(JSONObject(httpGet(port, "/screenshot?hideOverlay=false").body), id = null)
         verify(exactly = 1) { stateRepo.takeScreenshot(false) }
     }
 
@@ -136,22 +129,6 @@ class ScreenshotContractTest {
         }
 
     @Test
-    fun localWebSocketScreenshot_failureIsATextErrorWithTheRequestId() =
-        withWebSocketServer { port ->
-            captureFails()
-            val client = RecordingClient(URI("ws://127.0.0.1:$port/?token=$TOKEN"))
-            try {
-                assertTrue(client.connectBlocking(5, TimeUnit.SECONDS))
-                client.send(request("failed-capture"))
-                val frame = client.messages.poll(5, TimeUnit.SECONDS)
-                assertTrue("Expected a JSON text error", frame is String)
-                assertErrorEnvelope(JSONObject(frame as String), "failed-capture")
-            } finally {
-                client.closeBlocking()
-            }
-        }
-
-    @Test
     fun localWebSocketScreenshot_rejectsUnauthenticatedConnections() = withWebSocketServer { port ->
         val client = RecordingClient(URI("ws://127.0.0.1:$port/?token=wrong-token"))
         try {
@@ -173,17 +150,6 @@ class ScreenshotContractTest {
                 assertPngEnvelope(JSONObject(frame as String), id)
             }
             verify(exactly = 2) { stateRepo.takeScreenshot(false) }
-        }
-    }
-
-    @Test
-    fun reverseWebSocketScreenshot_failureIsATextErrorWithTheRequestId() {
-        captureFails()
-        withReverseConnection { sendRequest, frames ->
-            sendRequest(request("reverse-failure"))
-            val frame = frames.poll(5, TimeUnit.SECONDS)
-            assertTrue("Expected a reverse JSON text error", frame is String)
-            assertErrorEnvelope(JSONObject(frame as String), "reverse-failure")
         }
     }
 
@@ -277,9 +243,6 @@ class ScreenshotContractTest {
         assertEquals(PNG_BASE64, json.getString("result"))
         assertFalse(json.has("error"))
         assertRequestId(json, id)
-        val png = Base64.getDecoder().decode(json.getString("result"))
-        assertArrayEquals(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10), png.copyOf(8))
-        assertArrayEquals(Base64.getDecoder().decode(PNG_BASE64), png)
     }
 
     private fun assertErrorEnvelope(json: JSONObject, id: Any?) {

@@ -109,7 +109,7 @@ class ActionDispatcherTest {
     }
 
     @Test
-    fun dispatch_deepLink_defaultsDisplayAndOptionalParams() {
+    fun dispatch_deepLink_defaultsDisplayAndOptionalParamsAndTrimsLink() {
         val apiHandler = mockk<ApiHandler>()
         every {
             apiHandler.openDeepLink(0, null, null, "example://path")
@@ -118,7 +118,7 @@ class ActionDispatcherTest {
         val response =
             ActionDispatcher(apiHandler).dispatch(
                 "app/deep-link",
-                JSONObject().put("deepLink", "example://path"),
+                JSONObject().put("deepLink", " example://path\n"),
             )
 
         assertEquals(ApiResponse.Success("Deep link opened"), response)
