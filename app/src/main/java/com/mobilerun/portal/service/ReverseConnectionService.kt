@@ -51,10 +51,11 @@ internal enum class ReverseMediaRelease {
 
 /** A real leave closes with a normal 1000 so the relay stops the device now; reconnect cleanup sends no close frame, so the relay sees an interruption. */
 internal fun closeRelaySocket(client: WebSocketClient, leave: Boolean) {
-    if (leave) {
-        client.close(CloseFrame.NORMAL, "user")
-    } else {
-        client.closeConnection(CloseFrame.ABNORMAL_CLOSE, "reconnect")
+    when {
+        leave -> client.close(CloseFrame.NORMAL, "user")
+        client.isOpen -> client.closeConnection(CloseFrame.ABNORMAL_CLOSE, "reconnect")
+        // Still connecting: close() sends no frame and lets the connect thread drop the socket.
+        else -> client.close(CloseFrame.ABNORMAL_CLOSE, "reconnect")
     }
 }
 
