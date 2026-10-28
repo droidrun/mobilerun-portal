@@ -136,7 +136,7 @@ class PortalWebSocketServer(
                 handleCommand(conn, commandEvent)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing message: ${e.message}")
+            Log.e(TAG, "Error processing message (${e.javaClass.simpleName}, ${message?.length ?: 0} chars)")
         }
     }
 

@@ -763,7 +763,7 @@ class ReverseConnectionService : Service() {
         try {
             // Check if the message is a valid JSON before parsing
             if (!message.trim().startsWith("{") && !message.trim().startsWith("[")) {
-                Log.w(TAG, "Received non-JSON message: $message")
+                Log.w(TAG, "Received non-JSON message (${message.length} chars)")
                 return
             }
 
@@ -836,7 +836,8 @@ class ReverseConnectionService : Service() {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing message", e)
+            // The exception text can contain the whole frame, including SMS content.
+            Log.e(TAG, "Error processing message (${e.javaClass.simpleName}, ${message.length} chars)")
             sendErrorResponse(
                 client,
                 id,
