@@ -354,6 +354,37 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_smsMethods_routeToSmsApi() {
+        val apiHandler = mockk<ApiHandler>()
+        val sendParams = JSONObject()
+            .put("phone_number", "+15550001111")
+            .put("message", "hello")
+        val statusParams = JSONObject().put("message_id", "msg-1")
+        val listParams = JSONObject().put("box", "inbox")
+        val getParams = JSONObject().put("sms_id", "42")
+
+        every { apiHandler.getSmsCapabilities() } returns ApiResponse.Success("capabilities")
+        every { apiHandler.sendSms(sendParams) } returns ApiResponse.Success("sent")
+        every { apiHandler.getSmsStatus(statusParams) } returns ApiResponse.Success("status")
+        every { apiHandler.listSmsMessages(listParams) } returns ApiResponse.Success("messages")
+        every { apiHandler.getSmsMessage(getParams) } returns ApiResponse.Success("message")
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(ApiResponse.Success("capabilities"), dispatcher.dispatch("sms/capabilities", JSONObject()))
+        assertEquals(ApiResponse.Success("sent"), dispatcher.dispatch("sms/send", sendParams))
+        assertEquals(ApiResponse.Success("status"), dispatcher.dispatch("sms/status", statusParams))
+        assertEquals(ApiResponse.Success("messages"), dispatcher.dispatch("sms/messages/list", listParams))
+        assertEquals(ApiResponse.Success("message"), dispatcher.dispatch("sms/messages/get", getParams))
+
+        verify(exactly = 1) { apiHandler.getSmsCapabilities() }
+        verify(exactly = 1) { apiHandler.sendSms(sendParams) }
+        verify(exactly = 1) { apiHandler.getSmsStatus(statusParams) }
+        verify(exactly = 1) { apiHandler.listSmsMessages(listParams) }
+        verify(exactly = 1) { apiHandler.getSmsMessage(getParams) }
+    }
+
+    @Test
     fun dispatch_unknownMethod_returnsError() {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val dispatcher = ActionDispatcher(apiHandler)

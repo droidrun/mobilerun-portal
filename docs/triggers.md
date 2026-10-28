@@ -153,6 +153,7 @@ The current emitted `EventType` names are:
 - `NETWORK_CONNECTED`
 - `NETWORK_TYPE_CHANGED`
 - `SMS_RECEIVED`
+- `SMS_SEND_STATE_CHANGED`
 - `PING`
 - `PONG`
 - `UNKNOWN`
@@ -162,7 +163,7 @@ Notes:
 - `NOTIFICATION` is a legacy compatibility event.
 - `PING` and `PONG` are protocol events.
 - `UNKNOWN` is internal fallback and should not be treated as a stable business event type.
-- Backend storage should generally key off the specific device events such as `NOTIFICATION_POSTED`, `APP_ENTERED`, `BATTERY_LEVEL_CHANGED`, and `SMS_RECEIVED`.
+- Backend storage should generally key off the specific device events such as `NOTIFICATION_POSTED`, `APP_ENTERED`, `BATTERY_LEVEL_CHANGED`, `SMS_RECEIVED`, and `SMS_SEND_STATE_CHANGED`.
 
 ## TriggerSource Contract
 
@@ -203,7 +204,8 @@ Time-based sources are trigger-rule sources only. They are not emitted device ev
 - `USER_PRESENT`: no payload fields
 - `NETWORK_CONNECTED`: `network_type`
 - `NETWORK_TYPE_CHANGED`: `network_type`, `previous_network_type`
-- `SMS_RECEIVED`: `phone_number`, `message`, optional `contact_name`
+- `SMS_RECEIVED`: `phone_number`, `message`, `message_id`, `received_at`, optional `subscription_id`, `sim_slot`, `contact_name`
+- `SMS_SEND_STATE_CHANGED`: `message_id`, `phone_number`, `state`, `part_count`, `sent_parts`, `delivered_parts`, `created_at`, `updated_at`, optional `subscription_id`, `sim_slot`, `error_code`, `error_message`
 - `PING`: protocol keepalive; clients usually send it without a payload
 - `PONG`: protocol reply; payload is typically `"pong"`
 - `UNKNOWN`: internal event with no stable payload contract

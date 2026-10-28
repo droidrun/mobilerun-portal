@@ -1,5 +1,6 @@
 package com.mobilerun.portal.ui.settings
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -94,6 +95,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 android.widget.Toast.LENGTH_SHORT
             ).show()
         }
+    }
+
+    private val requestSmsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        updatePermissionSwitches()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -446,6 +453,19 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             }
             // Revert visual state until onResume confirms change
             binding.switchUnrestrictedBattery.isChecked = !binding.switchUnrestrictedBattery.isChecked
+        }
+
+        binding.buttonRequestSendSms.setOnClickListener {
+            requestSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+        }
+        binding.buttonRequestReadSms.setOnClickListener {
+            requestSmsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+        }
+        binding.buttonRequestReceiveSms.setOnClickListener {
+            requestSmsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+        }
+        binding.buttonRequestPhoneState.setOnClickListener {
+            requestSmsPermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
         }
     }
 
@@ -916,10 +936,40 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchInstallUnknownApps.isChecked = packageManager.canRequestPackageInstalls()
 
         binding.switchUnrestrictedBattery.isChecked = isIgnoringBatteryOptimizations()
+
+        updateSmsDiagnosticsStatus()
     }
 
     private fun isIgnoringBatteryOptimizations(): Boolean =
         getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
+
+    private fun updateSmsDiagnosticsStatus() {
+        val send = grantLabel(Manifest.permission.SEND_SMS)
+        val read = grantLabel(Manifest.permission.READ_SMS)
+        val receive = grantLabel(Manifest.permission.RECEIVE_SMS)
+        val phoneState = grantLabel(Manifest.permission.READ_PHONE_STATE)
+        val hasSmsMessaging = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+        }
+        val telephony = if (hasSmsMessaging) {
+            "available"
+        } else {
+            "not available"
+        }
+        binding.textSmsPermissionsStatus.text =
+            "SMS messaging: $telephony\nSEND_SMS: $send\nREAD_SMS: $read\nRECEIVE_SMS: $receive\nREAD_PHONE_STATE: $phoneState"
+    }
+
+    private fun grantLabel(permission: String): String {
+        return if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            "granted"
+        } else {
+            "missing"
+        }
+    }
 
     private fun isNotificationServiceEnabled(): Boolean {
         val componentName = ComponentName(this, MobilerunNotificationListener::class.java)

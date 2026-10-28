@@ -25,6 +25,7 @@ Response example:
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
 | Deep-link discovery / resolution | Query | POST | Yes | Yes, including headless mode |
+| SMS (`sms/*`) | Query + `sms/send` insert | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
@@ -85,6 +86,11 @@ Response format:
 | `state` | `filter` | Full state; `filter=false` keeps small elements |
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
+| `sms/capabilities` | - | SMS permissions, SMS messaging availability, active subscriptions |
+| `sms/send` | `phone_number`, `message`, optional `message_id`, `subscription_id` or `sim_slot`, `delivery_report` | Sends one text SMS; multipart bodies are split automatically |
+| `sms/status` | `message_id` | Returns in-memory send state for recent sends |
+| `sms/messages/list` | `box`, `limit`, `since`, `phone_number` | Reads stored SMS when `READ_SMS` is granted |
+| `sms/messages/get` | `sms_id` | Reads one stored SMS when `READ_SMS` is granted |
 | `files/list` | `path` | Android 11+ only in the current compatibility tier |
 | `files/download` | `path` | Android 11+ only in the current compatibility tier |
 | `files/upload` | `path`, `data` | Android 11+ only in the current compatibility tier |
@@ -99,6 +105,7 @@ Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
+SMS methods (`sms/*`) are available over HTTP POST, local WebSocket, and reverse connection. `sms/send` requires `SEND_SMS`; `sms/messages/*` requires `READ_SMS`; SIM slot lookup requires `READ_PHONE_STATE`.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
 `?eventFormat=rpc` to request the same
@@ -207,11 +214,27 @@ curl -X POST \
 
 See [Deep-link inspection](deep-links.md) for `/app/deep-links` and `/app/deep-link/resolve`.
 
+SMS examples:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phone_number":"+15550001111","message":"hello","delivery_report":true}' \
+  http://localhost:8080/sms/send
+
+curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"box":"inbox","limit":10}' \
+  http://localhost:8080/sms/messages/list
+```
+
 ## ContentProvider (ADB)
 
 All commands use `content://com.mobilerun.portal/`.
 
-The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config flows. It does not expose direct screenshot, install, or WebRTC streaming endpoints.
+The ContentProvider covers core tree/state/keyboard/clipboard/overlay/config and SMS flows. It does not expose direct screenshot, install, or WebRTC streaming endpoints.
 
 Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 
@@ -230,6 +253,10 @@ adb shell content query --uri content://com.mobilerun.portal/auth_token
 adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
+adb shell content query --uri content://com.mobilerun.portal/sms/capabilities
+adb shell content query --uri 'content://com.mobilerun.portal/sms/status?message_id=MSG_ID'
+adb shell "content query --uri 'content://com.mobilerun.portal/sms/messages?box=inbox&limit=10'"
+adb shell content query --uri content://com.mobilerun.portal/sms/messages/SMS_ID
 adb shell "content query --uri 'content://com.mobilerun.portal/app/deep-links?package=com.example.app'"
 ```
 
@@ -258,4 +285,8 @@ adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
+
+adb shell content insert --uri content://com.mobilerun.portal/sms/send \
+  --bind phone_number:s:+15550001111 \
+  --bind message_base64:s:$(printf 'hello from Portal' | base64)
 ```

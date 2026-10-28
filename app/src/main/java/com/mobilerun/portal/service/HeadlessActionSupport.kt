@@ -18,6 +18,7 @@ object HeadlessActionSupport {
             normalizedMethod == "clipboard/get" ||
             normalizedMethod == "clipboard/set" ||
             normalizedMethod == "webrtc/ice" ||
+            normalizedMethod.startsWith("sms/") ||
             normalizedMethod.startsWith("triggers/")
     }
 }

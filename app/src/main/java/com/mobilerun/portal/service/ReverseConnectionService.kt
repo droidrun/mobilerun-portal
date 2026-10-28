@@ -39,11 +39,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link" ||
-        normalizedMethod == "app/deep-link/resolve"
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link" ||
-        normalizedMethod == "app/deep-link/resolve"
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal enum class ReverseMediaRelease {
     STOP_CAPTURE,
@@ -808,7 +808,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return

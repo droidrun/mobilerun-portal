@@ -216,6 +216,11 @@
     <string name="install_unknown_apps_description">Allow installing APK files</string>
     <string name="unrestricted_battery_label">Unrestricted Battery</string>
     <string name="unrestricted_battery_description">Keep local servers reachable in the background</string>
+    <string name="sms_gateway_label">SMS Gateway</string>
+    <string name="sms_permission_send">Send</string>
+    <string name="sms_permission_read">Read</string>
+    <string name="sms_permission_receive">Receive</string>
+    <string name="sms_permission_phone_state">Phone state</string>
 
     <!-- Logout -->
     <string name="logout">Logout</string>
