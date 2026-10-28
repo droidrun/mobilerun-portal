@@ -103,7 +103,11 @@ Reverse connection supports the same app commands as local WebSocket:
 
 - `app` with optional `stopBeforeLaunch` (default `false`)
 - `app/deep-link` with required `deepLink`, optional `package`, optional `action`, and `displayId` (default `0`)
+- `app/deep-links` with required `package`, to inspect installed manifest declarations (headless-safe)
+- `app/deep-link/resolve` with required `package` and `deepLink`, plus optional `action`, to check Android resolver matches (headless-safe)
 - `app/stop` to request a best-effort stop
+
+See [Deep-link inspection](deep-links.md).
 
 Example:
 

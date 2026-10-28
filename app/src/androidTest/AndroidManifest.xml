@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkFixtureActivity"
+            android:enabled="true"
+            android:exported="true">
+            <!-- Keeps this fixture APK visible through Portal's existing launcher queries. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="@string/deep_link_fixture_scheme"
+                    android:host="@string/deep_link_fixture_host"
+                    android:pathPrefix="@string/deep_link_fixture_prefix" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkFixtureAlias"
+            android:targetActivity="com.mobilerun.portal.deeplinks.DeepLinkFixtureActivity"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture-alias" android:host="alias.example" android:path="/open" />
+            </intent-filter>
+        </activity-alias>
+        <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkEdgeFixtureActivity"
+            android:exported="true">
+            <!-- The host string has a values-fr variant, so Android ignores it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="fixture-localized"
+                    android:host="@string/deep_link_fixture_localized_host" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkPrivateFixtureActivity"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture-private" android:host="hidden.example" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkDisabledFixtureActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture-disabled" android:host="off.example" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.mobilerun.portal.deeplinks.DeepLinkProtectedFixtureActivity"
+            android:exported="true"
+            android:permission="android.permission.MASTER_CLEAR">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture-protected" android:host="protected.example" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

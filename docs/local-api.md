@@ -24,6 +24,7 @@ Response example:
 | Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
+| Deep-link discovery / resolution | Query | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
@@ -69,6 +70,8 @@ Response format:
 | `global` | `action` | Accessibility global action ID |
 | `app` | `package`, `activity`, `stopBeforeLaunch` | `activity` optional; `stopBeforeLaunch` defaults to `false` |
 | `app/deep-link` | `deepLink`, `displayId`, `package`, `action` | Opens an implicit URI intent; `displayId` defaults to `0`, `action` defaults to `android.intent.action.VIEW`, and `package` is optional (`packageName` is also accepted) |
+| `app/deep-links` | `package` | Read manifest declarations without launching; no Accessibility required |
+| `app/deep-link/resolve` | `package`, `deepLink`, `action` | Read Android resolver matches without launching; `action` defaults to `android.intent.action.VIEW` |
 | `app/stop` | `package` | Best-effort stop (non-privileged app) |
 | `keyboard/input` | `base64_text`, `clear` | `clear` defaults to `true` |
 | `keyboard/clear` | - | Clears focused input |
@@ -109,14 +112,42 @@ Install notes:
 - The device must allow **Install unknown apps** for Mobilerun Portal.
 - Enable **Install Auto-Accept** in Settings to auto-confirm install prompts.
 
-### Binary screenshot responses
+### Screenshot response format
 
-When `screenshot` returns binary data, the local WebSocket sends a binary frame:
+`screenshot` returns a JSON response with a **base64-encoded PNG string** in `result`
+over HTTP, local WebSocket, and reverse WebSocket. HTTP uses
+`Content-Type: application/json`; both WebSocket transports send a **text frame**. Screenshots do
+not use binary frames or a request-ID prefix.
+
+WebSocket request and successful response (the `id` retains its original string or
+number type):
+
+```json
+{"id":42,"method":"screenshot","params":{"hideOverlay":false}}
+{"id":42,"status":"success","result":"<base64-encoded PNG>"}
+```
+
+A capture failure returns an error envelope instead of image data, for example:
+
+```json
+{"id":42,"status":"error","error":"Screenshot failed: Secure window cannot be captured"}
+```
+
+Save an HTTP screenshot as `screenshot.png`:
+
+```bash
+curl -s -H "Authorization: Bearer YOUR_TOKEN" 'http://localhost:8080/screenshot?hideOverlay=false' | jq -er 'select(.status=="success").result' | base64 -d > screenshot.png
+```
+
+`hideOverlay` defaults to `true`; set it to `false` to keep Portal's overlay in the
+capture.
+
+### Binary WebSocket responses
+
+Local WebSocket binary responses, such as `files/download`, use a binary frame:
 
 - First 36 bytes: request ID string (UUID)
-- Remaining bytes: PNG image bytes
-
-If you prefer JSON, use the HTTP `/screenshot` endpoint or reverse connection (which base64-encodes the PNG).
+- Remaining bytes: raw binary payload
 
 ## HTTP socket server
 
@@ -145,7 +176,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8080/ping
 - `/version`
 - `/packages`
 - `/clipboard/get` (requires Mobilerun Keyboard to be selected)
-- `/screenshot?hideOverlay=false` (binary PNG)
+- `/screenshot?hideOverlay=false` (JSON envelope containing base64 PNG; see [Screenshot response format](#screenshot-response-format))
 
 ### POST endpoints
 
@@ -161,7 +192,7 @@ curl -X POST \
   http://localhost:8080/tap
 ```
 
-Deep links are authenticated and require Accessibility, like `app` launches. Android resolves
+Opening deep links is authenticated and requires Accessibility, like `app` launches. Android resolves
 the URI and any optional package pin; custom schemes are supported.
 
 ```bash
@@ -171,6 +202,8 @@ curl -X POST \
   --data-urlencode "displayId=0" \
   http://localhost:8080/app/deep-link
 ```
+
+See [Deep-link inspection](deep-links.md) for `/app/deep-links` and `/app/deep-link/resolve`.
 
 ## ContentProvider (ADB)
 
@@ -195,6 +228,7 @@ adb shell content query --uri content://com.mobilerun.portal/auth_token
 adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
+adb shell "content query --uri 'content://com.mobilerun.portal/app/deep-links?package=com.example.app'"
 ```
 
 ### Insert

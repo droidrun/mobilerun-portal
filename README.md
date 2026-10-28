@@ -65,6 +65,7 @@ adb shell dumpsys deviceidle whitelist +com.mobilerun.portal
 ```
 
 See [Local API](docs/local-api.md) for full details and examples.
+See [Deep-link inspection](docs/deep-links.md) to discover manifest declarations or check a URI without opening an app.
 See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 
 ### 📡 WebSocket Events
@@ -115,6 +116,7 @@ adb shell content insert --uri content://com.mobilerun.portal/set_no_a11y_mode -
 | Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
 | Clipboard get/set | Yes | Yes | Yes | Yes when Mobilerun Keyboard is available |
 | Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
+| Deep-link discovery / resolution | Query | POST | Yes | Yes, including headless mode |
 | APK install | No | No | Yes | Yes |
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
