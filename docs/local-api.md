@@ -181,6 +181,8 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8080/ping
 ### POST endpoints
 
 POST requests map to the same method names as WebSocket (e.g., `/tap`, `/action/tap`, `/keyboard/input`).
+Bodies are limited to 1 MiB (24 MiB for `/files/upload`); larger bodies return HTTP `413`. A malformed
+body, an invalid `Content-Length`, or a JSON `null` value returns HTTP `400`.
 
 Example:
 

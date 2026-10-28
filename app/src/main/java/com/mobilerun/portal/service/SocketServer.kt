@@ -1,24 +1,18 @@
 package com.mobilerun.portal.service
 
 import android.content.ContentValues
-import android.net.Uri
 import android.util.Log
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import org.json.JSONObject
 import com.mobilerun.portal.config.ConfigManager
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-
-/** application/x-www-form-urlencoded: '+' is a space, "%2B" is a literal '+'. */
-internal fun decodeFormComponent(value: String): String = Uri.decode(value.replace('+', ' '))
 
 class SocketServer(
     private val apiHandler: ApiHandler,
@@ -40,9 +34,10 @@ class SocketServer(
         private const val HTTP_STATUS_SERVICE_UNAVAILABLE = 503
         private const val HTTP_STATUS_BAD_REQUEST = 400
         private const val HTTP_STATUS_UNAUTHORIZED = 401
+        private const val HTTP_STATUS_PAYLOAD_TOO_LARGE = 413
         private const val AUTHORIZATION_HEADER_PREFIX = "Authorization:"
         private const val BEARER_PREFIX = "Bearer "
-        private const val POST_BODY_BUFFER_SIZE = 1024
+        private const val PAYLOAD_TOO_LARGE = "Payload Too Large"
         private const val UNAUTHORIZED = "Unauthorized"
     }
 
@@ -153,10 +148,10 @@ class SocketServer(
     private fun handleClient(clientSocket: Socket) {
         try {
             clientSocket.use { socket ->
-                val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
+                val inputStream = socket.getInputStream()
                 val outputStream = socket.getOutputStream()
 
-                val requestLine = reader.readLine()
+                val requestLine = readHttpLine(inputStream)
                 if (requestLine == null) return
 
                 val parts = requestLine.split(" ")
@@ -167,20 +162,37 @@ class SocketServer(
 
                 val method = parts[0]
                 val path = parts[1]
+                val maxPostBodyBytes = maxHttpPostBodyBytesForPath(path)
 
                 var authToken: String? = null
 
                 // Consume headers
-                var line = reader.readLine()
+                var line = readHttpLine(inputStream)
                 var contentLength = 0
                 
                 while (!line.isNullOrEmpty()) {
                     if (line.startsWith(AUTHORIZATION_HEADER_PREFIX, ignoreCase = true)) {
                         authToken = line.substring(14).trim().removePrefix(BEARER_PREFIX).trim()
                     } else if (line.startsWith("Content-Length:", ignoreCase = true)) {
-                        contentLength = line.substring(15).trim().toIntOrNull() ?: 0
+                        contentLength = try {
+                            parseHttpContentLength(line.substring(15), maxPostBodyBytes)
+                        } catch (e: HttpPayloadTooLargeException) {
+                            sendErrorResponse(
+                                outputStream,
+                                HTTP_STATUS_PAYLOAD_TOO_LARGE,
+                                PAYLOAD_TOO_LARGE,
+                            )
+                            return
+                        } catch (_: IllegalArgumentException) {
+                            sendErrorResponse(
+                                outputStream,
+                                HTTP_STATUS_BAD_REQUEST,
+                                "Invalid Content-Length",
+                            )
+                            return
+                        }
                     }
-                    line = reader.readLine()
+                    line = readHttpLine(inputStream)
                 }
 
                 // Validate Auth Token (Skip for ping, but safer to require for all because of ping attacks)
@@ -193,7 +205,21 @@ class SocketServer(
                 when (method) {
                     "GET" -> handleGetRequest(path, outputStream)
                     "POST" -> {
-                        handlePostRequest(path, reader, outputStream, contentLength)
+                        if (contentLength > maxPostBodyBytes) {
+                            sendErrorResponse(
+                                outputStream,
+                                HTTP_STATUS_PAYLOAD_TOO_LARGE,
+                                PAYLOAD_TOO_LARGE,
+                            )
+                            return
+                        }
+                        handlePostRequest(
+                            path,
+                            inputStream,
+                            outputStream,
+                            contentLength,
+                            maxPostBodyBytes,
+                        )
                     }
                     else -> sendHttpResponse(
                         outputStream,
@@ -259,25 +285,34 @@ class SocketServer(
 
     private fun handlePostRequest(
         path: String,
-        reader: BufferedReader,
+        inputStream: InputStream,
         outputStream: OutputStream,
         contentLength: Int,
+        maxBodyBytes: Int,
     ) {
         try {
-            val postData = StringBuilder()
-            val charBuffer = CharArray(POST_BODY_BUFFER_SIZE)
-            var totalRead = 0
-            
-            while (totalRead < contentLength) {
-                val toRead = minOf(charBuffer.size, contentLength - totalRead)
-                val read = reader.read(charBuffer, 0, toRead)
-                if (read == -1) break 
-                postData.append(charBuffer, 0, read)
-                totalRead += read
+            val postData = try {
+                readHttpRequestBody(inputStream, contentLength, maxBodyBytes)
+            } catch (e: Exception) {
+                sendErrorResponse(
+                    outputStream,
+                    HTTP_STATUS_BAD_REQUEST,
+                    e.message ?: "Bad Request",
+                )
+                return
             }
 
             // Convert ContentValues to JSONObject for Dispatcher
-            val values = parsePostData(postData.toString())
+            val values = try {
+                parsePostData(postData)
+            } catch (e: Exception) {
+                sendErrorResponse(
+                    outputStream,
+                    HTTP_STATUS_BAD_REQUEST,
+                    "Invalid POST body",
+                )
+                return
+            }
             val params = JSONObject()
             values.keySet().forEach { key ->
                 val value = values.get(key)
@@ -324,39 +359,24 @@ class SocketServer(
         val values = ContentValues()
         if (data.isBlank()) return values
 
-        try {
-            if (data.trim().startsWith("{")) {
-                val json = JSONObject(data)
-                json.keys().forEach { key ->
-                    val value = json.get(key)
-                    when (value) {
-                        is String -> values.put(key, value)
-                        is Int -> values.put(key, value)
-                        is Boolean -> values.put(key, value)
-                        else -> values.put(key, value.toString())
-                    }
-                }
-            } else {
-                data.split("&").forEach { pair ->
-                    val parts = pair.split("=", limit = 2)
-                    if (parts.size == 2) {
-                        val key = decodeFormComponent(parts[0])
-                        val value = decodeFormComponent(parts[1])
-                        val intValue = value.toIntOrNull()
-                        if (intValue != null) {
-                            values.put(key, intValue)
-                        } else {
-                            when (value.lowercase()) {
-                                "true" -> values.put(key, true)
-                                "false" -> values.put(key, false)
-                                else -> values.put(key, value)
-                            }
-                        }
-                    }
+        if (data.trim().startsWith("{")) {
+            val json = JSONObject(data)
+            json.keys().forEach { key ->
+                val value = json.get(key)
+                when (val normalized = normalizeJsonPostValue(key, value)) {
+                    is String -> values.put(key, normalized)
+                    is Int -> values.put(key, normalized)
+                    is Long -> values.put(key, normalized)
+                    is Float -> values.put(key, normalized)
+                    is Double -> values.put(key, normalized)
+                    is Boolean -> values.put(key, normalized)
+                    else -> values.put(key, normalized.toString())
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing POST data", e)
+        } else {
+            parseFormUrlEncoded(data).forEach { (key, value) ->
+                values.put(key, value)
+            }
         }
         return values
     }
@@ -390,7 +410,7 @@ class SocketServer(
         try {
             val errorResponse = ApiResponse.Error(message).toJson()
             val responseBytes = errorResponse.toByteArray(Charsets.UTF_8)
-            val headers = "HTTP/1.1 $code $message\r\n" +
+            val headers = "HTTP/1.1 $code ${httpReasonPhrase(code)}\r\n" +
                     "Content-Type: application/json\r\n" +
                     "Content-Length: ${responseBytes.size}\r\n" +
                     "Connection: close\r\n" +
