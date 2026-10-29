@@ -5,6 +5,7 @@ import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.triggers.TriggerApi
 import com.mobilerun.portal.triggers.TriggerApiResult
+import io.mockk.confirmVerified
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -109,7 +110,7 @@ class ActionDispatcherTest {
     }
 
     @Test
-    fun dispatch_deepLink_defaultsDisplayAndOptionalParams() {
+    fun dispatch_deepLink_defaultsDisplayAndOptionalParamsAndTrimsLink() {
         val apiHandler = mockk<ApiHandler>()
         every {
             apiHandler.openDeepLink(0, null, null, "example://path")
@@ -118,7 +119,7 @@ class ActionDispatcherTest {
         val response =
             ActionDispatcher(apiHandler).dispatch(
                 "app/deep-link",
-                JSONObject().put("deepLink", "example://path"),
+                JSONObject().put("deepLink", " example://path\n"),
             )
 
         assertEquals(ApiResponse.Success("Deep link opened"), response)
@@ -351,6 +352,55 @@ class ActionDispatcherTest {
         } finally {
             unmockkStatic(Base64::class)
         }
+    }
+
+    @Test
+    fun dispatch_smsMethods_routeToSmsApi() {
+        val apiHandler = mockk<ApiHandler>()
+        val sendParams = JSONObject()
+            .put("phone_number", "+15550001111")
+            .put("message", "hello")
+        val statusParams = JSONObject().put("message_id", "msg-1")
+        val listParams = JSONObject().put("box", "inbox")
+        val getParams = JSONObject().put("sms_id", "42")
+
+        every { apiHandler.getSmsCapabilities() } returns ApiResponse.Success("capabilities")
+        every { apiHandler.sendSms(sendParams) } returns ApiResponse.Success("sent")
+        every { apiHandler.getSmsStatus(statusParams) } returns ApiResponse.Success("status")
+        every { apiHandler.listSmsMessages(listParams) } returns ApiResponse.Success("messages")
+        every { apiHandler.getSmsMessage(getParams) } returns ApiResponse.Success("message")
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(ApiResponse.Success("capabilities"), dispatcher.dispatch("sms/capabilities", JSONObject()))
+        assertEquals(ApiResponse.Success("sent"), dispatcher.dispatch("sms/send", sendParams))
+        assertEquals(ApiResponse.Success("status"), dispatcher.dispatch("sms/status", statusParams))
+        assertEquals(ApiResponse.Success("messages"), dispatcher.dispatch("sms/messages/list", listParams))
+        assertEquals(ApiResponse.Success("message"), dispatcher.dispatch("sms/messages/get", getParams))
+
+        verify(exactly = 1) { apiHandler.getSmsCapabilities() }
+        verify(exactly = 1) { apiHandler.sendSms(sendParams) }
+        verify(exactly = 1) { apiHandler.getSmsStatus(statusParams) }
+        verify(exactly = 1) { apiHandler.listSmsMessages(listParams) }
+        verify(exactly = 1) { apiHandler.getSmsMessage(getParams) }
+    }
+
+    @Test
+    fun dispatch_smsGatewaySwitch_isNotExposed() {
+        val apiHandler = mockk<ApiHandler>()
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().put("enabled", true)
+
+        ActionDispatcher.Origin.entries.forEach { origin ->
+            listOf("sms/gateway", "/action/sms/gateway", "sms/gateway/set").forEach { method ->
+                val normalized = method.removePrefix("/action/")
+                assertEquals(
+                    ApiResponse.Error("Unknown method: $normalized"),
+                    dispatcher.dispatch(method, params, origin),
+                )
+            }
+        }
+        confirmVerified(apiHandler)
     }
 
     @Test

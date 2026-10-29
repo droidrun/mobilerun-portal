@@ -30,6 +30,7 @@ import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
 import org.java_websocket.client.WebSocketClient
+import org.java_websocket.framing.CloseFrame
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.URI
@@ -37,15 +38,27 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
-    normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link"
+    normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link" ||
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
-    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link"
+    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link" ||
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal enum class ReverseMediaRelease {
     STOP_CAPTURE,
     STOP_SESSIONS,
     NONE,
+}
+
+/** A real leave closes with a normal 1000 so the relay stops the device now; reconnect cleanup sends no close frame, so the relay sees an interruption. */
+internal fun closeRelaySocket(client: WebSocketClient, leave: Boolean) {
+    when {
+        leave -> client.close(CloseFrame.NORMAL, "user")
+        client.isOpen -> client.closeConnection(CloseFrame.ABNORMAL_CLOSE, "reconnect")
+        // Still connecting: close() sends no frame and lets the connect thread drop the socket.
+        else -> client.close(CloseFrame.ABNORMAL_CLOSE, "reconnect")
+    }
 }
 
 /** Capture-only (shared screenshot) captures are left to their own idle stop. */
@@ -349,7 +362,7 @@ class ReverseConnectionService : Service() {
         try {
             Log.d(TAG, "connectToHost: Setting state to CONNECTING")
             ConnectionStateManager.setState(ConnectionState.CONNECTING)
-            val connectionGeneration = closeWebSocket() // Prevent resource leaks from zombie connections
+            val connectionGeneration = closeWebSocket(leave = false) // Prevent resource leaks from zombie connections
             val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
             val uri = URI(finalUrl)
             val headers = buildHeaders()
@@ -510,10 +523,10 @@ class ReverseConnectionService : Service() {
         ConnectionStateManager.setState(state)
     }
 
-    private fun closeWebSocket(): Long {
+    private fun closeWebSocket(leave: Boolean): Long {
         val connectionGeneration = webSocketGeneration.advance()
         try {
-            webSocketClient?.close()
+            webSocketClient?.let { closeRelaySocket(it, leave) }
             webSocketClient = null
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
@@ -522,7 +535,7 @@ class ReverseConnectionService : Service() {
     }
 
     private fun disconnect() {
-        closeWebSocket()
+        closeWebSocket(leave = true)
     }
 
     private fun isCurrentWebSocketCallback(connectionGeneration: Long, callback: String): Boolean {
@@ -750,7 +763,7 @@ class ReverseConnectionService : Service() {
         try {
             // Check if the message is a valid JSON before parsing
             if (!message.trim().startsWith("{") && !message.trim().startsWith("[")) {
-                Log.w(TAG, "Received non-JSON message: $message")
+                Log.w(TAG, "Received non-JSON message (${message.length} chars)")
                 return
             }
 
@@ -795,7 +808,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return
@@ -823,7 +836,8 @@ class ReverseConnectionService : Service() {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing message", e)
+            // The exception text can contain the whole frame, including SMS content.
+            Log.e(TAG, "Error processing message (${e.javaClass.simpleName}, ${message.length} chars)")
             sendErrorResponse(
                 client,
                 id,

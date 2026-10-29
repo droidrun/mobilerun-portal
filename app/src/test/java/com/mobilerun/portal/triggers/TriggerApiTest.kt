@@ -206,6 +206,7 @@ class TriggerApiTest {
                 "NETWORK_CONNECTED",
                 "NETWORK_TYPE_CHANGED",
                 "SMS_RECEIVED",
+                "SMS_SEND_STATE_CHANGED",
                 "PING",
                 "PONG",
                 "UNKNOWN",

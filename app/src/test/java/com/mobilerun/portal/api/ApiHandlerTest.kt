@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.FileUriExposedException
 import android.view.KeyEvent
 import android.util.Base64
 import com.mobilerun.portal.core.StateRepository
@@ -556,6 +557,14 @@ class ApiHandlerTest {
         assertDeepLinkStartFailure(
             SecurityException("secret://must-not-leak"),
             "Deep link launch not permitted",
+        )
+    }
+
+    @Test
+    fun openDeepLink_explainsFileUriExposure() {
+        assertDeepLinkStartFailure(
+            FileUriExposedException("file:///must-not-leak"),
+            "file:// URIs cannot be opened in another app; use a content:// URI",
         )
     }
 

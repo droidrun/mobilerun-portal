@@ -13,9 +13,12 @@ object HeadlessActionSupport {
             normalizedMethod == "webrtc/keepAlive" ||
             normalizedMethod == "screen/keepAwake/set" ||
             normalizedMethod == "screen/keepAwake/status" ||
+            normalizedMethod == "app/deep-links" ||
+            normalizedMethod == "app/deep-link/resolve" ||
             normalizedMethod == "clipboard/get" ||
             normalizedMethod == "clipboard/set" ||
             normalizedMethod == "webrtc/ice" ||
+            normalizedMethod.startsWith("sms/") ||
             normalizedMethod.startsWith("triggers/")
     }
 }

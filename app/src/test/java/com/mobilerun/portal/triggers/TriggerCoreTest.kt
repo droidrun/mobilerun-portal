@@ -351,6 +351,7 @@ class TriggerCoreTest {
         )
         val intentionallyUnmapped = setOf(
             EventType.NOTIFICATION,
+            EventType.SMS_SEND_STATE_CHANGED,
             EventType.PING,
             EventType.PONG,
             EventType.UNKNOWN,
