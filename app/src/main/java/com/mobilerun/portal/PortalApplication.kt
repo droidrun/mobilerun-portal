@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import android.util.Log
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.http402BlockedPresentationState
@@ -21,6 +22,7 @@ class PortalApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val configManager = ConfigManager.getInstance(this)
+        configManager.onCloudSessionDropped = { token -> DeviceCodeAuthClient().signOut(token) }
         val http402Snapshot = configManager.reverseJoinHttp402Snapshot()
         http402BlockedPresentationState(
             blocked = http402Snapshot.blocked,

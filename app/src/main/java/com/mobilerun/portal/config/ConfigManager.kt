@@ -43,6 +43,9 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
+        private const val KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE = "reverse_connection_credential_type"
+        private const val KEY_CLOUD_SESSION_CHECKED_AT_MS = "cloud_session_checked_at_ms"
+        private const val CREDENTIAL_SESSION = "session"
         private const val KEY_REVERSE_JOIN_BLOCKED_BY_HTTP_402 =
             "reverse_join_blocked_by_http_402"
         private const val KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED =
@@ -97,7 +100,6 @@ class ConfigManager private constructor(private val context: Context) {
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
-        private const val KEY_BROWSER_AUTH_PENDING_UNTIL_MS = "browser_auth_pending_until_ms"
         private const val DEVICE_ID_PLACEHOLDER = "{deviceId}"
 
         private const val DEFAULT_OFFSET = 0
@@ -266,6 +268,10 @@ class ConfigManager private constructor(private val context: Context) {
             if (newEffectiveUrl != currentEffectiveUrl) {
                 reverseJoinBlockedByHttp402 = false
             }
+            // A cloud session is account-wide; never keep it for another host.
+            if (cloudSessionActive && !isOfficialCloudUrl(reverseConnectionUrlOrDefault)) {
+                reverseConnectionToken = ""
+            }
         }
 
     val reverseConnectionUrlOrDefault: String
@@ -288,6 +294,7 @@ class ConfigManager private constructor(private val context: Context) {
         set(value) {
             val normalizedValue = CloudTokenNormalizer.normalize(value).orEmpty()
             val changed = normalizedValue != reverseConnectionToken
+            val droppedSession = reverseConnectionToken.takeIf { changed && cloudSessionActive }
             secretsPrefs.edit {
                 putString(
                     KEY_REVERSE_CONNECTION_TOKEN,
@@ -296,8 +303,49 @@ class ConfigManager private constructor(private val context: Context) {
             }
             if (changed) {
                 reverseJoinBlockedByHttp402 = false
+                secretsPrefs.edit {
+                    remove(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE)
+                    remove(KEY_CLOUD_SESSION_CHECKED_AT_MS)
+                }
             }
+            droppedSession?.let { onCloudSessionDropped?.invoke(it) }
         }
+
+    /** Revokes a session on the server when another credential replaces it. */
+    @Volatile
+    var onCloudSessionDropped: ((String) -> Unit)? = null
+
+    /** True when the saved token is a device sign-in session rather than an API key. */
+    val cloudSessionActive: Boolean
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE, null) ==
+            CREDENTIAL_SESSION && reverseConnectionToken.isNotBlank()
+
+    var cloudSessionCheckedAtMs: Long
+        get() = secretsPrefs.getLong(KEY_CLOUD_SESSION_CHECKED_AT_MS, 0L)
+        set(value) {
+            secretsPrefs.edit { putLong(KEY_CLOUD_SESSION_CHECKED_AT_MS, value) }
+        }
+
+    fun storeCloudSession(token: String, nowMs: Long = System.currentTimeMillis()) {
+        reverseConnectionUrl = DEFAULT_REVERSE_CONNECTION_URL
+        reverseConnectionToken = token
+        secretsPrefs.edit {
+            putString(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE, CREDENTIAL_SESSION)
+            putLong(KEY_CLOUD_SESSION_CHECKED_AT_MS, nowMs)
+        }
+    }
+
+    /** Clears the session only if it is still the one the caller checked. */
+    fun clearCloudSessionIfCurrent(token: String): Boolean = synchronized(this) {
+        if (!cloudSessionActive || reverseConnectionToken != token) return false
+        reverseConnectionToken = ""
+        true
+    }
+
+    /** A session only goes to the official cloud, and only over TLS. */
+    fun isOfficialCloudUrl(url: String): Boolean =
+        url.trim().startsWith("wss://", ignoreCase = true) &&
+            PortalCloudClient.isOfficialMobilerunCloudConnection(url, DEFAULT_REVERSE_CONNECTION_URL)
 
     // Reverse Connection Service Key (Header: X-Remote-Device-Key)
     var reverseConnectionServiceKey: String
@@ -419,34 +467,11 @@ class ConfigManager private constructor(private val context: Context) {
         )
     }
 
-    var forceLoginOnNextConnect: Boolean
-        get() = sharedPrefs.getBoolean("force_login_on_next_connect", false)
-        set(value) {
-            sharedPrefs.edit { putBoolean("force_login_on_next_connect", value) }
-        }
-
     var screenShareAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean("screen_share_auto_accept_enabled", true)
         set(value) {
             sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
         }
-
-    fun markBrowserAuthPending(
-        nowMs: Long = System.currentTimeMillis(),
-        ttlMs: Long = 10 * 60 * 1000L,
-    ) {
-        sharedPrefs.edit {
-            putLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, nowMs + ttlMs.coerceAtLeast(0L))
-        }
-    }
-
-    fun isBrowserAuthPending(nowMs: Long = System.currentTimeMillis()): Boolean {
-        return sharedPrefs.getLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, 0L) > nowMs
-    }
-
-    fun clearBrowserAuthPending() {
-        sharedPrefs.edit { remove(KEY_BROWSER_AUTH_PENDING_UNTIL_MS) }
-    }
 
     var installAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
@@ -1002,6 +1027,8 @@ class ConfigManager private constructor(private val context: Context) {
         secretsPrefs.edit(commit = true) {
             remove(KEY_REVERSE_CONNECTION_TOKEN)
             remove(KEY_REVERSE_CONNECTION_SERVICE_KEY)
+            remove(KEY_REVERSE_CONNECTION_CREDENTIAL_TYPE)
+            remove(KEY_CLOUD_SESSION_CHECKED_AT_MS)
         }
         sharedPrefs.edit(commit = true) {
             remove(KEY_DEVICE_ID)
@@ -1038,7 +1065,6 @@ class ConfigManager private constructor(private val context: Context) {
             putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
             putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
             putBoolean("screen_share_auto_accept_enabled", true)
-            putBoolean("force_login_on_next_connect", false)
         }
         smsPrefs.edit(commit = true) { clear() }
         // Notify listeners
