@@ -617,6 +617,8 @@ class ReverseConnectionService : Service() {
                 return@post
             }
             terminalState = state
+            // A rejected credential would only fail again after a restart.
+            if (state == ConnectionState.UNAUTHORIZED) configManager.clearReverseConnectionWasEnabled()
             isServiceRunning.set(false)
             cancelPendingReconnects()
             releaseReverseMedia("ws_disconnected")

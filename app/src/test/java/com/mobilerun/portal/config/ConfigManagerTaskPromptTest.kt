@@ -620,6 +620,17 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun clearReverseConnectionWasEnabled_stopsRestartsButKeepsTheRuntimeFlag() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.reverseConnectionEnabled = true
+
+        configManager.clearReverseConnectionWasEnabled()
+
+        assertTrue(configManager.reverseConnectionEnabled)
+        assertFalse(configManager.reverseConnectionWasEnabled)
+    }
+
+    @Test
     fun reconnectAfterRestart_defaultsOffPersistsInDevicePrefsAndClearsOnSignOut() {
         val configManager = ConfigManager.getInstance(context)
         assertFalse(configManager.reconnectAfterRestartEnabled)

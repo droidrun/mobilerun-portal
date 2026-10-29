@@ -426,6 +426,11 @@ class ConfigManager private constructor(private val context: Context) {
             devicePrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_WAS_ENABLED, value) }
         }
 
+    /** Stops restarts from resuming the connection without changing the runtime flag. */
+    fun clearReverseConnectionWasEnabled() {
+        devicePrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_WAS_ENABLED, false) }
+    }
+
     /** Whether the cloud connection was left on before the process last died. */
     val reverseConnectionWasEnabled: Boolean
         get() = devicePrefs.getBoolean(KEY_REVERSE_CONNECTION_WAS_ENABLED, false)

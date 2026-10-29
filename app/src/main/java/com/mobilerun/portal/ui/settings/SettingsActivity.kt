@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
 import com.mobilerun.portal.events.model.EventType
@@ -29,6 +30,7 @@ import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
+import com.mobilerun.portal.service.setReconnectAfterRestart
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
@@ -320,6 +322,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                         defaultUrl = configManager.defaultReverseConnectionUrl,
                     )
                 configManager.reverseConnectionUrl = url
+                updateReconnectAfterRestartUi()
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
@@ -355,7 +358,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         updateReconnectAfterRestartUi()
         binding.switchReconnectAfterRestart.setOnCheckedChangeListener { _, isChecked ->
-            configManager.reconnectAfterRestartEnabled = isChecked
+            val result = setReconnectAfterRestart(configManager, isChecked)
+            if (result is ApiResponse.Error) {
+                updateReconnectAfterRestartUi()
+                android.widget.Toast.makeText(this, result.message, android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
 
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
