@@ -14,6 +14,7 @@ object HeadlessActionSupport {
             normalizedMethod == "webrtc/keepAlive" ||
             normalizedMethod == "screen/keepAwake/set" ||
             normalizedMethod == "screen/keepAwake/status" ||
+            normalizedMethod == "cloud/reconnectAfterRestart/status" ||
             normalizedMethod == "app/deep-links" ||
             normalizedMethod == "app/deep-link/resolve" ||
             normalizedMethod == "clipboard/get" ||

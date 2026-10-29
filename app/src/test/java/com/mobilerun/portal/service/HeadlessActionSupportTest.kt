@@ -24,6 +24,7 @@ class HeadlessActionSupportTest {
         assertTrue(HeadlessActionSupport.isAllowed("webrtc/keepAlive"))
         assertTrue(HeadlessActionSupport.isAllowed("screen/keepAwake/set"))
         assertTrue(HeadlessActionSupport.isAllowed("screen/keepAwake/status"))
+        assertTrue(HeadlessActionSupport.isAllowed("cloud/reconnectAfterRestart/status"))
         assertTrue(HeadlessActionSupport.isAllowed("version"))
         assertTrue(HeadlessActionSupport.isAllowed("clipboard/get"))
         assertTrue(HeadlessActionSupport.isAllowed("clipboard/set"))

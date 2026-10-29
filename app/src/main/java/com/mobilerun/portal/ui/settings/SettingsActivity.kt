@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
 import com.mobilerun.portal.events.model.EventType
@@ -29,6 +30,7 @@ import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
+import com.mobilerun.portal.service.setReconnectAfterRestart
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
@@ -292,6 +294,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 binding.inputReverseToken.error = null
                 configManager.reverseConnectionUrl = url
                 token?.let { configManager.reverseConnectionToken = it }
+                updateReconnectAfterRestartUi()
                 intent.action = ReverseConnectionService.ACTION_RECONNECT
                 startForegroundService(intent)
             } else {
@@ -319,6 +322,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                         defaultUrl = configManager.defaultReverseConnectionUrl,
                     )
                 configManager.reverseConnectionUrl = url
+                updateReconnectAfterRestartUi()
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
@@ -343,11 +347,21 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     )
                 configManager.reverseConnectionToken = token
                 binding.inputReverseToken.clearFocus()
+                updateReconnectAfterRestartUi()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
                 true
             } else {
                 false
+            }
+        }
+
+        updateReconnectAfterRestartUi()
+        binding.switchReconnectAfterRestart.setOnCheckedChangeListener { _, isChecked ->
+            val result = setReconnectAfterRestart(configManager, isChecked)
+            if (result is ApiResponse.Error) {
+                updateReconnectAfterRestartUi()
+                android.widget.Toast.makeText(this, result.message, android.widget.Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -764,6 +778,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             )
         configManager.reverseConnectionUrl = url
         token?.let { configManager.reverseConnectionToken = it }
+        updateReconnectAfterRestartUi()
         if (shouldReconnect) restartServiceIfEnabled()
     }
 
@@ -897,6 +912,14 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateWebSocketPortUi(configManager.websocketPort)
         updateStreamSessionLimitUi(configManager.streamSessionLimit)
         binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
+        updateReconnectAfterRestartUi()
+    }
+
+    private fun updateReconnectAfterRestartUi() {
+        val enabled = configManager.reconnectAfterRestartEnabled
+        // Turning it off stays possible after the credentials are gone.
+        binding.switchReconnectAfterRestart.isEnabled = enabled || configManager.hasCloudCredentials
+        binding.switchReconnectAfterRestart.isChecked = enabled
     }
 
     private fun updateSocketServerEnabledUi(enabled: Boolean) {
@@ -1035,6 +1058,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onSmsGatewayEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchSmsGateway.isChecked = enabled
+        }
+    }
+
+    override fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateReconnectAfterRestartUi()
         }
     }
 
