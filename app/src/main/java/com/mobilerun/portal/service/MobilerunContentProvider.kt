@@ -308,7 +308,6 @@ internal fun handleCloudConnectInsert(
     return try {
         configManager.reverseConnectionUrl = url
         configManager.reverseConnectionToken = apiKey
-        configManager.forceLoginOnNextConnect = false
         beforeEnable()
         configManager.reverseConnectionEnabled = true
         startReverseConnectionService(appContext, ReverseConnectionService.ACTION_RECONNECT)
@@ -332,6 +331,14 @@ internal fun buildCloudStatusResponse(
         put("connectionState", connectionState.name)
         put("tokenPresent", configManager.reverseConnectionToken.trim().isNotEmpty())
         put("reconnectAfterRestart", configManager.reconnectAfterRestartEnabled)
+        put(
+            "credentialType",
+            when {
+                configManager.cloudSessionActive -> "session"
+                configManager.reverseConnectionToken.isBlank() -> "none"
+                else -> "api_key"
+            },
+        )
         put("deviceId", configManager.deviceID)
         put("reverseConnectionUrl", configManager.reverseConnectionUrlOrDefault)
         if (activeTask != null) {

@@ -22,6 +22,8 @@ import androidx.core.app.NotificationCompat
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
+import com.mobilerun.portal.auth.CloudSessionChecker
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
@@ -98,6 +100,7 @@ class ReverseConnectionService : Service() {
         private const val NOTIFICATION_ID = 2002
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
+        private const val SESSION_CHECK_TICK_MS = 6 * 60 * 60 * 1000L
         private val RECONNECT_TOKEN = Any()
         const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
         const val ACTION_RECONNECT = "com.mobilerun.portal.action.REVERSE_RECONNECT"
@@ -142,6 +145,20 @@ class ReverseConnectionService : Service() {
     private var foregroundSuppressed = false
 
     private val reconnectBackoff = ReverseReconnectBackoff()
+    private val sessionExecutor = Executors.newSingleThreadExecutor()
+    private val sessionChecker by lazy {
+        CloudSessionChecker(
+            client = DeviceCodeAuthClient(),
+            config = configManager,
+            executor = sessionExecutor,
+            nowMs = System::currentTimeMillis,
+            onSessionEnded = { token -> handler.post { onCloudSessionEnded(token) } },
+        )
+    }
+    private val sessionCheckTask = Runnable {
+        sessionChecker.checkIfDue()
+        scheduleSessionCheck()
+    }
 
     @Volatile
     private var lastStartId = -1
@@ -275,6 +292,10 @@ class ReverseConnectionService : Service() {
             installExecutor.shutdownNow()
         } catch (_: Exception) {
         }
+        try {
+            sessionExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
         if (isForeground) {
             @Suppress("DEPRECATION")
             stopForeground(true)
@@ -386,6 +407,8 @@ class ReverseConnectionService : Service() {
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
+                    sessionChecker.checkIfDue()
+                    scheduleSessionCheck()
                     showReverseConnectionToastIfEnoughTimeIsPassed()
                     WebRtcManager.getExistingInstance()?.let { manager ->
                         manager.setReverseConnectionService(this@ReverseConnectionService)
@@ -396,6 +419,8 @@ class ReverseConnectionService : Service() {
 
                 override fun onMessage(message: String?) {
                     if (!isCurrentWebSocketCallback(connectionGeneration, "onMessage")) return
+                    // The tick pauses in deep sleep; traffic also wakes the check.
+                    sessionChecker.checkIfDue()
                     handleMessage(this, message)
                 }
 
@@ -454,6 +479,22 @@ class ReverseConnectionService : Service() {
     }
 
     private var isReconnecting = AtomicBoolean(false)
+
+    /** An open socket never refreshes the session, so ping get-session before it lapses. */
+    private fun scheduleSessionCheck() {
+        handler.removeCallbacks(sessionCheckTask)
+        if (isServiceRunning.get() && configManager.cloudSessionActive) {
+            handler.postDelayed(sessionCheckTask, SESSION_CHECK_TICK_MS)
+        }
+    }
+
+    private fun onCloudSessionEnded(token: String) {
+        if (!configManager.clearCloudSessionIfCurrent(token)) return
+        Log.i(TAG, "Cloud session ended; sign-in required")
+        configManager.reverseConnectionEnabled = false
+        ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
+        stopAfterTerminalState(ConnectionState.UNAUTHORIZED, webSocketGeneration.current())
+    }
 
     private fun scheduleReconnect(connectionGeneration: Long = webSocketGeneration.current()) {
         retryController.blockedPresentationStateOrNull()?.let { blockedState ->
