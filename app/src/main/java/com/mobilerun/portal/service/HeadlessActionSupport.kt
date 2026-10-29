@@ -2,7 +2,8 @@ package com.mobilerun.portal.service
 
 object HeadlessActionSupport {
     fun isAllowed(normalizedMethod: String): Boolean {
-        return normalizedMethod == "stream/start" ||
+        return normalizedMethod == "version" ||
+            normalizedMethod == "stream/start" ||
             normalizedMethod == "stream/stop" ||
             normalizedMethod == "global" ||
             normalizedMethod == "webrtc/answer" ||
