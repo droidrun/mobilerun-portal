@@ -8,13 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
-import android.widget.ImageView
-import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.button.MaterialButton
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.WriterException
@@ -25,6 +21,7 @@ import com.mobilerun.portal.auth.DeviceSignInController
 import com.mobilerun.portal.auth.DeviceSignInState
 import com.mobilerun.portal.auth.MainScheduler
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.databinding.DialogDeviceSignInBinding
 import java.util.concurrent.Executors
 
 /** Device-code sign-in: shows the code and a QR of the approval link. */
@@ -56,32 +53,20 @@ class DeviceSignInDialog(
     )
 
     private var dialog: AlertDialog? = null
-    private lateinit var qr: ImageView
-    private lateinit var progress: ProgressBar
-    private lateinit var code: TextView
-    private lateinit var address: TextView
-    private lateinit var status: TextView
-    private lateinit var primary: MaterialButton
+    private var binding: DialogDeviceSignInBinding? = null
 
     fun show() {
         if (dialog?.isShowing == true) return
-        val view = activity.layoutInflater.inflate(R.layout.dialog_device_sign_in, null)
-        qr = view.findViewById(R.id.image_sign_in_qr)
-        progress = view.findViewById(R.id.progress_sign_in)
-        code = view.findViewById(R.id.text_sign_in_code)
-        address = view.findViewById(R.id.text_sign_in_address)
-        status = view.findViewById(R.id.text_sign_in_status)
-        primary = view.findViewById(R.id.btn_sign_in_primary)
+        val binding = DialogDeviceSignInBinding.inflate(activity.layoutInflater)
+        this.binding = binding
         val created = AlertDialog.Builder(activity, R.style.Theme_MobilerunPortal_Dialog)
-            .setView(view)
+            .setView(binding.root)
             .setOnDismissListener { controller.cancel() }
             .create()
         created.setCanceledOnTouchOutside(false)
         created.window?.setBackgroundDrawableResource(R.color.background_card)
-        view.findViewById<MaterialButton>(R.id.btn_sign_in_cancel).setOnClickListener {
-            created.dismiss()
-        }
-        primary.setOnClickListener { onPrimary() }
+        binding.btnSignInCancel.setOnClickListener { created.dismiss() }
+        binding.btnSignInPrimary.setOnClickListener { onPrimary() }
         dialog = created
         created.show()
         created.window?.setLayout(
@@ -99,6 +84,7 @@ class DeviceSignInDialog(
         controller.takePendingToken()?.let { DeviceCodeAuthClient().signOut(it) }
         dialog?.dismiss()
         dialog = null
+        binding = null
     }
 
     private fun startNewCode() {
@@ -123,24 +109,26 @@ class DeviceSignInDialog(
     }
 
     private fun render(state: DeviceSignInState) {
+        val binding = binding ?: return
         if (dialog?.isShowing != true) return
         val waiting = state as? DeviceSignInState.Waiting
-        progress.visibility = if (state == DeviceSignInState.Requesting) View.VISIBLE else View.GONE
+        binding.progressSignIn.visibility =
+            if (state == DeviceSignInState.Requesting) View.VISIBLE else View.GONE
         if (waiting != null) {
             val authorization = waiting.authorization
-            code.text = DeviceCodeAuthClient.formatUserCode(authorization.userCode)
-            address.text = authorization.verificationUri.removePrefix("https://")
+            binding.textSignInCode.text = DeviceCodeAuthClient.formatUserCode(authorization.userCode)
+            binding.textSignInAddress.text = authorization.verificationUri.removePrefix("https://")
             val bitmap = authorization.verificationUriComplete
                 .takeIf(DeviceCodeAuthClient::isSafeVerificationUri)
                 ?.let(::qrBitmap)
-            qr.setImageBitmap(bitmap)
-            qr.visibility = if (bitmap != null) View.VISIBLE else View.INVISIBLE
+            binding.imageSignInQr.setImageBitmap(bitmap)
+            binding.imageSignInQr.visibility = if (bitmap != null) View.VISIBLE else View.INVISIBLE
         } else {
-            code.text = ""
-            address.text = ""
-            qr.visibility = View.INVISIBLE
+            binding.textSignInCode.text = ""
+            binding.textSignInAddress.text = ""
+            binding.imageSignInQr.visibility = View.INVISIBLE
         }
-        status.text = when (state) {
+        binding.textSignInStatus.text = when (state) {
             DeviceSignInState.Idle, DeviceSignInState.Requesting ->
                 activity.getString(R.string.device_sign_in_requesting)
 
@@ -150,8 +138,9 @@ class DeviceSignInDialog(
             DeviceSignInState.Offline -> activity.getString(R.string.device_sign_in_offline)
             is DeviceSignInState.Failed -> activity.getString(R.string.device_sign_in_failed, state.code)
         }
-        primary.isEnabled = state != DeviceSignInState.Requesting && state != DeviceSignInState.Idle
-        primary.setText(
+        binding.btnSignInPrimary.isEnabled =
+            state != DeviceSignInState.Requesting && state != DeviceSignInState.Idle
+        binding.btnSignInPrimary.setText(
             if (waiting != null || state == DeviceSignInState.Requesting) {
                 R.string.device_sign_in_open_here
             } else {
