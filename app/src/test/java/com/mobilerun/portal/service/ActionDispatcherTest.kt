@@ -743,6 +743,67 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_reconnectAfterRestartSet_routesLocalAndHttpToApiHandler() {
+        val apiHandler = mockk<ApiHandler>()
+        val response = ApiResponse.RawObject(JSONObject().put("enabled", true))
+        every { apiHandler.setReconnectAfterRestartEnabled(true) } returns response
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        listOf(ActionDispatcher.Origin.HTTP, ActionDispatcher.Origin.WEBSOCKET_LOCAL).forEach { origin ->
+            assertEquals(
+                response,
+                dispatcher.dispatch(
+                    "cloud/reconnectAfterRestart/set",
+                    JSONObject().put("enabled", true),
+                    origin,
+                ),
+            )
+        }
+        verify(exactly = 2) { apiHandler.setReconnectAfterRestartEnabled(true) }
+    }
+
+    @Test
+    fun dispatch_reconnectAfterRestartSet_rejectsReverseAndMissingEnabled() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Reconnect after restart can only be changed on the device"),
+            dispatcher.dispatch(
+                "cloud/reconnectAfterRestart/set",
+                JSONObject().put("enabled", true),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'enabled'"),
+            dispatcher.dispatch(
+                "cloud/reconnectAfterRestart/set",
+                JSONObject(),
+                ActionDispatcher.Origin.HTTP,
+            ),
+        )
+        verify(exactly = 0) { apiHandler.setReconnectAfterRestartEnabled(any()) }
+    }
+
+    @Test
+    fun dispatch_reconnectAfterRestartStatus_routesFromAnyOrigin() {
+        val apiHandler = mockk<ApiHandler>()
+        val response = ApiResponse.RawObject(JSONObject().put("enabled", false))
+        every { apiHandler.getReconnectAfterRestartStatus() } returns response
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            response,
+            dispatcher.dispatch(
+                "cloud/reconnectAfterRestart/status",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
     fun dispatch_triggerCatalogStatusAndLists_returnStructuredResults() {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val triggerApi = mockk<TriggerApi>()

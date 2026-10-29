@@ -19,8 +19,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
 import com.mobilerun.portal.events.model.EventType
@@ -28,6 +30,7 @@ import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
+import com.mobilerun.portal.service.setReconnectAfterRestart
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
@@ -269,7 +272,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private fun setupReverseConnectionSettings() {
         binding.switchReverseEnabled.isChecked = configManager.reverseConnectionEnabled
         binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
-        binding.inputReverseToken.setText(configManager.reverseConnectionToken)
+        binding.inputReverseToken.setText(
+            configManager.reverseConnectionToken.takeUnless { configManager.cloudSessionActive }.orEmpty(),
+        )
+        binding.layoutReverseToken.helperText =
+            if (configManager.cloudSessionActive) getString(R.string.signed_in_with_mobilerun) else null
         binding.inputReverseToken.addWhitespaceStrippingWatcher()
 
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
@@ -283,10 +290,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 val url = binding.inputReverseUrl.text.toString().ifBlank {
                     configManager.reverseConnectionUrlOrDefault
                 }
-                val token = sanitizeToken(binding.inputReverseToken.text?.toString())
+                val token = typedReverseToken()
                 binding.inputReverseToken.error = null
                 configManager.reverseConnectionUrl = url
-                configManager.reverseConnectionToken = token
+                token?.let { configManager.reverseConnectionToken = it }
+                updateReconnectAfterRestartUi()
                 intent.action = ReverseConnectionService.ACTION_RECONNECT
                 startForegroundService(intent)
             } else {
@@ -314,6 +322,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                         defaultUrl = configManager.defaultReverseConnectionUrl,
                     )
                 configManager.reverseConnectionUrl = url
+                updateReconnectAfterRestartUi()
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
@@ -325,7 +334,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                val token = sanitizeToken(v.text?.toString())
+                val token = typedReverseToken() ?: configManager.reverseConnectionToken
                 binding.inputReverseToken.error = null
                 val shouldReconnect =
                     ReverseConnectionSettingsPolicy.shouldReconnectAfterInputPersistence(
@@ -338,11 +347,21 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     )
                 configManager.reverseConnectionToken = token
                 binding.inputReverseToken.clearFocus()
+                updateReconnectAfterRestartUi()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
                 true
             } else {
                 false
+            }
+        }
+
+        updateReconnectAfterRestartUi()
+        binding.switchReconnectAfterRestart.setOnCheckedChangeListener { _, isChecked ->
+            val result = setReconnectAfterRestart(configManager, isChecked)
+            if (result is ApiResponse.Error) {
+                updateReconnectAfterRestartUi()
+                android.widget.Toast.makeText(this, result.message, android.widget.Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -702,10 +721,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 .setTitle("Reset to Defaults")
                 .setMessage("This will reset all settings to their default values and disconnect any active connections. Continue?")
                 .setPositiveButton("Reset") { _, _ ->
+                    val session =
+                        configManager.reverseConnectionToken.takeIf { configManager.cloudSessionActive }
                     val serviceIntent = Intent(this, ReverseConnectionService::class.java).apply {
                         action = ReverseConnectionService.ACTION_DISCONNECT
                     }
                     startService(serviceIntent)
+                    session?.let { DeviceCodeAuthClient().signOut(it) }
 
                     configManager.resetToDefaults()
                     TriggerRepository.getInstance(this).clearAll()
@@ -744,23 +766,33 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
     private fun persistReverseConnectionInputs() {
         val url = binding.inputReverseUrl.text?.toString()?.trim() ?: ""
-        val token = sanitizeToken(binding.inputReverseToken.text?.toString())
+        val token = typedReverseToken()
         val shouldReconnect =
             ReverseConnectionSettingsPolicy.shouldReconnectAfterInputPersistence(
                 enabled = configManager.reverseConnectionEnabled,
                 currentEffectiveUrl = configManager.reverseConnectionUrlOrDefault,
                 currentToken = configManager.reverseConnectionToken,
                 candidateUrl = url,
-                candidateToken = token,
+                candidateToken = token ?: configManager.reverseConnectionToken,
                 defaultUrl = configManager.defaultReverseConnectionUrl,
             )
         configManager.reverseConnectionUrl = url
-        configManager.reverseConnectionToken = token
+        token?.let { configManager.reverseConnectionToken = it }
+        updateReconnectAfterRestartUi()
         if (shouldReconnect) restartServiceIfEnabled()
     }
 
+    /** Null while a cloud session is kept: the field never shows or re-saves it. */
+    private fun typedReverseToken(): String? {
+        val typed = sanitizeToken(binding.inputReverseToken.text?.toString())
+        return typed.takeUnless { it.isBlank() && configManager.cloudSessionActive }
+    }
+
     private fun currentCreditsToken(): String {
-        return sanitizeToken(binding.inputReverseToken.text?.toString()).trim()
+        typedReverseToken()?.let { return it.trim() }
+        return configManager.reverseConnectionToken
+            .takeIf { configManager.isOfficialCloudUrl(currentCreditsReverseConnectionUrl()) }
+            .orEmpty()
     }
 
     private fun currentCreditsReverseConnectionUrl(): String {
@@ -880,6 +912,14 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateWebSocketPortUi(configManager.websocketPort)
         updateStreamSessionLimitUi(configManager.streamSessionLimit)
         binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
+        updateReconnectAfterRestartUi()
+    }
+
+    private fun updateReconnectAfterRestartUi() {
+        val enabled = configManager.reconnectAfterRestartEnabled
+        // Turning it off stays possible after the credentials are gone.
+        binding.switchReconnectAfterRestart.isEnabled = enabled || configManager.hasCloudCredentials
+        binding.switchReconnectAfterRestart.isChecked = enabled
     }
 
     private fun updateSocketServerEnabledUi(enabled: Boolean) {
@@ -1018,6 +1058,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onSmsGatewayEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchSmsGateway.isChecked = enabled
+        }
+    }
+
+    override fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateReconnectAfterRestartUi()
         }
     }
 

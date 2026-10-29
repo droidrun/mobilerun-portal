@@ -403,6 +403,19 @@ class ActionDispatcher(
                 }
             }
 
+            "cloud/reconnectAfterRestart/set" -> {
+                if (origin == Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("Reconnect after restart can only be changed on the device")
+                } else {
+                    if (!params.has("enabled")) {
+                        return ApiResponse.Error("Missing required param: 'enabled'")
+                    }
+                    apiHandler.setReconnectAfterRestartEnabled(params.optBoolean("enabled"))
+                }
+            }
+
+            "cloud/reconnectAfterRestart/status" -> apiHandler.getReconnectAfterRestartStatus()
+
             "install" -> {
                 if (origin == Origin.HTTP)
                     return ApiResponse.Error("Install is only supported over WebSocket")

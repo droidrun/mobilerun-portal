@@ -940,7 +940,7 @@ class PortalCloudClient(
                         val parsedDetail = parseErrorDetail(body)
                         val result = when (response.code) {
                             401, 403 -> PortalBalanceResult.Error(
-                                "Mobilerun rejected the saved API key. Sign in again or update the key.",
+                                "Mobilerun rejected the saved sign-in. Sign in again or update the key.",
                             )
 
                             404 -> PortalBalanceResult.Unavailable(
@@ -1012,7 +1012,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This connected device was not found in Mobilerun. Reconnect it and try again."
                             400, 412, 422 -> parsedDetail
                                 ?: "Mobilerun rejected the task request. Check the selected model and settings."
@@ -1234,7 +1234,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This task was not found in Mobilerun anymore."
                             in 500..599 -> "Mobilerun could not load the task status right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
@@ -1273,7 +1273,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This task was not found in Mobilerun anymore."
                             in 500..599 -> "Mobilerun could not load the task details right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
@@ -1314,7 +1314,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             in 500..599 -> "Mobilerun could not load the task history right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
                         }
@@ -1352,7 +1352,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This task screenshot list was not found in Mobilerun anymore."
                             in 500..599 -> "Mobilerun could not load screenshots right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
@@ -1391,7 +1391,7 @@ class PortalCloudClient(
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This task trajectory was not found in Mobilerun anymore."
                             in 500..599 -> "Mobilerun could not load trajectory right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
@@ -1437,7 +1437,7 @@ class PortalCloudClient(
                         }
 
                         val message = when (response.code) {
-                            401, 403 -> "Mobilerun rejected the saved API key. Sign in again or update the key."
+                            401, 403 -> "Mobilerun rejected the saved sign-in. Sign in again or update the key."
                             404 -> "This task was not found in Mobilerun anymore."
                             in 500..599 -> "Mobilerun could not cancel the task right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."

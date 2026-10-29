@@ -23,6 +23,7 @@ import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.input.TextInputResult
 import com.mobilerun.portal.core.JsonBuilders
 import com.mobilerun.portal.core.StateRepository
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.GestureController
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import org.json.JSONArray
@@ -53,6 +54,8 @@ import org.webrtc.PeerConnection
 import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.FileOperations
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.buildReconnectAfterRestartStatus
+import com.mobilerun.portal.service.setReconnectAfterRestart
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -2328,6 +2331,12 @@ class ApiHandler(
 
     fun getScreenKeepAwakeStatus(): ApiResponse =
         ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
+
+    fun setReconnectAfterRestartEnabled(enabled: Boolean): ApiResponse =
+        setReconnectAfterRestart(ConfigManager.getInstance(context), enabled)
+
+    fun getReconnectAfterRestartStatus(): ApiResponse =
+        buildReconnectAfterRestartStatus(ConfigManager.getInstance(context))
 
     private fun fileOperationsUnavailableResponse(): ApiResponse? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return null

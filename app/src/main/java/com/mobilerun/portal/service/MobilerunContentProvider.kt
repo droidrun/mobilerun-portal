@@ -234,6 +234,15 @@ internal fun handleSmsGatewayInsert(
     return ApiResponse.Success("SMS gateway set to $enabled")
 }
 
+internal fun handleReconnectAfterRestartInsert(
+    configManager: ConfigManager,
+    values: ContentValues?,
+): ApiResponse {
+    val enabled = values?.getAsBoolean("enabled")
+        ?: return ApiResponse.Error("Missing required field: enabled")
+    return setReconnectAfterRestart(configManager, enabled)
+}
+
 internal fun readProviderStringValue(
     values: ContentValues?,
     key: String,
@@ -299,7 +308,6 @@ internal fun handleCloudConnectInsert(
     return try {
         configManager.reverseConnectionUrl = url
         configManager.reverseConnectionToken = apiKey
-        configManager.forceLoginOnNextConnect = false
         beforeEnable()
         configManager.reverseConnectionEnabled = true
         startReverseConnectionService(appContext, ReverseConnectionService.ACTION_RECONNECT)
@@ -322,6 +330,15 @@ internal fun buildCloudStatusResponse(
     val json = JSONObject().apply {
         put("connectionState", connectionState.name)
         put("tokenPresent", configManager.reverseConnectionToken.trim().isNotEmpty())
+        put("reconnectAfterRestart", configManager.reconnectAfterRestartEnabled)
+        put(
+            "credentialType",
+            when {
+                configManager.cloudSessionActive -> "session"
+                configManager.reverseConnectionToken.isBlank() -> "none"
+                else -> "api_key"
+            },
+        )
         put("deviceId", configManager.deviceID)
         put("reverseConnectionUrl", configManager.reverseConnectionUrlOrDefault)
         if (activeTask != null) {
@@ -607,6 +624,7 @@ class MobilerunContentProvider : ContentProvider() {
         private const val SMS_MESSAGE = 43
         private const val SMS_SEND = 44
         private const val SMS_GATEWAY = 45
+        private const val CLOUD_RECONNECT_AFTER_RESTART = 46
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -644,6 +662,7 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "clipboard/set", CLIPBOARD_SET)
             addURI(AUTHORITY, "cloud/connect", CLOUD_CONNECT)
             addURI(AUTHORITY, "cloud/status", CLOUD_STATUS)
+            addURI(AUTHORITY, "cloud/reconnect_after_restart", CLOUD_RECONNECT_AFTER_RESTART)
             addURI(AUTHORITY, "cloud/tasks/launch", CLOUD_TASKS_LAUNCH)
             addURI(AUTHORITY, "stream_session_limit", STREAM_SESSION_LIMIT)
             addURI(AUTHORITY, "app/deep-links", APP_DEEP_LINKS)
@@ -747,6 +766,7 @@ class MobilerunContentProvider : ContentProvider() {
                 VERSION -> ApiResponse.Success(getAppVersion())
                 AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
                 CLOUD_STATUS -> buildCloudStatusResponse(configManager)
+                CLOUD_RECONNECT_AFTER_RESTART -> buildReconnectAfterRestartStatus(configManager)
                 STREAM_SESSION_LIMIT -> buildStreamSessionLimitResponse(configManager)
                 SCREEN_KEEP_AWAKE_STATUS -> ApiResponse.RawObject(
                     KeepAliveController.getStatusJson(context ?: throw IllegalStateException("Provider context unavailable")),
@@ -942,6 +962,10 @@ class MobilerunContentProvider : ContentProvider() {
 
         if (match == SMS_GATEWAY) {
             return responseToResultUri(handleSmsGatewayInsert(configManager, values))
+        }
+
+        if (match == CLOUD_RECONNECT_AFTER_RESTART) {
+            return responseToResultUri(handleReconnectAfterRestartInsert(configManager, values))
         }
 
         if (match == CONFIGURE_REVERSE_CONNECTION) {

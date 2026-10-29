@@ -177,6 +177,8 @@
     <string name="reverse_connection_header">Cloud Connection</string>
     <string name="connect_to_host_label">Connect to Host</string>
     <string name="initiate_outbound_connection_label">Connect device to remote server</string>
+    <string name="reconnect_after_restart_label">Reconnect After Restart</string>
+    <string name="reconnect_after_restart_description">Reconnect automatically after the phone restarts or Portal updates</string>
     <string name="host_url_hint">Server URL</string>
     <string name="token_optional_hint">API Key</string>
     <string name="reverse_connection_connected">Reverse connection established</string>
@@ -233,13 +235,30 @@
     <string name="connect_button">Connect</string>
     <string name="connect_to_mobilerun_title">Connect to Mobilerun</string>
     <string name="connect_to_mobilerun_subtitle">Choose how to authenticate this device</string>
-    <string name="sign_in_with_browser">Sign in with Browser</string>
+    <string name="sign_in">Sign In</string>
+    <string name="device_sign_in_title">Sign in to Mobilerun</string>
+    <string name="device_sign_in_subtitle">Scan the QR code with another device, or open the address below and enter the code.</string>
+    <string name="device_sign_in_qr_description">Sign-in QR code</string>
+    <string name="device_sign_in_requesting">Getting a sign-in code…</string>
+    <string name="device_sign_in_waiting">Waiting for approval…</string>
+    <string name="device_sign_in_expired">This code expired.</string>
+    <string name="device_sign_in_denied">Sign-in was denied.</string>
+    <string name="device_sign_in_offline">Can’t reach Mobilerun. Check the connection.</string>
+    <string name="device_sign_in_failed">Sign-in failed (%1$s).</string>
+    <string name="device_sign_in_open_here">Open on This Phone</string>
+    <string name="device_sign_in_new_code">New Code</string>
+    <string name="device_sign_in_done">Signed in to Mobilerun</string>
+    <string name="could_not_open_browser">Could not open browser</string>
+    <string name="signed_in_with_mobilerun">Signed in with Mobilerun. Enter a key to replace it.</string>
     <string name="sign_out">Sign Out</string>
     <string name="use_api_key">Use API Key</string>
     <string name="custom_connection">Custom Connection</string>
-    <string name="error_unauthorized_actionable">Your API key was rejected. Sign in again or enter a new key.</string>
+    <string name="reconnect">Reconnect</string>
+    <string name="saved_connection_title">Disconnected</string>
+    <string name="saved_connection_subtitle">This device is still signed in</string>
+    <string name="error_unauthorized_actionable">Mobilerun rejected the saved sign-in. Sign in again or use an API key.</string>
     <string name="sign_out_confirmation_title">Sign out on this device?</string>
-    <string name="sign_out_confirmation_message">This removes the saved Mobilerun sign-in from this portal only.</string>
+    <string name="sign_out_confirmation_message">This removes the Mobilerun sign-in from this device.</string>
 
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>

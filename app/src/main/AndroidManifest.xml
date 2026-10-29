@@ -166,6 +166,16 @@
         </receiver>
 
         <receiver
+            android:name=".service.ReverseConnectionRestartReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".triggers.TriggerBootReceiver"
             android:enabled="true"
             android:exported="true">
@@ -236,19 +246,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-
-                <data
-                    android:scheme="mobilerun"
-                    android:host="auth-callback" />
-                <data
-                    android:scheme="droidrun"
-                    android:host="auth-callback" />
             </intent-filter>
         </activity>
 

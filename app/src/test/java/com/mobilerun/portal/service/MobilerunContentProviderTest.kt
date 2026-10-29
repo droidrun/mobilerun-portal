@@ -530,6 +530,59 @@ class MobilerunContentProviderTest {
     }
 
     @Test
+    fun handleReconnectAfterRestartInsert_enablesWithCredentials() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsBoolean("enabled") } returns true
+        every { configManager.hasCloudCredentials } returns true
+        every { configManager.reconnectAfterRestartEnabled } returns true
+
+        val result = handleReconnectAfterRestartInsert(configManager, values)
+
+        assertTrue(result is ApiResponse.RawObject)
+        val json = (result as ApiResponse.RawObject).json
+        assertTrue(json.getBoolean("enabled"))
+        assertTrue(json.getBoolean("credentialsPresent"))
+        verify { configManager.reconnectAfterRestartEnabled = true }
+    }
+
+    @Test
+    fun handleReconnectAfterRestartInsert_refusesToEnableWithoutCredentials() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsBoolean("enabled") } returns true
+        every { configManager.hasCloudCredentials } returns false
+
+        assertEquals(
+            ApiResponse.Error("Connect to Mobilerun first: no cloud credentials are saved"),
+            handleReconnectAfterRestartInsert(configManager, values),
+        )
+        verify(exactly = 0) { configManager.reconnectAfterRestartEnabled = any() }
+    }
+
+    @Test
+    fun handleReconnectAfterRestartInsert_disablesWithoutCredentials() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+        every { values.getAsBoolean("enabled") } returns false
+        every { configManager.hasCloudCredentials } returns false
+
+        assertTrue(handleReconnectAfterRestartInsert(configManager, values) is ApiResponse.RawObject)
+        verify { configManager.reconnectAfterRestartEnabled = false }
+    }
+
+    @Test
+    fun handleReconnectAfterRestartInsert_rejectsMissingEnabled() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+
+        assertEquals(
+            ApiResponse.Error("Missing required field: enabled"),
+            handleReconnectAfterRestartInsert(configManager, null),
+        )
+        verify(exactly = 0) { configManager.reconnectAfterRestartEnabled = any() }
+    }
+
+    @Test
     fun handleCloudConnectInsert_storesApiKeyAndStartsReverseService() {
         val context = mockk<Context>(relaxed = true)
         val configManager = mockk<ConfigManager>(relaxed = true)
@@ -562,7 +615,6 @@ class MobilerunContentProviderTest {
             configManager.defaultReverseConnectionUrl
             configManager.reverseConnectionUrl = defaultUrl
             configManager.reverseConnectionToken = "real-token"
-            configManager.forceLoginOnNextConnect = false
             configManager.reverseConnectionEnabled = true
         }
     }
@@ -599,7 +651,6 @@ class MobilerunContentProviderTest {
         verifySequence {
             configManager.reverseConnectionUrl = url
             configManager.reverseConnectionToken = "aliased-token"
-            configManager.forceLoginOnNextConnect = false
             configManager.reverseConnectionEnabled = true
         }
     }
@@ -856,6 +907,8 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.reconnectAfterRestartEnabled } returns true
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = false,
@@ -872,6 +925,8 @@ class MobilerunContentProviderTest {
         assertEquals("CONNECTED", json.getString("connectionState"))
         assertTrue(json.getBoolean("tokenPresent"))
         assertEquals("device-123", json.getString("deviceId"))
+        assertTrue(json.getBoolean("reconnectAfterRestart"))
+        assertEquals("api_key", json.getString("credentialType"))
         assertFalse(json.toString().contains("super-secret"))
     }
 
@@ -883,6 +938,8 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.reconnectAfterRestartEnabled } returns true
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = true,
@@ -907,6 +964,8 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.reconnectAfterRestartEnabled } returns true
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = true,
@@ -941,6 +1000,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns defaultSettings
         every { configManager.taskPromptReturnToPortal } returns false
 
@@ -1095,6 +1155,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns PortalTaskSettings()
         every { configManager.taskPromptReturnToPortal } returns false
 
@@ -1118,6 +1179,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns PortalTaskSettings()
         every { configManager.taskPromptReturnToPortal } returns false
 
