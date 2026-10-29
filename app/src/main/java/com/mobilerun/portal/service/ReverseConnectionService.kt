@@ -815,7 +815,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, cloud/reconnectAfterRestart/status, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
+                    "Accessibility Service not ready. Only version, stream/*, webrtc/*, screen/keepAwake/*, cloud/reconnectAfterRestart/status, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return
