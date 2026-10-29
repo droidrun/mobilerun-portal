@@ -29,6 +29,9 @@ class HeadlessActionSupportTest {
         assertTrue(HeadlessActionSupport.isAllowed("triggers/status"))
         assertTrue(HeadlessActionSupport.isAllowed("app/deep-links"))
         assertTrue(HeadlessActionSupport.isAllowed("app/deep-link/resolve"))
+        assertTrue(HeadlessActionSupport.isAllowed("sms/capabilities"))
+        assertTrue(HeadlessActionSupport.isAllowed("sms/send"))
+        assertTrue(HeadlessActionSupport.isAllowed("sms/messages/list"))
     }
 
     @Test

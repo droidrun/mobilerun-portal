@@ -178,8 +178,9 @@ object TriggerRuntime {
         EventType.NETWORK_CONNECTED -> TriggerSource.NETWORK_CONNECTED
         EventType.NETWORK_TYPE_CHANGED -> TriggerSource.NETWORK_TYPE_CHANGED
         EventType.SMS_RECEIVED -> TriggerSource.SMS_RECEIVED
-        // Protocol/legacy members that never fire triggers.
+        // Protocol/legacy/status members that never fire triggers.
         EventType.NOTIFICATION,
+        EventType.SMS_SEND_STATE_CHANGED,
         EventType.PING,
         EventType.PONG,
         EventType.UNKNOWN,

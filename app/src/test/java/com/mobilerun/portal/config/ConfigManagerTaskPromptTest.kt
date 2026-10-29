@@ -25,6 +25,7 @@ class ConfigManagerTaskPromptTest {
     private lateinit var sharedStore: MutableMap<String, Any?>
     private lateinit var deviceStore: MutableMap<String, Any?>
     private lateinit var secretsStore: MutableMap<String, Any?>
+    private lateinit var smsStore: MutableMap<String, Any?>
 
     @Before
     fun setUp() {
@@ -32,7 +33,8 @@ class ConfigManagerTaskPromptTest {
         sharedStore = mutableMapOf()
         deviceStore = mutableMapOf()
         secretsStore = mutableMapOf()
-        context = mockContext(sharedStore, deviceStore, secretsStore)
+        smsStore = mutableMapOf()
+        context = mockContext(sharedStore, deviceStore, secretsStore, smsStore)
     }
 
     @After
@@ -471,6 +473,7 @@ class ConfigManagerTaskPromptTest {
         sharedStore["websocket_port"] = 9998
         sharedStore["reverse_connection_enabled"] = true
         sharedStore["production_mode"] = true
+        sharedStore["sms_gateway_enabled"] = true
         deviceStore["device_id"] = "device-123"
         deviceStore["reverse_join_blocked_by_http_402"] = true
         secretsStore["auth_token"] = "auth-123"
@@ -491,6 +494,19 @@ class ConfigManagerTaskPromptTest {
         assertFalse(configManager.reverseConnectionEnabled)
         assertFalse(configManager.reverseJoinBlockedByHttp402)
         assertFalse(configManager.productionMode)
+        assertFalse(configManager.smsGatewayEnabled)
+    }
+
+    @Test
+    fun smsGatewayEnabled_defaultsOffAndPersists() {
+        assertFalse(ConfigManager.getInstance(context).smsGatewayEnabled)
+
+        ConfigManager.getInstance(context).smsGatewayEnabled = true
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).smsGatewayEnabled)
+        assertEquals(true, smsStore["sms_gateway_enabled"])
+        assertFalse(sharedStore.containsKey("sms_gateway_enabled"))
     }
 
     @Test
@@ -514,11 +530,13 @@ class ConfigManagerTaskPromptTest {
         sharedPrefsStore: MutableMap<String, Any?>,
         devicePrefsStore: MutableMap<String, Any?>,
         secretsPrefsStore: MutableMap<String, Any?>,
+        smsPrefsStore: MutableMap<String, Any?>,
     ): Context {
         val context = mockk<Context>(relaxed = true)
         val sharedPrefs = mockPreferences(sharedPrefsStore)
         val devicePrefs = mockPreferences(devicePrefsStore)
         val secretsPrefs = mockPreferences(secretsPrefsStore)
+        val smsPrefs = mockPreferences(smsPrefsStore)
 
         every { context.applicationContext } returns context
         every {
@@ -530,6 +548,9 @@ class ConfigManagerTaskPromptTest {
         every {
             context.getSharedPreferences("mobilerun_secrets", Context.MODE_PRIVATE)
         } returns secretsPrefs
+        every {
+            context.getSharedPreferences("mobilerun_sms", Context.MODE_PRIVATE)
+        } returns smsPrefs
 
         return context
     }

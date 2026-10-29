@@ -279,6 +279,26 @@ class ActionDispatcher(
                 apiHandler.pushFile(url, path)
             }
 
+            "sms/capabilities" -> {
+                apiHandler.getSmsCapabilities()
+            }
+
+            "sms/send" -> {
+                apiHandler.sendSms(params)
+            }
+
+            "sms/status" -> {
+                apiHandler.getSmsStatus(params)
+            }
+
+            "sms/messages/list" -> {
+                apiHandler.listSmsMessages(params)
+            }
+
+            "sms/messages/get" -> {
+                apiHandler.getSmsMessage(params)
+            }
+
             "triggers/catalog" -> {
                 ApiResponse.RawObject(resolvedTriggerApi.catalog())
             }

@@ -39,11 +39,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link" ||
-        normalizedMethod == "app/deep-link/resolve"
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
     normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link" ||
-        normalizedMethod == "app/deep-link/resolve"
+        normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal enum class ReverseMediaRelease {
     STOP_CAPTURE,
@@ -763,7 +763,7 @@ class ReverseConnectionService : Service() {
         try {
             // Check if the message is a valid JSON before parsing
             if (!message.trim().startsWith("{") && !message.trim().startsWith("[")) {
-                Log.w(TAG, "Received non-JSON message: $message")
+                Log.w(TAG, "Received non-JSON message (${message.length} chars)")
                 return
             }
 
@@ -808,7 +808,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return
@@ -836,7 +836,8 @@ class ReverseConnectionService : Service() {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing message", e)
+            // The exception text can contain the whole frame, including SMS content.
+            Log.e(TAG, "Error processing message (${e.javaClass.simpleName}, ${message.length} chars)")
             sendErrorResponse(
                 client,
                 id,

@@ -69,6 +69,32 @@ Reverse connection supports the same trigger JSON-RPC methods as the local WebSo
 
 These `triggers/*` methods are headless-safe and remain available even if the Accessibility Service is disconnected. See [Triggers and Events](triggers.md) for exact params, `TriggerJson` payload shape, and ADB equivalents.
 
+## SMS Gateway
+
+Reverse connection supports the same `sms/*` JSON-RPC methods as local WebSocket:
+
+- `sms/capabilities`
+- `sms/send`
+- `sms/status`
+- `sms/messages/list`
+- `sms/messages/get`
+
+These methods remain available even if the Accessibility Service is disconnected. Except for `sms/capabilities`, they return an error until the SMS gateway is enabled on the device (see [Local API](local-api.md)). `sms/send` requires `SEND_SMS`. Stored message reads require `READ_SMS`. SIM slot lookup and active subscription metadata require `READ_PHONE_STATE`.
+
+Example:
+
+```json
+{
+  "id": "sms-1",
+  "method": "sms/send",
+  "params": {
+    "phone_number": "+15550001111",
+    "message": "hello",
+    "delivery_report": true
+  }
+}
+```
+
 ## Device Events
 
 While reverse connection is active, Portal forwards live device events automatically as unsolicited

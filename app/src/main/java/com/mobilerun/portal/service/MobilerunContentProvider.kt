@@ -224,6 +224,16 @@ internal fun handleStreamSessionLimitInsert(
     return ApiResponse.Success("Stream session limit set to $limit")
 }
 
+internal fun handleSmsGatewayInsert(
+    configManager: ConfigManager,
+    values: ContentValues?,
+): ApiResponse {
+    val enabled = values?.getAsBoolean("enabled")
+        ?: return ApiResponse.Error("Missing required field: enabled")
+    configManager.smsGatewayEnabled = enabled
+    return ApiResponse.Success("SMS gateway set to $enabled")
+}
+
 internal fun readProviderStringValue(
     values: ContentValues?,
     key: String,
@@ -591,6 +601,12 @@ class MobilerunContentProvider : ContentProvider() {
         private const val STREAM_SESSION_LIMIT = 37
         private const val APP_DEEP_LINKS = 38
         private const val APP_DEEP_LINK_RESOLVE = 39
+        private const val SMS_CAPABILITIES = 40
+        private const val SMS_STATUS = 41
+        private const val SMS_MESSAGES = 42
+        private const val SMS_MESSAGE = 43
+        private const val SMS_SEND = 44
+        private const val SMS_GATEWAY = 45
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -632,6 +648,12 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "stream_session_limit", STREAM_SESSION_LIMIT)
             addURI(AUTHORITY, "app/deep-links", APP_DEEP_LINKS)
             addURI(AUTHORITY, "app/deep-link/resolve", APP_DEEP_LINK_RESOLVE)
+            addURI(AUTHORITY, "sms/capabilities", SMS_CAPABILITIES)
+            addURI(AUTHORITY, "sms/status", SMS_STATUS)
+            addURI(AUTHORITY, "sms/messages", SMS_MESSAGES)
+            addURI(AUTHORITY, "sms/messages/*", SMS_MESSAGE)
+            addURI(AUTHORITY, "sms/send", SMS_SEND)
+            addURI(AUTHORITY, "sms/gateway", SMS_GATEWAY)
         }
     }
 
@@ -742,6 +764,11 @@ class MobilerunContentProvider : ContentProvider() {
                 APP_DEEP_LINKS,
                 APP_DEEP_LINK_RESOLVE,
                 -> handleDeepLinkQuery(match, uri)
+                SMS_CAPABILITIES,
+                SMS_STATUS,
+                SMS_MESSAGES,
+                SMS_MESSAGE,
+                -> handleSmsQuery(match, uri)
                 else -> {
                     val handler = getHandler()
                     if (handler == null) {
@@ -811,11 +838,51 @@ class MobilerunContentProvider : ContentProvider() {
         return handler.resolveDeepLink(packageName, deepLink, uri.optionalQueryParameter("action"))
     }
 
+    private fun handleSmsQuery(match: Int, uri: Uri): ApiResponse {
+        val handler = getHeadlessCapableHandler()
+            ?: return ApiResponse.Error("Provider context unavailable")
+        return when (match) {
+            SMS_CAPABILITIES -> handler.getSmsCapabilities()
+            SMS_STATUS -> handler.getSmsStatus(smsParamsFromUri(uri))
+            SMS_MESSAGES -> handler.listSmsMessages(smsParamsFromUri(uri))
+            SMS_MESSAGE -> handler.getSmsMessage(
+                JSONObject().put("sms_id", uri.lastPathSegment.orEmpty()),
+            )
+
+            else -> ApiResponse.Error("Unknown SMS endpoint: ${uri.path}")
+        }
+    }
+
     private fun Uri.optionalQueryParameter(key: String): String? =
         getQueryParameter(key)?.trim()?.takeUnless { it.isEmpty() || it == "null" }
 
     private fun getStringValue(values: ContentValues?, key: String): String? {
         return readProviderStringValue(values, key, TAG)
+    }
+
+    private fun smsParamsFromUri(uri: Uri): JSONObject {
+        return JSONObject().apply {
+            uri.queryParameterNames.forEach { key ->
+                put(key, uri.getQueryParameter(key))
+            }
+        }
+    }
+
+    private fun smsParamsFromValues(values: ContentValues?): JSONObject {
+        return JSONObject().apply {
+            getStringValue(values, "phone_number")?.let { put("phone_number", it) }
+            getStringValue(values, "message")?.let { put("message", it) }
+            getStringValue(values, "message_id")?.let { put("message_id", it) }
+            getStringValue(values, "subscription_id")?.let { put("subscription_id", it) }
+            getStringValue(values, "sim_slot")?.let { put("sim_slot", it) }
+            values?.getAsBoolean("delivery_report")?.let { put("delivery_report", it) }
+        }
+    }
+
+    private fun handleSmsSendInsert(values: ContentValues?): ApiResponse {
+        val handler = getHeadlessCapableHandler()
+            ?: return ApiResponse.Error("Provider context unavailable")
+        return handler.sendSms(smsParamsFromValues(values))
     }
 
     private fun handleConfigureReverseConnectionInsert(values: ContentValues?): ApiResponse {
@@ -867,6 +934,14 @@ class MobilerunContentProvider : ContentProvider() {
                 },
             )
             return cloudTaskLaunchResultUri(response)
+        }
+
+        if (match == SMS_SEND) {
+            return responseToResultUri(handleSmsSendInsert(values))
+        }
+
+        if (match == SMS_GATEWAY) {
+            return responseToResultUri(handleSmsGatewayInsert(configManager, values))
         }
 
         if (match == CONFIGURE_REVERSE_CONNECTION) {
@@ -1059,6 +1134,16 @@ class MobilerunContentProvider : ContentProvider() {
 
             is ApiResponse.Error ->
                 "content://$AUTHORITY/result?status=error&message=${Uri.encode(response.message)}".toUri()
+
+            is ApiResponse.RawObject ->
+                Uri.Builder()
+                    .scheme("content")
+                    .authority(AUTHORITY)
+                    .path("result")
+                    .appendQueryParameter("status", "success")
+                    .appendQueryParameter("message", "ok")
+                    .appendQueryParameter("result", response.json.toString())
+                    .build()
 
             else ->
                 "content://$AUTHORITY/result?status=error&message=${Uri.encode("Unsupported response type")}".toUri()

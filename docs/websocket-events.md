@@ -1,6 +1,6 @@
 # WebSocket Events
 
-Mobilerun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, and SMS reception.
+Mobilerun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, SMS reception, and SMS send state changes.
 
 For the complete trigger and event contract, including every emitted `EventType`, every rule `TriggerSource`, and the payload keys for each device event, see [Triggers and Events](triggers.md).
 Local WebSocket defaults to raw unsolicited device event frames. Reverse connection uses
@@ -62,7 +62,7 @@ Portal currently emits these event families over WebSocket:
 - Battery and power events: `BATTERY_LOW`, `BATTERY_OKAY`, `BATTERY_LEVEL_CHANGED`, `POWER_CONNECTED`, `POWER_DISCONNECTED`
 - Device/user events: `USER_PRESENT`
 - Network events: `NETWORK_CONNECTED`, `NETWORK_TYPE_CHANGED`
-- Messaging events: `SMS_RECEIVED`
+- Messaging events: `SMS_RECEIVED`, `SMS_SEND_STATE_CHANGED`
 - Protocol/internal events: `PING`, `PONG`, `UNKNOWN`
 
 The sections below keep the legacy notification and ping/pong examples. Use [Triggers and Events](triggers.md) as the source of truth for the full contract.
@@ -71,6 +71,47 @@ If you want the same envelope used by reverse connection, connect with `?eventFo
 expect `{"method":"events/device","params":...}`. `?eventFormat=legacy` is still accepted as
 an explicit request for the default raw format. Raw `PING` / `PONG` compatibility also remains
 available on the local socket.
+
+### SMS_RECEIVED
+
+```json
+{
+  "type": "SMS_RECEIVED",
+  "timestamp": 1234567890123,
+  "payload": {
+    "phone_number": "+15550001111",
+    "message": "hello",
+    "message_id": "8d3b0c99-4d5e-36e6-b1a4-8327db3fb863",
+    "received_at": 1234567890000,
+    "subscription_id": 1,
+    "sim_slot": 0,
+    "contact_name": "Optional Contact"
+  }
+}
+```
+
+### SMS_SEND_STATE_CHANGED
+
+```json
+{
+  "type": "SMS_SEND_STATE_CHANGED",
+  "timestamp": 1234567890123,
+  "payload": {
+    "message_id": "msg-1",
+    "phone_number": "+15550001111",
+    "state": "SENT",
+    "part_count": 1,
+    "sent_parts": 1,
+    "delivered_parts": 0,
+    "created_at": 1234567889000,
+    "updated_at": 1234567890123,
+    "subscription_id": 1,
+    "sim_slot": 0
+  }
+}
+```
+
+`DELIVERED` is best-effort and depends on carrier support. Treat `SENT` as the reliable outbound completion state.
 
 ### PING / PONG
 
