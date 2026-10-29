@@ -8,6 +8,14 @@ Mobilerun Portal can initiate an outbound WebSocket connection to a host (used b
 2. Under **Reverse Connection**, enter the host URL (ws/wss).
 3. Optional: enter a token (sent as a Bearer token).
 4. Toggle **Connect to Host**.
+5. Optional: turn on **Reconnect After Restart** to reconnect after a reboot or app update.
+
+## Restarts
+
+Saved credentials survive a reboot or app update. The connection comes back only when **Reconnect After Restart** is on and the connection was on before the restart; otherwise the main page offers **Reconnect**.
+
+- Off by default. Enabling it requires saved cloud credentials.
+- Sign Out and Reset to Defaults turn it off.
 
 ## Alternative method (Simplest)
 
@@ -231,6 +239,7 @@ honored exactly.
 
 ```bash
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_after_restart --bind enabled:b:true
 ```
 
 The `check_event_streams.py` smoke script uses the same base64-backed provider fields under

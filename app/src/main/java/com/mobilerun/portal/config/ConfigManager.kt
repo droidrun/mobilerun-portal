@@ -47,6 +47,8 @@ class ConfigManager private constructor(private val context: Context) {
             "reverse_join_blocked_by_http_402"
         private const val KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED =
             "reverse_join_disconnected_while_http_402_blocked"
+        private const val KEY_REVERSE_CONNECTION_WAS_ENABLED = "reverse_connection_was_enabled"
+        private const val KEY_RECONNECT_AFTER_RESTART_ENABLED = "reconnect_after_restart_enabled"
         private const val KEY_PRODUCTION_MODE = "production_mode"
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
@@ -365,7 +367,32 @@ class ConfigManager private constructor(private val context: Context) {
             return locale.country.ifBlank { "US" }
         }
 
-    var reverseConnectionEnabled: Boolean = false
+    @Volatile
+    private var reverseConnectionEnabledInProcess = false
+
+    /** Runtime on/off for the cloud connection; the last value is also kept for restarts. */
+    var reverseConnectionEnabled: Boolean
+        get() = reverseConnectionEnabledInProcess
+        set(value) {
+            reverseConnectionEnabledInProcess = value
+            devicePrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_WAS_ENABLED, value) }
+        }
+
+    /** Whether the cloud connection was left on before the process last died. */
+    val reverseConnectionWasEnabled: Boolean
+        get() = devicePrefs.getBoolean(KEY_REVERSE_CONNECTION_WAS_ENABLED, false)
+
+    // Device prefs: never restored from backup, cleared on sign-out and reset.
+    var reconnectAfterRestartEnabled: Boolean
+        get() = devicePrefs.getBoolean(KEY_RECONNECT_AFTER_RESTART_ENABLED, false)
+        set(value) {
+            if (reconnectAfterRestartEnabled == value) return
+            devicePrefs.edit { putBoolean(KEY_RECONNECT_AFTER_RESTART_ENABLED, value) }
+            listeners.forEach { it.onReconnectAfterRestartEnabledChanged(value) }
+        }
+
+    val hasCloudCredentials: Boolean
+        get() = reverseConnectionToken.isNotBlank() || reverseConnectionServiceKey.isNotBlank()
 
     /**
      * Stored with the device identity so the block survives process restarts but is excluded from
@@ -828,6 +855,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
         fun onSmsGatewayEnabledChanged(enabled: Boolean) {}
+        fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {}
         fun onStreamSessionLimitChanged(limit: Int) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
@@ -1051,6 +1079,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
             it.onKeepScreenAwakeEnabledChanged(false)
             it.onSmsGatewayEnabledChanged(false)
+            it.onReconnectAfterRestartEnabledChanged(false)
             it.onStreamSessionLimitChanged(DEFAULT_STREAM_SESSION_LIMIT)
             it.onProductionModeChanged(false)
         }

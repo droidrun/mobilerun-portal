@@ -476,6 +476,8 @@ class ConfigManagerTaskPromptTest {
         sharedStore["sms_gateway_enabled"] = true
         deviceStore["device_id"] = "device-123"
         deviceStore["reverse_join_blocked_by_http_402"] = true
+        deviceStore["reconnect_after_restart_enabled"] = true
+        deviceStore["reverse_connection_was_enabled"] = true
         secretsStore["auth_token"] = "auth-123"
         secretsStore["reverse_connection_token"] = "reverse-123"
         secretsStore["reverse_connection_service_key"] = "service-123"
@@ -495,6 +497,8 @@ class ConfigManagerTaskPromptTest {
         assertFalse(configManager.reverseJoinBlockedByHttp402)
         assertFalse(configManager.productionMode)
         assertFalse(configManager.smsGatewayEnabled)
+        assertFalse(configManager.reconnectAfterRestartEnabled)
+        assertFalse(configManager.reverseConnectionWasEnabled)
     }
 
     @Test
@@ -507,6 +511,49 @@ class ConfigManagerTaskPromptTest {
         assertTrue(ConfigManager.getInstance(context).smsGatewayEnabled)
         assertEquals(true, smsStore["sms_gateway_enabled"])
         assertFalse(sharedStore.containsKey("sms_gateway_enabled"))
+    }
+
+    @Test
+    fun reverseConnectionEnabled_startsOffInNewProcessButIsRememberedForRestarts() {
+        ConfigManager.getInstance(context).reverseConnectionEnabled = true
+        clearSingleton()
+
+        val configManager = ConfigManager.getInstance(context)
+        assertFalse(configManager.reverseConnectionEnabled)
+        assertTrue(configManager.reverseConnectionWasEnabled)
+        assertEquals(true, deviceStore["reverse_connection_was_enabled"])
+
+        configManager.reverseConnectionEnabled = false
+        assertFalse(configManager.reverseConnectionWasEnabled)
+    }
+
+    @Test
+    fun reconnectAfterRestart_defaultsOffPersistsInDevicePrefsAndClearsOnSignOut() {
+        val configManager = ConfigManager.getInstance(context)
+        assertFalse(configManager.reconnectAfterRestartEnabled)
+
+        configManager.reconnectAfterRestartEnabled = true
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).reconnectAfterRestartEnabled)
+        assertEquals(true, deviceStore["reconnect_after_restart_enabled"])
+        assertFalse(sharedStore.containsKey("reconnect_after_restart_enabled"))
+
+        ConfigManager.getInstance(context).clearCloudCredentials()
+        assertFalse(ConfigManager.getInstance(context).reconnectAfterRestartEnabled)
+    }
+
+    @Test
+    fun hasCloudCredentials_acceptsTokenOrServiceKey() {
+        val configManager = ConfigManager.getInstance(context)
+        assertFalse(configManager.hasCloudCredentials)
+
+        secretsStore["reverse_connection_service_key"] = "service-key"
+        assertTrue(configManager.hasCloudCredentials)
+
+        secretsStore.remove("reverse_connection_service_key")
+        secretsStore["reverse_connection_token"] = "token"
+        assertTrue(configManager.hasCloudCredentials)
     }
 
     @Test

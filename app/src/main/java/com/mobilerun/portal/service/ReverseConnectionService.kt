@@ -193,6 +193,11 @@ class ReverseConnectionService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        if (shouldStopStickyRestart(intent != null, configManager.reverseConnectionWasEnabled)) {
+            Log.i(TAG, "onStartCommand: Sticky restart after the connection was turned off; stopping")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
         terminalState = null
@@ -228,6 +233,8 @@ class ReverseConnectionService : Service() {
                 TAG,
                 "onStartCommand: Starting Reverse Connection Service, calling connectToHost()"
             )
+            // A sticky restart runs in a new process, where the runtime flag starts off.
+            configManager.reverseConnectionEnabled = true
             connectToHost()
         } else {
             Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
@@ -808,7 +815,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, cloud/reconnectAfterRestart/status, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return

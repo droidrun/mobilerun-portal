@@ -19,4 +19,11 @@ object ConnectionCardUiPolicy {
             else -> false
         }
     }
+
+    /** A disconnected device that kept working credentials offers Reconnect instead of sign-in. */
+    fun shouldOfferReconnect(
+        state: ConnectionState,
+        hasCloudCredentials: Boolean,
+        credentialsRejected: Boolean,
+    ): Boolean = hasCloudCredentials && !credentialsRejected && state == ConnectionState.DISCONNECTED
 }

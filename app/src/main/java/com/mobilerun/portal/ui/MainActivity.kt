@@ -97,6 +97,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private val taskDetailsRetryRunnable = Runnable { refreshTaskPromptUi() }
     private var isTaskPromptCancelInFlight = false
     private var currentConnectionState = ConnectionStateManager.getState()
+    private var cloudCredentialsRejected = false
     private var taskPromptStatusMessage: String? = null
     private var taskPromptStatusKind = TaskPromptCardController.StatusKind.INFO
     private val taskPromptPollHandler = Handler(Looper.getMainLooper())
@@ -209,6 +210,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         // Update initial UI state
         updateSocketServerStatus()
         updateAdbForwardCommand()
+
+        binding.btnReconnect.setOnClickListener {
+            retryConnection()
+        }
+
+        binding.btnDisconnectedSignOut.setOnClickListener {
+            showSignOutConfirmation()
+        }
 
         binding.btnSignInBrowser.setOnClickListener {
             openBrowserSignIn(forceFreshLogin = false)
@@ -350,6 +359,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
         updateProductionModeUI()
+        // Settings can change the saved credentials without a state change.
+        if (binding.layoutDisconnected.visibility == View.VISIBLE) {
+            renderDisconnectedCard(currentConnectionState)
+        }
         refreshTaskPromptUi()
         refreshCreditsBalance()
         syncTaskPromptPolling(immediate = true)
@@ -1575,6 +1588,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun setupConnectionStateObserver() {
         ConnectionStateManager.connectionState.observe(this) { state ->
             currentConnectionState = state
+            when {
+                shouldOfferBrowserReauth(state) -> cloudCredentialsRejected = true
+                state == ConnectionState.CONNECTED -> cloudCredentialsRejected = false
+            }
             binding.layoutDisconnected.visibility = View.GONE
             binding.layoutConnecting.visibility = View.GONE
             binding.layoutConnected.visibility = View.GONE
@@ -1655,11 +1672,33 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
+                    renderDisconnectedCard(state)
                 }
             }
             refreshTaskPromptUi()
             refreshCreditsBalance()
         }
+    }
+
+    private fun renderDisconnectedCard(state: ConnectionState) {
+        val offerReconnect = ConnectionCardUiPolicy.shouldOfferReconnect(
+            state = state,
+            hasCloudCredentials = hasCloudCredentials(),
+            credentialsRejected = cloudCredentialsRejected,
+        )
+        val reconnectVisibility = if (offerReconnect) View.VISIBLE else View.GONE
+        val signInVisibility = if (offerReconnect) View.GONE else View.VISIBLE
+        binding.textDisconnectedTitle.setText(
+            if (offerReconnect) R.string.saved_connection_title else R.string.connect_to_mobilerun_title,
+        )
+        binding.textDisconnectedSubtitle.setText(
+            if (offerReconnect) R.string.saved_connection_subtitle else R.string.connect_to_mobilerun_subtitle,
+        )
+        binding.btnReconnect.visibility = reconnectVisibility
+        binding.btnDisconnectedSignOut.visibility = reconnectVisibility
+        binding.btnSignInBrowser.visibility = signInVisibility
+        binding.btnUseApiKey.visibility = signInVisibility
+        binding.btnCustomConnection.visibility = signInVisibility
     }
 
     private fun setupNetworkInfo() {

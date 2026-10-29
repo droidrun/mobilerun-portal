@@ -100,6 +100,8 @@ Response format:
 | `install` | `urls`, `hideOverlay` | Local and reverse WebSocket only; supports split APKs |
 | `screen/keepAwake/set` | `enabled` | WebSocket only; local and reverse; toggles the screen-awake watchdog and returns the requested target status |
 | `screen/keepAwake/status` | - | WebSocket only; local and reverse; returns live watchdog status |
+| `cloud/reconnectAfterRestart/set` | `enabled` | HTTP and local WebSocket; turns reconnect after restart on or off; enabling requires saved cloud credentials |
+| `cloud/reconnectAfterRestart/status` | - | Returns `enabled` and `credentialsPresent` |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
@@ -254,6 +256,7 @@ adb shell content query --uri content://com.mobilerun.portal/auth_token
 adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
+adb shell content query --uri content://com.mobilerun.portal/cloud/reconnect_after_restart
 adb shell content query --uri content://com.mobilerun.portal/sms/capabilities
 adb shell content query --uri 'content://com.mobilerun.portal/sms/status?message_id=MSG_ID'
 adb shell "content query --uri 'content://com.mobilerun.portal/sms/messages?box=inbox&limit=10'"
@@ -286,6 +289,10 @@ adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_
 adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
+
+# Reconnect to the cloud after a reboot or app update (default off; needs saved cloud credentials)
+adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_after_restart --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_after_restart --bind enabled:b:false
 
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:false

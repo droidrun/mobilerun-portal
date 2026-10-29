@@ -63,4 +63,50 @@ class ConnectionCardUiPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun disconnectedWithCloudCredentialsOffersReconnect() {
+        assertTrue(
+            ConnectionCardUiPolicy.shouldOfferReconnect(
+                state = ConnectionState.DISCONNECTED,
+                hasCloudCredentials = true,
+                credentialsRejected = false,
+            ),
+        )
+    }
+
+    @Test
+    fun disconnectedAfterRejectedCredentialsOffersSignIn() {
+        assertFalse(
+            ConnectionCardUiPolicy.shouldOfferReconnect(
+                state = ConnectionState.DISCONNECTED,
+                hasCloudCredentials = true,
+                credentialsRejected = true,
+            ),
+        )
+    }
+
+    @Test
+    fun reconnectIsOfferedOnlyWhenDisconnectedWithCloudCredentials() {
+        ConnectionState.values().forEach { state ->
+            assertFalse(
+                "$state should not offer reconnect without credentials",
+                ConnectionCardUiPolicy.shouldOfferReconnect(
+                    state = state,
+                    hasCloudCredentials = false,
+                    credentialsRejected = false,
+                ),
+            )
+            if (state != ConnectionState.DISCONNECTED) {
+                assertFalse(
+                    "$state should not offer reconnect",
+                    ConnectionCardUiPolicy.shouldOfferReconnect(
+                        state = state,
+                        hasCloudCredentials = true,
+                        credentialsRejected = false,
+                    ),
+                )
+            }
+        }
+    }
 }

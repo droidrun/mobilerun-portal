@@ -287,6 +287,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 binding.inputReverseToken.error = null
                 configManager.reverseConnectionUrl = url
                 configManager.reverseConnectionToken = token
+                updateReconnectAfterRestartUi()
                 intent.action = ReverseConnectionService.ACTION_RECONNECT
                 startForegroundService(intent)
             } else {
@@ -338,12 +339,18 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     )
                 configManager.reverseConnectionToken = token
                 binding.inputReverseToken.clearFocus()
+                updateReconnectAfterRestartUi()
                 if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
                 true
             } else {
                 false
             }
+        }
+
+        updateReconnectAfterRestartUi()
+        binding.switchReconnectAfterRestart.setOnCheckedChangeListener { _, isChecked ->
+            configManager.reconnectAfterRestartEnabled = isChecked
         }
 
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
@@ -756,6 +763,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             )
         configManager.reverseConnectionUrl = url
         configManager.reverseConnectionToken = token
+        updateReconnectAfterRestartUi()
         if (shouldReconnect) restartServiceIfEnabled()
     }
 
@@ -880,6 +888,14 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateWebSocketPortUi(configManager.websocketPort)
         updateStreamSessionLimitUi(configManager.streamSessionLimit)
         binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
+        updateReconnectAfterRestartUi()
+    }
+
+    private fun updateReconnectAfterRestartUi() {
+        val enabled = configManager.reconnectAfterRestartEnabled
+        // Turning it off stays possible after the credentials are gone.
+        binding.switchReconnectAfterRestart.isEnabled = enabled || configManager.hasCloudCredentials
+        binding.switchReconnectAfterRestart.isChecked = enabled
     }
 
     private fun updateSocketServerEnabledUi(enabled: Boolean) {
@@ -1018,6 +1034,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onSmsGatewayEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchSmsGateway.isChecked = enabled
+        }
+    }
+
+    override fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateReconnectAfterRestartUi()
         }
     }
 

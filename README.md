@@ -80,6 +80,7 @@ See [Triggers and Events](docs/triggers.md) for the complete `EventType` and `Tr
 Enable reverse connection to let the device initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud).
 
 See [Reverse Connection](docs/reverse-connection.md) for configuration details and the streaming protocol.
+Saved credentials survive a reboot. To reconnect automatically after a reboot or app update, turn on **Settings > Reconnect After Restart** (off by default).
 Trigger JSON-RPC methods are documented in [Triggers and Events](docs/triggers.md).
 The operator-facing screen-awake watchdog can also be enabled from **Settings** with **Keep Screen Awake**, or over WebSocket with `screen/keepAwake/set` and `screen/keepAwake/status`.
 
@@ -172,6 +173,9 @@ adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_s
 
 # Get the max number of concurrent stream viewers (limit, min, max)
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
+
+# Get the reconnect-after-restart setting
+adb shell content query --uri content://com.mobilerun.portal/cloud/reconnect_after_restart
 ```
 
 #### Insert Commands (Actions & Configuration)
@@ -233,6 +237,10 @@ adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_
 
 # Toggle production mode UI
 adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
+
+# Reconnect to the cloud after a reboot or app update (default: off; needs saved cloud credentials)
+adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_after_restart --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_after_restart --bind enabled:b:false
 ```
 
 #### Common Key Codes

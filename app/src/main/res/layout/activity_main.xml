@@ -618,6 +618,7 @@
                                     android:orientation="vertical">
 
                                     <TextView
+                                        android:id="@+id/text_disconnected_title"
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:text="@string/connect_to_mobilerun_title"
@@ -626,6 +627,7 @@
                                         android:textStyle="bold" />
 
                                     <TextView
+                                        android:id="@+id/text_disconnected_subtitle"
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:layout_marginTop="2dp"
@@ -636,6 +638,32 @@
                                 </LinearLayout>
 
                             </LinearLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_reconnect"
+                                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="14dp"
+                                android:text="@string/reconnect"
+                                android:textAllCaps="false"
+                                android:textColor="@color/text_white"
+                                android:visibility="gone"
+                                app:backgroundTint="@color/status_success"
+                                app:cornerRadius="8dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_disconnected_sign_out"
+                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/sign_out"
+                                android:textAllCaps="false"
+                                android:textColor="@color/text_white"
+                                android:visibility="gone"
+                                app:cornerRadius="8dp"
+                                app:strokeColor="@color/stroke_gray" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btn_sign_in_browser"
