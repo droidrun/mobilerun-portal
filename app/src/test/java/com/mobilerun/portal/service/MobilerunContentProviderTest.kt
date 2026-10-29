@@ -562,7 +562,6 @@ class MobilerunContentProviderTest {
             configManager.defaultReverseConnectionUrl
             configManager.reverseConnectionUrl = defaultUrl
             configManager.reverseConnectionToken = "real-token"
-            configManager.forceLoginOnNextConnect = false
             configManager.reverseConnectionEnabled = true
         }
     }
@@ -599,7 +598,6 @@ class MobilerunContentProviderTest {
         verifySequence {
             configManager.reverseConnectionUrl = url
             configManager.reverseConnectionToken = "aliased-token"
-            configManager.forceLoginOnNextConnect = false
             configManager.reverseConnectionEnabled = true
         }
     }
@@ -856,6 +854,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = false,
@@ -872,6 +871,7 @@ class MobilerunContentProviderTest {
         assertEquals("CONNECTED", json.getString("connectionState"))
         assertTrue(json.getBoolean("tokenPresent"))
         assertEquals("device-123", json.getString("deviceId"))
+        assertEquals("api_key", json.getString("credentialType"))
         assertFalse(json.toString().contains("super-secret"))
     }
 
@@ -883,6 +883,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = true,
@@ -907,6 +908,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.reverseJoinHttp402Snapshot() } returns
             ReverseJoinHttp402Snapshot(
                 blocked = true,
@@ -941,6 +943,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns defaultSettings
         every { configManager.taskPromptReturnToPortal } returns false
 
@@ -1095,6 +1098,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns PortalTaskSettings()
         every { configManager.taskPromptReturnToPortal } returns false
 
@@ -1118,6 +1122,7 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.cloudSessionActive } returns false
         every { configManager.taskPromptSettings } returns PortalTaskSettings()
         every { configManager.taskPromptReturnToPortal } returns false
 

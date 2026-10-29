@@ -442,6 +442,96 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun storeCloudSession_marksTheTokenAsASessionOnTheOfficialCloud() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.reverseConnectionUrl = "wss://example.test/v1/providers/personal/join"
+
+        configManager.storeCloudSession("session-token", nowMs = 42L)
+
+        assertTrue(configManager.cloudSessionActive)
+        assertEquals("session-token", configManager.reverseConnectionToken)
+        assertEquals(42L, configManager.cloudSessionCheckedAtMs)
+        assertEquals(configManager.defaultReverseConnectionUrl, configManager.reverseConnectionUrlOrDefault)
+    }
+
+    @Test
+    fun replacingTheTokenEndsTheSessionMarker() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.storeCloudSession("session-token", nowMs = 42L)
+
+        configManager.reverseConnectionToken = "dr_sk_api_key"
+
+        assertFalse(configManager.cloudSessionActive)
+        assertEquals(0L, configManager.cloudSessionCheckedAtMs)
+    }
+
+    @Test
+    fun sessionIsDroppedWhenTheUrlLeavesTheOfficialCloud() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.storeCloudSession("session-token")
+
+        configManager.reverseConnectionUrl = configManager.defaultReverseConnectionUrl
+        assertTrue(configManager.cloudSessionActive)
+
+        configManager.reverseConnectionUrl = "wss://self-hosted.example/v1/providers/personal/join"
+        assertFalse(configManager.cloudSessionActive)
+        assertEquals("", configManager.reverseConnectionToken)
+    }
+
+    @Test
+    fun sessionIsDroppedOnCleartextWs() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.storeCloudSession("session-token")
+
+        configManager.reverseConnectionUrl = "ws://api.mobilerun.ai/v1/providers/personal/join"
+
+        assertFalse(configManager.cloudSessionActive)
+        assertFalse(configManager.isOfficialCloudUrl("ws://api.mobilerun.ai/v1/providers/personal/join"))
+        assertTrue(configManager.isOfficialCloudUrl(configManager.defaultReverseConnectionUrl))
+    }
+
+    @Test
+    fun replacedOrDroppedSessionsAreHandedToTheRevokeHook() {
+        val configManager = ConfigManager.getInstance(context)
+        val revoked = mutableListOf<String>()
+        configManager.onCloudSessionDropped = { revoked += it }
+
+        configManager.storeCloudSession("first")
+        configManager.storeCloudSession("second")
+        configManager.reverseConnectionToken = "dr_sk_api_key"
+        configManager.reverseConnectionToken = "dr_sk_other_key"
+
+        assertEquals(listOf("first", "second"), revoked)
+    }
+
+    @Test
+    fun apiKeysSurviveACustomUrl() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.reverseConnectionToken = "dr_sk_api_key"
+
+        configManager.reverseConnectionUrl = "wss://self-hosted.example/v1/providers/personal/join"
+
+        assertEquals("dr_sk_api_key", configManager.reverseConnectionToken)
+    }
+
+    @Test
+    fun clearCloudSessionIfCurrent_onlyClearsTheCheckedSession() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.storeCloudSession("new-session")
+
+        assertFalse(configManager.clearCloudSessionIfCurrent("old-session"))
+        assertTrue(configManager.cloudSessionActive)
+
+        assertTrue(configManager.clearCloudSessionIfCurrent("new-session"))
+        assertFalse(configManager.cloudSessionActive)
+        assertEquals("", configManager.reverseConnectionToken)
+
+        configManager.reverseConnectionToken = "dr_sk_api_key"
+        assertFalse(configManager.clearCloudSessionIfCurrent("dr_sk_api_key"))
+        assertEquals("dr_sk_api_key", configManager.reverseConnectionToken)
+    }
+
+    @Test
     fun clearCloudCredentials_preservesLocalApiToken() {
         sharedStore["overlay_visible"] = false
         sharedStore["socket_server_enabled"] = true
@@ -450,6 +540,7 @@ class ConfigManagerTaskPromptTest {
         secretsStore["auth_token"] = "auth-123"
         secretsStore["reverse_connection_token"] = "reverse-123"
         secretsStore["reverse_connection_service_key"] = "service-123"
+        secretsStore["reverse_connection_credential_type"] = "session"
         deviceStore["reverse_join_blocked_by_http_402"] = true
 
         ConfigManager.getInstance(context).clearCloudCredentials()
@@ -458,6 +549,7 @@ class ConfigManagerTaskPromptTest {
         assertEquals("auth-123", secretsStore["auth_token"])
         assertFalse(secretsStore.containsKey("reverse_connection_token"))
         assertFalse(secretsStore.containsKey("reverse_connection_service_key"))
+        assertFalse(secretsStore.containsKey("reverse_connection_credential_type"))
         assertEquals(false, sharedStore["overlay_visible"])
         assertEquals(true, sharedStore["socket_server_enabled"])
         assertFalse(sharedStore.containsKey("device_id"))
@@ -507,23 +599,6 @@ class ConfigManagerTaskPromptTest {
         assertTrue(ConfigManager.getInstance(context).smsGatewayEnabled)
         assertEquals(true, smsStore["sms_gateway_enabled"])
         assertFalse(sharedStore.containsKey("sms_gateway_enabled"))
-    }
-
-    @Test
-    fun browserAuthPendingWindow_isTimeBoundAndClearable() {
-        val configManager = ConfigManager.getInstance(context)
-
-        assertFalse(configManager.isBrowserAuthPending(nowMs = 1_000L))
-
-        configManager.markBrowserAuthPending(nowMs = 1_000L, ttlMs = 600_000L)
-
-        assertTrue(configManager.isBrowserAuthPending(nowMs = 600_999L))
-        assertFalse(configManager.isBrowserAuthPending(nowMs = 601_000L))
-
-        configManager.markBrowserAuthPending(nowMs = 2_000L, ttlMs = 600_000L)
-        configManager.clearBrowserAuthPending()
-
-        assertFalse(configManager.isBrowserAuthPending(nowMs = 2_001L))
     }
 
     private fun mockContext(

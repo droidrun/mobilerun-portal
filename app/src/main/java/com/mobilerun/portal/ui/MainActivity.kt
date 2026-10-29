@@ -32,8 +32,6 @@ import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
 import com.mobilerun.portal.databinding.ActivityMainBinding
 import com.mobilerun.portal.taskprompt.PortalActiveTaskRecord
-import com.mobilerun.portal.taskprompt.PortalAuthCallbackValidator
-import com.mobilerun.portal.taskprompt.PortalAuthDeepLink
 import com.mobilerun.portal.taskprompt.PortalBalanceCacheState
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.taskprompt.PortalModelOption
@@ -61,6 +59,7 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.update.InstallResult
 import com.mobilerun.portal.update.UpdateCheckResult
 import com.mobilerun.portal.update.UpdateChecker
@@ -97,6 +96,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private val taskDetailsRetryRunnable = Runnable { refreshTaskPromptUi() }
     private var isTaskPromptCancelInFlight = false
     private var currentConnectionState = ConnectionStateManager.getState()
+    private val deviceSignIn by lazy { DeviceSignInDialog(this, ::completeDeviceSignIn) }
     private var taskPromptStatusMessage: String? = null
     private var taskPromptStatusKind = TaskPromptCardController.StatusKind.INFO
     private val taskPromptPollHandler = Handler(Looper.getMainLooper())
@@ -160,9 +160,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         // Register ConfigChangeListener
         ConfigManager.getInstance(this).addListener(this)
 
-        // Handle Deep Link
-        handleDeepLink(intent)
-
         taskPromptCardController = TaskPromptCardController(
             context = this,
             layoutInflater = layoutInflater,
@@ -211,7 +208,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         updateAdbForwardCommand()
 
         binding.btnSignInBrowser.setOnClickListener {
-            openBrowserSignIn(forceFreshLogin = false)
+            deviceSignIn.show()
         }
 
         binding.btnUseApiKey.setOnClickListener {
@@ -248,7 +245,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         binding.btnErrorPrimaryAction.setOnClickListener {
             if (shouldOfferBrowserReauth(ConnectionStateManager.getState())) {
-                openBrowserSignIn(forceFreshLogin = true)
+                deviceSignIn.show()
             } else {
                 retryConnection()
             }
@@ -331,12 +328,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     override fun onDestroy() {
         unregisterTaskPromptStateReceiver()
+        deviceSignIn.dismiss()
         super.onDestroy()
         ConfigManager.getInstance(this).removeListener(this)
     }
 
     override fun onStart() {
         super.onStart()
+        deviceSignIn.resume()
         registerInstallResultReceiver()
         registerSignatureConflictReceiver()
         registerTaskPromptStateReceiver()
@@ -359,6 +358,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     override fun onStop() {
         super.onStop()
+        deviceSignIn.pause()
         isTaskPromptVisible = false
         taskPromptPollHandler.removeCallbacks(taskDetailsRetryRunnable)
         unregisterTaskPromptStateReceiver()
@@ -1367,10 +1367,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun signOutLocally() {
         val configManager = ConfigManager.getInstance(this)
+        val session = configManager.reverseConnectionToken.takeIf { configManager.cloudSessionActive }
         disconnectService()
+        session?.let { DeviceCodeAuthClient().signOut(it) }
         configManager.clearCloudCredentials()
         configManager.reverseConnectionEnabled = false
-        configManager.forceLoginOnNextConnect = true
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         refreshCreditsBalance(force = true)
     }
@@ -1394,16 +1395,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             configManager.reverseConnectionServiceKey.isNotBlank()
     }
 
-    private fun openBrowserSignIn(forceFreshLogin: Boolean) {
+    private fun completeDeviceSignIn(token: String) {
         val configManager = ConfigManager.getInstance(this)
-        if (forceFreshLogin) {
-            configManager.reverseConnectionToken = ""
-            configManager.reverseJoinBlockedByHttp402 = false
-            configManager.reverseConnectionEnabled = false
-            configManager.forceLoginOnNextConnect = true
-            refreshCreditsBalance(force = true)
-        }
-        openCloudLogin(configManager)
+        configManager.storeCloudSession(token)
+        configManager.reverseConnectionEnabled = true
+        restartReverseConnectionService()
+        refreshCreditsBalance(force = true)
+        Toast.makeText(this, R.string.device_sign_in_done, Toast.LENGTH_SHORT).show()
     }
 
     private fun restartReverseConnectionService() {
@@ -1426,7 +1424,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun retryConnection() {
         val configManager = ConfigManager.getInstance(this)
         configManager.reverseConnectionEnabled = true
-        configManager.forceLoginOnNextConnect = false
         restartReverseConnectionService()
     }
 
@@ -1442,6 +1439,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val configManager = ConfigManager.getInstance(this)
 
         val existingToken = configManager.reverseConnectionToken
+            .takeUnless { configManager.cloudSessionActive }
+            .orEmpty()
         Log.d(TAG, "showApiKeyDialog: Existing API key length=${existingToken.length}")
         if (existingToken.isNotBlank()) {
             inputToken.setText(existingToken)
@@ -1475,7 +1474,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             configManager.reverseConnectionUrl = configManager.defaultReverseConnectionUrl
             configManager.reverseConnectionToken = apiKey
             configManager.reverseConnectionEnabled = true
-            configManager.forceLoginOnNextConnect = false
 
             Log.d(TAG, "showApiKeyDialog: Restarting reverse connection service")
             restartReverseConnectionService()
@@ -1509,6 +1507,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             inputUrl.setText(existingUrl)
         }
         val existingToken = configManager.reverseConnectionToken
+            .takeUnless { configManager.cloudSessionActive }
+            .orEmpty()
         Log.d(TAG, "showCustomConnectionDialog: Existing token length=${existingToken.length}")
         if (existingToken.isNotBlank()) {
             inputToken.setText(existingToken)
@@ -1553,7 +1553,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             configManager.reverseConnectionUrl = url
             configManager.reverseConnectionToken = token
             configManager.reverseConnectionEnabled = true
-            configManager.forceLoginOnNextConnect = false
             Log.d(
                 TAG,
                 "showCustomConnectionDialog: Config saved, reverseConnectionEnabled=${configManager.reverseConnectionEnabled}"
@@ -1619,7 +1618,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                         if (showSignOut) View.VISIBLE else View.GONE
                     binding.textErrorSubtitle.text =
                         getString(R.string.error_unauthorized_actionable)
-                    binding.btnErrorPrimaryAction.text = getString(R.string.sign_in_with_browser)
+                    binding.btnErrorPrimaryAction.text = getString(R.string.sign_in)
                     binding.btnErrorUseApiKey.visibility = View.VISIBLE
                     binding.btnErrorCustomConnection.visibility = View.VISIBLE
                 }
@@ -1638,7 +1637,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     if (isOfficialMobilerunCloudConnection()) {
                         binding.textErrorSubtitle.text =
                             getString(R.string.error_bad_request_actionable)
-                        binding.btnErrorPrimaryAction.text = getString(R.string.sign_in_with_browser)
+                        binding.btnErrorPrimaryAction.text = getString(R.string.sign_in)
                         binding.btnErrorUseApiKey.visibility = View.VISIBLE
                         binding.btnErrorCustomConnection.visibility = View.VISIBLE
                     } else {
@@ -2263,60 +2262,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleDeepLink(intent)
     }
 
     private fun sanitizeToken(value: String?): String {
         return value?.replace("\\s+".toRegex(), "") ?: ""
-    }
-
-    private fun openCloudLogin(configManager: ConfigManager) {
-        val deviceId = configManager.deviceID
-        val forceLogin = configManager.forceLoginOnNextConnect
-        configManager.forceLoginOnNextConnect = false
-        configManager.markBrowserAuthPending(ttlMs = PortalAuthCallbackValidator.PENDING_WINDOW_MS)
-        val url = PortalAuthDeepLink.buildCloudLoginUrl(
-            deviceId = deviceId,
-            forceLogin = forceLogin,
-        )
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            startActivity(intent)
-        } catch (e: Exception) {
-            configManager.clearBrowserAuthPending()
-            Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun handleDeepLink(intent: Intent?) {
-        try {
-            val data: Uri? = intent?.data
-            if (data != null && PortalAuthDeepLink.isAuthCallback(data.scheme, data.host)) {
-                val configManager = ConfigManager.getInstance(this)
-                val validationResult = PortalAuthCallbackValidator.validate(
-                    token = data.getQueryParameter("token"),
-                    reverseConnectionUrl = data.getQueryParameter("url"),
-                    authPending = configManager.isBrowserAuthPending(),
-                    defaultReverseConnectionUrl = configManager.defaultReverseConnectionUrl,
-                )
-                configManager.clearBrowserAuthPending()
-
-                if (validationResult is PortalAuthCallbackValidator.Result.Accepted) {
-                    configManager.reverseConnectionToken = validationResult.sanitizedToken
-                    configManager.reverseConnectionUrl = validationResult.reverseConnectionUrl
-                    configManager.reverseConnectionEnabled = true
-                    configManager.forceLoginOnNextConnect = false
-                    restartReverseConnectionService()
-                    refreshCreditsBalance(force = true)
-                } else {
-                    val message =
-                        (validationResult as PortalAuthCallbackValidator.Result.Rejected).message
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                    Log.w("MOBILERUN_MAIN", "Rejected auth callback: $message")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("MOBILERUN_MAIN", "Error handling deep link: ${e.message}")
-        }
     }
 }

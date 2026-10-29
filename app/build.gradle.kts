@@ -70,6 +70,7 @@ dependencies {
     implementation(libs.java.websocket)
     implementation(libs.webrtc)
     implementation(libs.okhttp)
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.mockk)

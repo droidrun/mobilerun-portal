@@ -11,7 +11,10 @@ Mobilerun Portal can initiate an outbound WebSocket connection to a host (used b
 
 ## Alternative method (Simplest)
 
-Press Connect to Mobilerun button in portal main page.
+Tap **Sign In** on the Portal main page. Scan the QR code with another device, or tap **Open on This Phone**, and approve the device on Mobilerun. Portal connects once the code is approved.
+
+The sign-in is a Mobilerun session for this device. Portal refreshes it while connected; **Sign Out** revokes it. When the session ends, Portal asks to sign in again at its next reconnect.
+
 ---
 
 Mobilerun default host URL:
