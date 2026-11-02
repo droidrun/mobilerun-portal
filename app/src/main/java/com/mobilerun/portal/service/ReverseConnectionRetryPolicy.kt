@@ -106,6 +106,8 @@ internal object ReverseConnectionRetryPolicy {
             401 -> stop(ConnectionState.UNAUTHORIZED)
             402 -> stop(ConnectionState.LIMIT_EXCEEDED, persistHttp402Block = true)
             403 -> stop(ConnectionState.LIMIT_EXCEEDED)
+            // Resending an identical oversized request can never succeed (RFC 6585 §5).
+            431 -> stop(ConnectionState.BAD_REQUEST)
             null -> decisionForLegacyReason(reason)
             else -> ReverseConnectionRetryDecision.Retry
         }

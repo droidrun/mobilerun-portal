@@ -56,6 +56,36 @@ class ReverseConnectionRetryPolicyTest {
     }
 
     @Test
+    fun http431_stopsWithBadRequest() {
+        val expected = ReverseConnectionRetryDecision.Stop(ConnectionState.BAD_REQUEST)
+
+        assertEquals(
+            expected,
+            ReverseConnectionRetryPolicy.decisionForClose(
+                "Invalid status code received: 431 Status line: HTTP/1.1 431 Request Header Fields Too Large",
+            ),
+        )
+        assertEquals(
+            expected,
+            ReverseConnectionRetryPolicy.decisionForClose("431 Request Header Fields Too Large"),
+        )
+    }
+
+    @Test
+    fun serverErrors500And503_remainRetryable() {
+        listOf(
+            "Invalid status code received: 500 Internal Server Error",
+            "500 Internal Server Error",
+            "Invalid status code received: 503 Service Unavailable",
+        ).forEach { reason ->
+            assertEquals(
+                ReverseConnectionRetryDecision.Retry,
+                ReverseConnectionRetryPolicy.decisionForClose(reason),
+            )
+        }
+    }
+
+    @Test
     fun transientAndUnknownFailures_remainRetryable() {
         listOf(
             "409 Conflict",
