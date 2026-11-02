@@ -105,6 +105,9 @@ class ReverseConnectionService : Service() {
         const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
         const val ACTION_RECONNECT = "com.mobilerun.portal.action.REVERSE_RECONNECT"
 
+        /** Set on the start after a reboot or app update, where the network may come up late. */
+        internal const val EXTRA_AFTER_RESTART = "com.mobilerun.portal.extra.AFTER_RESTART"
+
         /** Sent with startForegroundService(); stops the service in order after any queued start. */
         internal const val ACTION_STOP = "com.mobilerun.portal.action.REVERSE_STOP"
 
@@ -252,6 +255,10 @@ class ReverseConnectionService : Service() {
             )
             // A sticky restart runs in a new process, where the runtime flag starts off.
             configManager.reverseConnectionEnabled = true
+            // Restarts the user did not ask for may run before the network is up.
+            if (intent == null || intent.getBooleanExtra(EXTRA_AFTER_RESTART, false)) {
+                reconnectBackoff.waitForNetwork()
+            }
             connectToHost()
         } else {
             Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
@@ -449,8 +456,8 @@ class ReverseConnectionService : Service() {
                         ReverseConnectionRetryDecision.Retry -> Unit
                     }
 
-                    // Transient disconnect: preserve media pipeline, just reconnect WS
-                    ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+                    // Transient disconnect: preserve media pipeline, just reconnect WS.
+                    // scheduleReconnect shows RECONNECTING, or DISCONNECTED once it gives up.
                     scheduleReconnect(connectionGeneration)
                 }
 
@@ -464,7 +471,7 @@ class ReverseConnectionService : Service() {
                     logNetworkState("onError")
                     // onClose usually follows; schedule reconnect as safety net
                     // (isReconnecting guard prevents duplicate scheduling)
-                    scheduleReconnect(connectionGeneration)
+                    scheduleReconnect(connectionGeneration, fromError = true)
                 }
             }
             Log.i(TAG, "connectToHost: Created WebSocketClient, calling connect()...")
@@ -496,7 +503,10 @@ class ReverseConnectionService : Service() {
         stopAfterTerminalState(ConnectionState.UNAUTHORIZED, webSocketGeneration.current())
     }
 
-    private fun scheduleReconnect(connectionGeneration: Long = webSocketGeneration.current()) {
+    private fun scheduleReconnect(
+        connectionGeneration: Long = webSocketGeneration.current(),
+        fromError: Boolean = false,
+    ) {
         retryController.blockedPresentationStateOrNull()?.let { blockedState ->
             Log.i(TAG, "Ignoring reconnect request while HTTP 402 block is active")
             restoreHttp402BlockedState(blockedState)
@@ -510,18 +520,22 @@ class ReverseConnectionService : Service() {
         if (!isServiceRunning.get()) return
         if (isReconnecting.getAndSet(true)) return // Already scheduled
 
-        val step = reconnectBackoff.nextRetry(SystemClock.elapsedRealtime())
-        if (step.releaseMedia) {
-            Log.w(
-                TAG,
-                "No stable connection for ${ReverseReconnectBackoff.LONG_OUTAGE_MS / 60_000}min, releasing media",
-            )
-            releaseReverseMedia("ws_disconnected")
+        val delayMs = reconnectBackoff.nextRetry(SystemClock.elapsedRealtime(), hasNetwork())
+        if (delayMs == null) {
+            // onClose follows onError and may carry a terminal status, so it decides the stop.
+            if (fromError) {
+                isReconnecting.set(false)
+                return
+            }
+            Log.i(TAG, "No connection within the retry budget; stopping until Reconnect")
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            stopAfterTerminalState(ConnectionState.DISCONNECTED, connectionGeneration)
+            return
         }
         webSocketGeneration.markReconnectScheduled(connectionGeneration)
 
         ConnectionStateManager.setState(ConnectionState.RECONNECTING)
-        Log.d(TAG, "Scheduling reconnect in ${step.delayMs}ms")
+        Log.d(TAG, "Scheduling reconnect in ${delayMs}ms")
         val reconnect = Runnable {
             retryController.blockedPresentationStateOrNull()?.let { blockedState ->
                 Log.i(TAG, "Skipping delayed reconnect while HTTP 402 block is active")
@@ -543,7 +557,20 @@ class ReverseConnectionService : Service() {
                 ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             }
         }
-        handler.postAtTime(reconnect, RECONNECT_TOKEN, SystemClock.uptimeMillis() + step.delayMs)
+        handler.postAtTime(reconnect, RECONNECT_TOKEN, SystemClock.uptimeMillis() + delayMs)
+    }
+
+    /** A VPN can stay up without the network under it, so only a non-VPN network counts. */
+    private fun hasNetwork(): Boolean {
+        val connectivityManager =
+            getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        @Suppress("DEPRECATION")
+        return connectivityManager.allNetworks.any { network ->
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            capabilities != null &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
     }
 
     private fun clearStaleQueuedReconnectOwner() {
