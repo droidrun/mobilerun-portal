@@ -18,8 +18,8 @@ interface MainScheduler {
 }
 
 /**
- * One device code per [start]; no new code is requested on expiry. Polling pauses while the
- * screen is stopped and resumes with the same code, which stays approved until it expires.
+ * One device code per [start]; no new code is requested on expiry. Polling continues while the
+ * screen is stopped; a token approved then waits for [resume].
  */
 class DeviceSignInController(
     private val client: DeviceCodeAuthClient,
@@ -28,14 +28,15 @@ class DeviceSignInController(
     private val elapsedRealtime: () -> Long,
     private val onState: (DeviceSignInState) -> Unit,
     private val onAuthorized: (String) -> Unit,
+    private val onAuthorizedWhilePaused: () -> Unit,
 ) {
     var state: DeviceSignInState = DeviceSignInState.Idle
         private set
 
     private var generation = 0L
     private var paused = false
-    private var pollDue = false
     private var pollInFlight = false
+    private var lastPollFailed = false
     private var pollState: DeviceCodePollState? = null
     private var pendingToken: String? = null
     private val pollTask = Runnable { pollNow() }
@@ -53,8 +54,6 @@ class DeviceSignInController(
 
     fun pause() {
         paused = true
-        main.remove(pollTask)
-        if (state is DeviceSignInState.Waiting) pollDue = true
     }
 
     fun resume() {
@@ -64,12 +63,9 @@ class DeviceSignInController(
             authorize(it)
             return
         }
-        if (state !is DeviceSignInState.Waiting) return
-        if (pollState?.expired(elapsedRealtime()) == true) {
-            finish(DeviceSignInState.Expired)
-        } else if (pollDue) {
-            pollNow()
-        }
+        // Background network may have been blocked; don't make the user wait out its backoff.
+        pollState?.resetNetworkBackoff()
+        if (lastPollFailed) schedulePoll(0)
     }
 
     fun cancel() {
@@ -84,8 +80,8 @@ class DeviceSignInController(
         generation++
         main.remove(pollTask)
         pollState = null
-        pollDue = false
         pollInFlight = false
+        lastPollFailed = false
         pendingToken = null
     }
 
@@ -109,20 +105,11 @@ class DeviceSignInController(
 
     private fun schedulePoll(delayMs: Long) {
         main.remove(pollTask)
-        if (paused) {
-            pollDue = true
-        } else {
-            main.postDelayed(pollTask, delayMs)
-        }
+        main.postDelayed(pollTask, delayMs)
     }
 
     private fun pollNow() {
         val waiting = state as? DeviceSignInState.Waiting ?: return
-        if (paused) {
-            pollDue = true
-            return
-        }
-        pollDue = false
         if (pollInFlight) return
         pollInFlight = true
         val gen = generation
@@ -136,8 +123,14 @@ class DeviceSignInController(
     private fun onPoll(gen: Long, result: DeviceTokenResult) {
         if (gen != generation) return
         pollInFlight = false
+        lastPollFailed = result == DeviceTokenResult.NetworkError
         if (result is DeviceTokenResult.Authorized) {
-            if (paused) pendingToken = result.token else authorize(result.token)
+            if (paused) {
+                pendingToken = result.token
+                onAuthorizedWhilePaused()
+            } else {
+                authorize(result.token)
+            }
             return
         }
         if (result is DeviceTokenResult.Error) {

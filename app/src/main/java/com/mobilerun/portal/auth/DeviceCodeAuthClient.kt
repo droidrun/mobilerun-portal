@@ -54,6 +54,10 @@ internal class DeviceCodePollState(intervalSeconds: Long, private val expiresAtM
 
     fun expired(nowMs: Long) = nowMs >= expiresAtMs
 
+    fun resetNetworkBackoff() {
+        networkBackoffMs = intervalMs
+    }
+
     /** Null means stop polling. */
     fun nextDelay(result: DeviceTokenResult, nowMs: Long): Long? {
         if (result is DeviceTokenResult.Authorized) return null
