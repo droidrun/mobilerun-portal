@@ -50,6 +50,7 @@ class DeviceSignInDialog(
             dialog?.dismiss()
             onAuthorized(token)
         },
+        onAuthorizedWhilePaused = ::bringToFront,
     )
 
     private var dialog: AlertDialog? = null
@@ -85,6 +86,11 @@ class DeviceSignInDialog(
         dialog?.dismiss()
         dialog = null
         binding = null
+    }
+
+    /** Android can block this from the background; the token then waits until Portal is opened. */
+    private fun bringToFront() {
+        activity.startActivity(Intent(activity, activity.javaClass))
     }
 
     private fun startNewCode() {

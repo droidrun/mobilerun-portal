@@ -42,6 +42,7 @@ class DeviceSignInControllerTest {
     private var now = 0L
     private val states = mutableListOf<DeviceSignInState>()
     private val tokens = mutableListOf<String>()
+    private var broughtToFront = 0
     private val controller = DeviceSignInController(
         client = client,
         executor = Executor { it.run() },
@@ -49,6 +50,7 @@ class DeviceSignInControllerTest {
         elapsedRealtime = { now },
         onState = { states += it },
         onAuthorized = { tokens += it },
+        onAuthorizedWhilePaused = { broughtToFront++ },
     )
 
     private fun issued(expiresIn: Long = 1800, interval: Long = 5) = DeviceCodeResult.Issued(
@@ -77,35 +79,67 @@ class DeviceSignInControllerTest {
     }
 
     @Test
-    fun pauseStopsPollingAndResumePollsRightAway() {
+    fun pausedControllerKeepsPollingAndTheTokenWaitsForResume() {
         every { client.requestCode(any()) } returns issued()
-        every { client.poll("dc") } returns DeviceTokenResult.Authorized("session")
+        every { client.poll("dc") } returnsMany listOf(
+            DeviceTokenResult.Error("authorization_pending"),
+            DeviceTokenResult.Authorized("session"),
+        )
 
         controller.start("device")
         main.drain()
         controller.pause()
+        main.runScheduledPoll()
+        controller.resume()
+        controller.pause()
+        verify(exactly = 1) { client.poll("dc") }
+        assertEquals(listOf(5_000L), main.tasks.map { it.second })
+
+        main.runScheduledPoll()
+        assertTrue(tokens.isEmpty())
+        assertEquals(1, broughtToFront)
         assertTrue(main.tasks.isEmpty())
 
         controller.resume()
-        main.drain()
         assertEquals(listOf("session"), tokens)
+        assertEquals(DeviceSignInState.Idle, controller.state)
     }
 
     @Test
-    fun tokenArrivingWhilePausedWaitsForResume() {
+    fun resumeRetriesRightAwayAfterANetworkError() {
         every { client.requestCode(any()) } returns issued()
-        every { client.poll("dc") } answers {
-            controller.pause()
-            DeviceTokenResult.Authorized("session")
-        }
+        every { client.poll("dc") } returnsMany listOf(
+            DeviceTokenResult.NetworkError,
+            DeviceTokenResult.Authorized("session"),
+        )
 
         controller.start("device")
         main.drain()
+        controller.pause()
         main.runScheduledPoll()
-        assertTrue(tokens.isEmpty())
+        assertEquals(listOf(10_000L), main.tasks.map { it.second })
 
         controller.resume()
+        main.drain()
         assertEquals(listOf("session"), tokens)
+        assertEquals(0, broughtToFront)
+        assertTrue(main.tasks.isEmpty())
+    }
+
+    @Test
+    fun resumeDropsTheBackoffBuiltUpInTheBackground() {
+        every { client.requestCode(any()) } returns issued()
+        every { client.poll("dc") } returns DeviceTokenResult.NetworkError
+
+        controller.start("device")
+        main.drain()
+        controller.pause()
+        repeat(3) { main.runScheduledPoll() }
+        assertEquals(listOf(40_000L), main.tasks.map { it.second })
+
+        controller.resume()
+        main.drain()
+        assertEquals(listOf(10_000L), main.tasks.map { it.second })
     }
 
     @Test
