@@ -1,172 +1,126 @@
 package com.mobilerun.portal.service
 
-import com.mobilerun.portal.service.ReverseReconnectBackoff.Companion.FAST_RETRY_WINDOW_MS
-import com.mobilerun.portal.service.ReverseReconnectBackoff.Companion.LONG_OUTAGE_MS
-import com.mobilerun.portal.service.ReverseReconnectBackoff.Companion.STABLE_CONNECTION_MS
+import com.mobilerun.portal.service.ReverseReconnectBackoff.Companion.HEALTHY_CONNECTION_MS
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReverseReconnectBackoffTest {
-    private fun backoff(random: () -> Double = { 0.5 }) = ReverseReconnectBackoff(random = random)
+    private fun backoff(
+        random: () -> Double = { 0.5 },
+        retryBudgetMs: Long = ReverseReconnectBackoff.RETRY_BUDGET_MS,
+    ) = ReverseReconnectBackoff(retryBudgetMs = retryBudgetMs, random = random)
 
-    private fun ReverseReconnectBackoff.delayAt(nowMs: Long): Long = nextRetry(nowMs).delayMs
-
-    /** Drives the backoff into its exponential phase with [attempts] exponential steps taken. */
-    private fun ReverseReconnectBackoff.intoExponentialPhase(attempts: Int) {
-        delayAt(0L)
-        repeat(attempts) { delayAt(FAST_RETRY_WINDOW_MS + it) }
-    }
+    private fun ReverseReconnectBackoff.retryAt(nowMs: Long, network: Boolean = true) =
+        nextRetry(nowMs, network)
 
     @Test
-    fun retriesAtBaseCadenceInsideFastWindow() {
-        val backoff = backoff(random = { 0.9999 })
-        var nowMs = 0L
-        val attemptTimes = mutableListOf<Long>()
-
-        while (nowMs < FAST_RETRY_WINDOW_MS) {
-            nowMs += backoff.delayAt(nowMs)
-            attemptTimes += nowMs
-        }
-
-        val gaps = attemptTimes.zipWithNext { a, b -> b - a }
-        assertTrue(gaps.all { it <= 3_600L })
-        assertTrue(attemptTimes.any { it in 26_000L until 30_000L })
-    }
-
-    @Test
-    fun fastWindowLastsSixtySeconds() {
+    fun retriesThreeTimesWithinTheBudgetThenGivesUp() {
         val backoff = backoff()
-        backoff.delayAt(0L)
 
-        assertEquals(3_000L, backoff.delayAt(59_000L))
-        assertEquals(3_000L, backoff.delayAt(FAST_RETRY_WINDOW_MS))
-        assertEquals(6_000L, backoff.delayAt(FAST_RETRY_WINDOW_MS + 1L))
-    }
-
-    @Test
-    fun backsOffExponentiallyAfterFastWindowAndCaps() {
-        val backoff = backoff()
-        assertEquals(3_000L, backoff.delayAt(0L))
-
-        val delays = (0 until 7).map { backoff.delayAt(FAST_RETRY_WINDOW_MS + it) }
-
-        assertEquals(listOf(3_000L, 6_000L, 12_000L, 24_000L, 30_000L, 30_000L, 30_000L), delays)
+        assertEquals(1_000L, backoff.retryAt(0L))
+        assertEquals(2_000L, backoff.retryAt(1_000L))
+        assertEquals(4_000L, backoff.retryAt(3_000L))
+        assertNull(backoff.retryAt(7_000L))
     }
 
     @Test
     fun jitterStaysWithinTwentyPercent() {
-        assertTrue(backoff(random = { 0.0 }).delayAt(1_000L) in 2_399L..2_400L)
-        assertTrue(backoff(random = { 0.9999 }).delayAt(1_000L) in 3_599L..3_600L)
+        assertEquals(800L, backoff(random = { 0.0 }).retryAt(0L))
+        assertTrue(backoff(random = { 0.9999 }).retryAt(0L)!! in 1_199L..1_200L)
     }
 
     @Test
-    fun manyAttemptsDoNotOverflow() {
+    fun healthyConnectionStartsAFreshBudget() {
         val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 100)
+        backoff.retryAt(0L)
+        backoff.retryAt(1_000L)
 
-        assertEquals(30_000L, backoff.delayAt(FAST_RETRY_WINDOW_MS))
+        backoff.onConnected(3_000L)
+        val droppedAtMs = 3_000L + HEALTHY_CONNECTION_MS
+
+        assertEquals(1_000L, backoff.retryAt(droppedAtMs))
+        assertEquals(2_000L, backoff.retryAt(droppedAtMs + 1_000L))
+        assertEquals(4_000L, backoff.retryAt(droppedAtMs + 3_000L))
+        assertNull(backoff.retryAt(droppedAtMs + 7_000L))
     }
 
     @Test
-    fun stableConnectionResetsOutageAndAttempts() {
+    fun shortConnectionKeepsSpendingTheSameBudget() {
         val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 2)
-        val connectedAtMs = LONG_OUTAGE_MS - STABLE_CONNECTION_MS
+        assertEquals(1_000L, backoff.retryAt(0L))
 
-        backoff.onConnected(connectedAtMs)
+        backoff.onConnected(1_000L)
 
-        assertEquals(
-            ReverseReconnectStep(delayMs = 3_000L, releaseMedia = false),
-            backoff.nextRetry(LONG_OUTAGE_MS),
-        )
-        assertEquals(3_000L, backoff.delayAt(LONG_OUTAGE_MS + FAST_RETRY_WINDOW_MS))
-        assertEquals(6_000L, backoff.delayAt(LONG_OUTAGE_MS + FAST_RETRY_WINDOW_MS + 1L))
+        assertEquals(2_000L, backoff.retryAt(3_000L))
+        assertEquals(4_000L, backoff.retryAt(5_000L))
+        assertNull(backoff.retryAt(9_000L))
     }
 
     @Test
-    fun acceptThenCloseKeepsBackingOff() {
+    fun afterRestartWaitsForNetworkBeforeSpendingTheBudget() {
         val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 2)
+        backoff.waitForNetwork()
 
-        backoff.onConnected(100_000L)
+        assertEquals(5_000L, backoff.retryAt(0L, network = false))
+        assertEquals(5_000L, backoff.retryAt(120_000L, network = false))
 
-        assertEquals(12_000L, backoff.delayAt(102_000L))
+        assertEquals(1_000L, backoff.retryAt(125_000L))
+        assertEquals(2_000L, backoff.retryAt(126_000L))
+        assertEquals(4_000L, backoff.retryAt(128_000L))
+        assertNull(backoff.retryAt(132_000L))
     }
 
     @Test
-    fun droppedRealConnectionReArmsFastWindow() {
+    fun networkDropDuringTheRestartWaitStartsTheBudgetAgain() {
         val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 2)
+        backoff.waitForNetwork()
+        assertEquals(1_000L, backoff.retryAt(0L))
 
-        backoff.onConnected(100_000L)
-        val droppedAtMs = 100_000L + 15_000L
+        assertEquals(5_000L, backoff.retryAt(1_000L, network = false))
+        assertEquals(5_000L, backoff.retryAt(20_000L, network = false))
 
-        assertEquals(3_000L, backoff.delayAt(droppedAtMs))
-        assertEquals(3_000L, backoff.delayAt(droppedAtMs + 59_000L))
-        assertEquals(12_000L, backoff.delayAt(droppedAtMs + FAST_RETRY_WINDOW_MS))
+        assertEquals(1_000L, backoff.retryAt(25_000L))
+        assertEquals(2_000L, backoff.retryAt(26_000L))
     }
 
     @Test
-    fun acceptThenCloseLoopReachesCapAndReleasesMediaOnce() {
+    fun connectingEndsTheNetworkWait() {
         val backoff = backoff()
-        var nowMs = 0L
-        var step = backoff.nextRetry(nowMs)
-        var releases = 0
+        backoff.waitForNetwork()
 
-        while (nowMs < LONG_OUTAGE_MS * 2) {
-            nowMs += step.delayMs
-            backoff.onConnected(nowMs)
-            nowMs += 2_000L
-            step = backoff.nextRetry(nowMs)
-            if (step.releaseMedia) releases++
-        }
+        backoff.onConnected(0L)
 
-        assertEquals(30_000L, step.delayMs)
-        assertEquals(1, releases)
+        assertEquals(1_000L, backoff.retryAt(1_000L, network = false))
+        assertNull(backoff.retryAt(11_000L, network = false))
     }
 
     @Test
-    fun longOutageReleasesMediaOnceAndKeepsRetryingAtCap() {
+    fun resetClearsTheBudgetAndTheNetworkWait() {
         val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 10)
-
-        assertEquals(
-            ReverseReconnectStep(delayMs = 30_000L, releaseMedia = true),
-            backoff.nextRetry(LONG_OUTAGE_MS),
-        )
-        assertEquals(
-            ReverseReconnectStep(delayMs = 30_000L, releaseMedia = false),
-            backoff.nextRetry(LONG_OUTAGE_MS * 4),
-        )
-    }
-
-    @Test
-    fun mediaReleaseRearmsAfterStableConnection() {
-        val backoff = backoff()
-        backoff.delayAt(0L)
-        assertTrue(backoff.nextRetry(LONG_OUTAGE_MS).releaseMedia)
-
-        backoff.onConnected(LONG_OUTAGE_MS + 1_000L)
-        val nextOutageMs = LONG_OUTAGE_MS + 1_000L + STABLE_CONNECTION_MS
-        backoff.delayAt(nextOutageMs)
-
-        assertTrue(backoff.nextRetry(nextOutageMs + LONG_OUTAGE_MS).releaseMedia)
-    }
-
-    @Test
-    fun resetClearsOutageAndAttempts() {
-        val backoff = backoff()
-        backoff.intoExponentialPhase(attempts = 2)
+        backoff.waitForNetwork()
+        backoff.retryAt(0L)
+        backoff.retryAt(1_000L)
+        backoff.retryAt(3_000L)
+        assertNull(backoff.retryAt(7_000L))
 
         backoff.reset()
-        val restartMs = LONG_OUTAGE_MS + 5_000L
 
-        assertEquals(
-            ReverseReconnectStep(delayMs = 3_000L, releaseMedia = false),
-            backoff.nextRetry(restartMs),
-        )
-        assertEquals(3_000L, backoff.delayAt(restartMs + FAST_RETRY_WINDOW_MS))
-        assertEquals(6_000L, backoff.delayAt(restartMs + FAST_RETRY_WINDOW_MS + 1L))
+        assertEquals(1_000L, backoff.retryAt(60_000L, network = false))
+    }
+
+    @Test
+    fun manyFailuresCapAtThirtySeconds() {
+        val backoff = backoff(retryBudgetMs = Long.MAX_VALUE / 2)
+        var nowMs = 0L
+        var delayMs = 0L
+
+        repeat(100) {
+            delayMs = backoff.retryAt(nowMs)!!
+            nowMs += delayMs
+        }
+
+        assertEquals(30_000L, delayMs)
     }
 }
