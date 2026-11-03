@@ -69,10 +69,7 @@ class ReverseConnectionRestartReceiver : BroadcastReceiver() {
             Log.i(TAG, "Resuming cloud connection after $action")
             try {
                 // A plain start keeps a stored HTTP 402 block; ACTION_RECONNECT would clear it.
-                context.startForegroundService(
-                    Intent(context, ReverseConnectionService::class.java)
-                        .putExtra(ReverseConnectionService.EXTRA_AFTER_RESTART, true),
-                )
+                context.startForegroundService(Intent(context, ReverseConnectionService::class.java))
             } catch (e: Exception) {
                 Log.w(TAG, "Could not resume cloud connection after $action", e)
             }

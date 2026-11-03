@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.content.pm.ServiceInfo
 import android.os.Binder
@@ -98,15 +99,14 @@ class ReverseConnectionService : Service() {
         private const val TAG = "ReverseConnService"
         private const val CHANNEL_ID = "reverse_connection_channel"
         private const val NOTIFICATION_ID = 2002
+        private const val ALERT_CHANNEL_ID = "reverse_connection_alerts"
+        private const val ALERT_NOTIFICATION_ID = 2005
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
         private const val SESSION_CHECK_TICK_MS = 6 * 60 * 60 * 1000L
         private val RECONNECT_TOKEN = Any()
         const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
         const val ACTION_RECONNECT = "com.mobilerun.portal.action.REVERSE_RECONNECT"
-
-        /** Set on the start after a reboot or app update, where the network may come up late. */
-        internal const val EXTRA_AFTER_RESTART = "com.mobilerun.portal.extra.AFTER_RESTART"
 
         /** Sent with startForegroundService(); stops the service in order after any queued start. */
         internal const val ACTION_STOP = "com.mobilerun.portal.action.REVERSE_STOP"
@@ -147,7 +147,7 @@ class ReverseConnectionService : Service() {
     @Volatile
     private var foregroundSuppressed = false
 
-    private val reconnectBackoff = ReverseReconnectBackoff()
+    private val reconnectBackoff = ReverseReconnectBackoff(onNetworkRecheck = ::recheckNetworks)
     private val sessionExecutor = Executors.newSingleThreadExecutor()
     private val sessionChecker by lazy {
         CloudSessionChecker(
@@ -210,6 +210,7 @@ class ReverseConnectionService : Service() {
         if (intent?.action == ACTION_STOP) {
             Log.i(TAG, "onStartCommand: Stop requested")
             ensureForeground(deferNotification = true)
+            cancelGaveUpNotification()
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -222,6 +223,7 @@ class ReverseConnectionService : Service() {
         ensureForeground()
         terminalState = null
         reverseMediaReleased = false
+        cancelGaveUpNotification()
         val explicitReconnect = intent?.action == ACTION_RECONNECT
         if (explicitReconnect) {
             Log.i(TAG, "onStartCommand: Reconnect requested with latest cloud config")
@@ -255,10 +257,6 @@ class ReverseConnectionService : Service() {
             )
             // A sticky restart runs in a new process, where the runtime flag starts off.
             configManager.reverseConnectionEnabled = true
-            // Restarts the user did not ask for may run before the network is up.
-            if (intent == null || intent.getBooleanExtra(EXTRA_AFTER_RESTART, false)) {
-                reconnectBackoff.waitForNetwork()
-            }
             connectToHost()
         } else {
             Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
@@ -414,6 +412,7 @@ class ReverseConnectionService : Service() {
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
+                    cancelGaveUpNotification()
                     sessionChecker.checkIfDue()
                     scheduleSessionCheck()
                     showReverseConnectionToastIfEnoughTimeIsPassed()
@@ -529,7 +528,7 @@ class ReverseConnectionService : Service() {
             }
             Log.i(TAG, "No connection within the retry budget; stopping until Reconnect")
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-            stopAfterTerminalState(ConnectionState.DISCONNECTED, connectionGeneration)
+            stopAfterTerminalState(ConnectionState.DISCONNECTED, connectionGeneration, gaveUp = true)
             return
         }
         webSocketGeneration.markReconnectScheduled(connectionGeneration)
@@ -560,15 +559,33 @@ class ReverseConnectionService : Service() {
         handler.postAtTime(reconnect, RECONNECT_TOKEN, SystemClock.uptimeMillis() + delayMs)
     }
 
-    /** A VPN can stay up without the network under it, so only a non-VPN network counts. */
     private fun hasNetwork(): Boolean {
         val connectivityManager =
             getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        return countedNetworks(connectivityManager).isNotEmpty()
+    }
+
+    /** Asks Android to re-probe the counted networks, so one that lost its internet drops VALIDATED. */
+    private fun recheckNetworks() {
+        val connectivityManager =
+            getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        try {
+            countedNetworks(connectivityManager).forEach {
+                connectivityManager.reportNetworkConnectivity(it, false)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not ask Android to recheck the network", e)
+        }
+    }
+
+    /** Only a validated non-VPN network counts: a VPN can outlive the network under it, and Wi-Fi may have no internet. */
+    private fun countedNetworks(connectivityManager: ConnectivityManager): List<Network> {
         @Suppress("DEPRECATION")
-        return connectivityManager.allNetworks.any { network ->
+        return connectivityManager.allNetworks.filter { network ->
             val capabilities = connectivityManager.getNetworkCapabilities(network)
             capabilities != null &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         }
     }
@@ -630,6 +647,7 @@ class ReverseConnectionService : Service() {
         reverseMediaReleased = true
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        cancelGaveUpNotification()
         // A newer queued start must still reach onStartCommand, and its sender owns the enabled flag.
         if (stopSelfResult(startId)) {
             configManager.reverseConnectionEnabled = false
@@ -637,12 +655,17 @@ class ReverseConnectionService : Service() {
     }
 
     /** Stops the service after a terminal close so it is not left sticky in the foreground. */
-    private fun stopAfterTerminalState(state: ConnectionState, connectionGeneration: Long) {
+    private fun stopAfterTerminalState(
+        state: ConnectionState,
+        connectionGeneration: Long,
+        gaveUp: Boolean = false,
+    ) {
         handler.post {
             if (!webSocketGeneration.isCurrent(connectionGeneration)) {
                 Log.d(TAG, "Skipping stale terminal stop for generation $connectionGeneration")
                 return@post
             }
+            if (gaveUp) showGaveUpNotification()
             terminalState = state
             // A rejected credential would only fail again after a restart.
             if (state == ConnectionState.UNAUTHORIZED) configManager.clearReverseConnectionWasEnabled()
@@ -775,6 +798,40 @@ class ReverseConnectionService : Service() {
             NotificationManager.IMPORTANCE_LOW
         )
         manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ALERT_CHANNEL_ID,
+                getString(R.string.reverse_connection_alert_channel),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+    }
+
+    /** Posted only when the retry budget runs out; without POST_NOTIFICATIONS it is dropped. */
+    private fun showGaveUpNotification() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            2,
+            Intent(this, com.mobilerun.portal.ui.MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setContentTitle(getString(R.string.reverse_connection_gave_up_title))
+            .setContentText(getString(R.string.reverse_connection_gave_up_text))
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+        try {
+            manager.notify(ALERT_NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Could not post the disconnect alert", e)
+        }
+    }
+
+    private fun cancelGaveUpNotification() {
+        getSystemService(NotificationManager::class.java)?.cancel(ALERT_NOTIFICATION_ID)
     }
 
     private fun createNotification(deferred: Boolean): Notification {
