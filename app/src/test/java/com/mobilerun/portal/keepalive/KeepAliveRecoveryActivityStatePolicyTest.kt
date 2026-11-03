@@ -12,6 +12,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = false,
                     deviceLocked = false,
+                    keyguardLocked = false,
                 ),
             )
 
@@ -25,6 +26,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = true,
                     deviceLocked = false,
+                    keyguardLocked = false,
                 ),
             )
 
@@ -40,6 +42,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = true,
                     deviceLocked = true,
+                    keyguardLocked = true,
                 ),
                 KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
             )
@@ -54,6 +57,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = false,
                     deviceLocked = false,
+                    keyguardLocked = false,
                 ),
                 KeepAliveDismissCallbackState.Succeeded,
             )
@@ -68,6 +72,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = true,
                     deviceLocked = false,
+                    keyguardLocked = false,
                 ),
                 KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
             )
@@ -84,6 +89,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = true,
                     deviceLocked = true,
+                    keyguardLocked = true,
                 ),
                 KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
             )
@@ -99,6 +105,7 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = false,
                     deviceLocked = false,
+                    keyguardLocked = false,
                 ),
             )
 
@@ -113,6 +120,116 @@ class KeepAliveRecoveryActivityStatePolicyTest {
                 KeepAliveRecoveryScreenState(
                     interactive = true,
                     deviceLocked = true,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.None,
+            )
+
+        assertEquals(false, result.success)
+        assertEquals("device_still_locked", result.reason)
+    }
+
+    @Test
+    fun resultForResume_doesNotCompleteWhileSwipeKeyguardIsShowing() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForResume(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = false,
+                    keyguardLocked = true,
+                ),
+            )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun resultForDismissCallback_completesWhenSwipeKeyguardDismissSucceeds() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = false,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.Succeeded,
+            )
+
+        requireNotNull(result)
+        assertEquals(true, result.success)
+        assertEquals(null, result.reason)
+    }
+
+    @Test
+    fun resultForDismissCallback_waitsWhenDismissSucceedsButSecureLockIsStillLocked() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = true,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.Succeeded,
+            )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun resultForDismissCallback_finishesOnDismissErrorWithoutSecureLock() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = false,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.Failed("dismiss_error"),
+            )
+
+        requireNotNull(result)
+        assertEquals(false, result.success)
+        assertEquals("dismiss_error", result.reason)
+    }
+
+    @Test
+    fun resultForDismissCallback_waitsOnDismissErrorWithSecureLock() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = true,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.Failed("dismiss_error"),
+            )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun resultForDismissCallback_waitsOnDismissCancelledWithoutSecureLock() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = false,
+                    keyguardLocked = true,
+                ),
+                KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
+            )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun resultForTimeout_reportsDeviceStillLockedWhenSwipeKeyguardStaysShowing() {
+        val result =
+            KeepAliveRecoveryActivityStatePolicy.resultForTimeout(
+                KeepAliveRecoveryScreenState(
+                    interactive = true,
+                    deviceLocked = false,
+                    keyguardLocked = true,
                 ),
                 KeepAliveDismissCallbackState.None,
             )
