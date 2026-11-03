@@ -16,6 +16,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = false,
                 interactive = false,
                 deviceLocked = true,
+                keyguardLocked = true,
                 failureReason = "dismiss_cancelled",
             )
 
@@ -33,6 +34,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = true,
                 interactive = true,
                 deviceLocked = false,
+                keyguardLocked = false,
                 failureReason = null,
             )
 
@@ -50,6 +52,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = true,
                 interactive = false,
                 deviceLocked = false,
+                keyguardLocked = false,
                 failureReason = "dismiss_cancelled",
             )
 
@@ -68,6 +71,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = false,
                 interactive = true,
                 deviceLocked = false,
+                keyguardLocked = false,
                 failureReason = "dismiss_cancelled",
             )
 
@@ -86,6 +90,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = false,
                 interactive = false,
                 deviceLocked = true,
+                keyguardLocked = true,
                 failureReason = "dismiss_cancelled",
             )
 
@@ -104,6 +109,7 @@ class KeepAliveRecoveryResultPolicyTest {
                 callbackSuccess = true,
                 interactive = true,
                 deviceLocked = true,
+                keyguardLocked = true,
                 failureReason = null,
             )
 
@@ -172,5 +178,43 @@ class KeepAliveRecoveryResultPolicyTest {
 
         assertTrue(decision.shouldIgnore)
         assertFalse(decision.shouldMarkSuccess)
+    }
+
+    @Test
+    fun evaluate_marksSuccessWhenSwipeKeyguardDismissSucceedsBeforeStateSettles() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluate(
+                enabled = true,
+                activeRecoveryToken = 19L,
+                reportedRecoveryToken = 19L,
+                callbackSuccess = true,
+                interactive = true,
+                deviceLocked = false,
+                keyguardLocked = true,
+                failureReason = null,
+            )
+
+        assertFalse(decision.shouldIgnore)
+        assertTrue(decision.shouldMarkSuccess)
+        assertEquals(null, decision.failureReason)
+    }
+
+    @Test
+    fun evaluate_reportsDeviceStillLockedWhenSwipeKeyguardIsNotDismissed() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluate(
+                enabled = true,
+                activeRecoveryToken = 20L,
+                reportedRecoveryToken = 20L,
+                callbackSuccess = false,
+                interactive = true,
+                deviceLocked = false,
+                keyguardLocked = true,
+                failureReason = null,
+            )
+
+        assertFalse(decision.shouldIgnore)
+        assertFalse(decision.shouldMarkSuccess)
+        assertEquals("device_still_locked", decision.failureReason)
     }
 }

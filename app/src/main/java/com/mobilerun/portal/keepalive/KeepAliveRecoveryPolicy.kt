@@ -14,6 +14,7 @@ object KeepAliveRecoveryPolicy {
         enabled: Boolean,
         interactive: Boolean,
         deviceLocked: Boolean,
+        keyguardLocked: Boolean,
         lastRecoveryAttemptAtMs: Long,
         nowMs: Long,
         throttleMs: Long = RECOVERY_THROTTLE_MS,
@@ -26,7 +27,9 @@ object KeepAliveRecoveryPolicy {
             )
         }
 
-        val needsRecovery = !interactive || deviceLocked
+        // A Swipe or Smart Lock keyguard shows without isDeviceLocked().
+        val locked = deviceLocked || keyguardLocked
+        val needsRecovery = !interactive || locked
         if (!needsRecovery) {
             return KeepAliveRecoveryDecision(
                 shouldAttemptRecovery = false,
@@ -47,7 +50,7 @@ object KeepAliveRecoveryPolicy {
         return KeepAliveRecoveryDecision(
             shouldAttemptRecovery = true,
             shouldWakeDisplay = !interactive,
-            shouldLaunchRecoveryActivity = deviceLocked,
+            shouldLaunchRecoveryActivity = locked,
         )
     }
 }

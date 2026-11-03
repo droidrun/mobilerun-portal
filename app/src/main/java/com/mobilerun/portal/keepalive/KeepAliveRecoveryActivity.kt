@@ -89,7 +89,7 @@ class KeepAliveRecoveryActivity : Activity() {
             FINISH_TIMEOUT_MS,
         )
 
-        if (!keyguardManager.isDeviceLocked) {
+        if (!keyguardManager.isDeviceLocked && !keyguardManager.isKeyguardLocked) {
             return
         }
 
@@ -116,7 +116,9 @@ class KeepAliveRecoveryActivity : Activity() {
                     override fun onDismissError() {
                         handleDismissCallback(
                             attempt,
-                            KeepAliveDismissCallbackState.Failed("dismiss_error"),
+                            KeepAliveDismissCallbackState.Failed(
+                                KeepAliveRecoveryActivityStatePolicy.DISMISS_ERROR_REASON,
+                            ),
                             keyguardManager,
                         )
                     }
@@ -177,6 +179,7 @@ class KeepAliveRecoveryActivity : Activity() {
         return KeepAliveRecoveryScreenState(
             interactive = powerManager?.isInteractive == true,
             deviceLocked = resolvedKeyguardManager?.isDeviceLocked != false,
+            keyguardLocked = resolvedKeyguardManager?.isKeyguardLocked != false,
         )
     }
 }

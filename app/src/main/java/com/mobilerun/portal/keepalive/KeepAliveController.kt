@@ -85,6 +85,7 @@ object KeepAliveController {
             serviceActive = KeepAliveService.isRunning(),
             interactive = isInteractive(appContext),
             deviceLocked = isDeviceLocked(appContext),
+            keyguardLocked = isKeyguardLocked(appContext),
             lastRecoveryAtMs = configManager.keepAliveLastRecoveryAtMs,
             consecutiveRecoveryFailures = configManager.keepAliveConsecutiveRecoveryFailures,
             degradedReason = configManager.keepAliveDegradedReason,
@@ -154,5 +155,11 @@ object KeepAliveController {
         val keyguardManager =
             context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         return keyguardManager?.isDeviceLocked ?: false
+    }
+
+    private fun isKeyguardLocked(context: Context): Boolean {
+        val keyguardManager =
+            context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        return keyguardManager?.isKeyguardLocked ?: false
     }
 }

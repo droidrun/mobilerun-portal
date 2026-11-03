@@ -86,6 +86,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val action = intent?.action ?: return
+                keyguardRecoveryGate.onScreenEvent()
                 evaluateDeviceState(action)
             }
         }
@@ -96,6 +97,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private var recoveryInFlight = false
     private var activeRecoveryToken: Long? = null
     private var latestStartId = 0
+    private val keyguardRecoveryGate = KeepAliveKeyguardRecoveryGate()
 
     override fun onCreate() {
         super.onCreate()
@@ -181,9 +183,17 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         mainHandler.postDelayed(pollRunnable, POLL_INTERVAL_MS)
     }
 
+    // The status JSON keeps the raw keyguard state; recovery decisions use the gated one.
+    private fun recoveryStatus(): KeepAliveStatus {
+        val status = KeepAliveController.getStatus(applicationContext)
+        return status.copy(
+            keyguardLocked = keyguardRecoveryGate.effectiveKeyguardLocked(status.keyguardLocked),
+        )
+    }
+
     private fun evaluateDeviceState(trigger: String) {
         val appContext = applicationContext
-        val status = KeepAliveController.getStatus(appContext)
+        val status = recoveryStatus()
         if (!status.enabled) {
             requestStopAfterLatestStart()
             return
@@ -200,13 +210,14 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                 enabled = status.enabled,
                 interactive = status.interactive,
                 deviceLocked = status.deviceLocked,
+                keyguardLocked = status.keyguardLocked,
                 lastRecoveryAttemptAtMs =
                     ConfigManager.getInstance(appContext).keepAliveLastRecoveryAttemptAtMs,
                 nowMs = nowMs,
             )
 
         if (!decision.shouldAttemptRecovery) {
-            if (status.interactive && !status.deviceLocked) {
+            if (status.interactive && !status.deviceLocked && !status.keyguardLocked) {
                 KeepAliveController.setDegradedReason(appContext, null)
             } else if (decision.degradedReason != null) {
                 KeepAliveController.setDegradedReason(appContext, decision.degradedReason)
@@ -222,7 +233,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         if (decision.shouldLaunchRecoveryActivity) {
-            launchRecoveryActivity("locked:$trigger", recoveryToken)
+            launchRecoveryActivity("locked:$trigger", recoveryToken, status)
             return
         }
 
@@ -232,13 +243,17 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                     if (!isCurrentRecoveryToken(recoveryToken)) {
                         return@postDelayed
                     }
-                    val refreshedStatus = KeepAliveController.getStatus(appContext)
+                    val refreshedStatus = recoveryStatus()
                     if (!refreshedStatus.enabled) {
                         clearRecoveryAttempt(recoveryToken)
                         return@postDelayed
                     }
-                    if (!refreshedStatus.interactive || refreshedStatus.deviceLocked) {
-                        launchRecoveryActivity("wake_check:$trigger", recoveryToken)
+                    if (
+                        !refreshedStatus.interactive ||
+                        refreshedStatus.deviceLocked ||
+                        refreshedStatus.keyguardLocked
+                    ) {
+                        launchRecoveryActivity("wake_check:$trigger", recoveryToken, refreshedStatus)
                     } else {
                         finalizeRecoveryAttempt(recoveryToken, callbackSuccess = true, reason = null)
                     }
@@ -279,6 +294,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private fun launchRecoveryActivity(
         reason: String,
         recoveryToken: Long,
+        status: KeepAliveStatus,
     ) {
         if (recoveryInFlight || !isCurrentRecoveryToken(recoveryToken)) return
 
@@ -304,6 +320,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
         recoveryInFlight = true
         ConfigManager.getInstance(applicationContext).keepAliveRecoveryActivityInFlight = true
+        keyguardRecoveryGate.onRecoveryActivityLaunched(status.deviceLocked, status.keyguardLocked)
     }
 
     private fun handleRecoveryResult(
@@ -318,6 +335,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     private fun beginRecoveryAttempt(atMs: Long): Long {
         KeepAliveController.noteRecoveryAttempt(applicationContext, atMs)
+        keyguardRecoveryGate.beginAttempt()
         val configManager = ConfigManager.getInstance(applicationContext)
         activeRecoveryToken = configManager.nextKeepAliveRecoveryToken()
         recoveryInFlight = false
@@ -344,7 +362,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         callbackSuccess: Boolean,
         reason: String?,
     ) {
-        val status = KeepAliveController.getStatus(applicationContext)
+        val status = recoveryStatus()
         val decision =
             KeepAliveRecoveryResultPolicy.evaluate(
                 enabled = status.enabled,
@@ -353,6 +371,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                 callbackSuccess = callbackSuccess,
                 interactive = status.interactive,
                 deviceLocked = status.deviceLocked,
+                keyguardLocked = status.keyguardLocked,
                 failureReason = reason,
             )
 
@@ -361,6 +380,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
             return
         }
 
+        keyguardRecoveryGate.finishAttempt(decision.shouldMarkSuccess)
         if (decision.shouldMarkSuccess) {
             KeepAliveController.markRecoverySuccess(applicationContext)
         } else {
@@ -439,7 +459,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         if (decision.shouldSuppressRecoveryEvaluation) {
-            if (status.interactive && !status.deviceLocked) {
+            if (status.interactive && !status.deviceLocked && !status.keyguardLocked) {
                 KeepAliveController.setDegradedReason(applicationContext, null)
             }
             return true

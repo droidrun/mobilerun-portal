@@ -230,6 +230,7 @@ class KeepAliveControllerTest {
         every { KeepAliveService.isRunning() } returns true
         every { powerManager.isInteractive } returns false
         every { keyguardManager.isDeviceLocked } returns true
+        every { keyguardManager.isKeyguardLocked } returns true
         every { configManager.keepAliveLastRecoveryAtMs } returns 999L
         every { configManager.keepAliveConsecutiveRecoveryFailures } returns 2
         every { configManager.keepAliveDegradedReason } returns "keyguard_dismiss_failed"
@@ -240,6 +241,7 @@ class KeepAliveControllerTest {
         assertTrue(status.serviceActive)
         assertFalse(status.interactive)
         assertTrue(status.deviceLocked)
+        assertTrue(status.keyguardLocked)
         assertEquals(999L, status.lastRecoveryAtMs)
         assertEquals(2, status.consecutiveRecoveryFailures)
         assertEquals("keyguard_dismiss_failed", status.degradedReason)
@@ -264,5 +266,20 @@ class KeepAliveControllerTest {
         assertEquals(1234L, status.lastRecoveryAtMs)
         assertEquals(5, status.consecutiveRecoveryFailures)
         assertEquals("recovery_throttled", status.degradedReason)
+    }
+
+    @Test
+    fun getStatus_reportsSwipeKeyguardSeparatelyFromDeviceLock() {
+        keepScreenAwakeEnabled = true
+        every { powerManager.isInteractive } returns true
+        every { keyguardManager.isDeviceLocked } returns false
+        every { keyguardManager.isKeyguardLocked } returns true
+
+        val status = KeepAliveController.getStatus(context)
+
+        assertFalse(status.deviceLocked)
+        assertTrue(status.keyguardLocked)
+        assertEquals(false, status.toJson().getBoolean("deviceLocked"))
+        assertEquals(true, status.toJson().getBoolean("keyguardLocked"))
     }
 }
