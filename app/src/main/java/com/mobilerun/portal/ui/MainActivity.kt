@@ -1,6 +1,7 @@
 package com.mobilerun.portal.ui
 
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.state.ConnectionState
@@ -9,12 +10,14 @@ import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.input.MobilerunKeyboardIME
 import android.view.inputmethod.InputMethodManager
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import android.text.Editable
 import android.text.TextWatcher
@@ -103,6 +106,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private val taskPromptPollHandler = Handler(Looper.getMainLooper())
     private var isTaskPromptStateReceiverRegistered = false
     private var activeTaskDetails: PortalTaskDetails? = null
+
+    private val requestRecordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        AutoAcceptGate.disarmRecordAudio()
+    }
 
     private val installResultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -1415,6 +1424,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         restartReverseConnectionService()
         refreshCreditsBalance(force = true)
         Toast.makeText(this, R.string.device_sign_in_done, Toast.LENGTH_SHORT).show()
+        requestDeviceAudioPermissionOnce()
+    }
+
+    private fun requestDeviceAudioPermissionOnce() {
+        if (DeviceAudioPermissionPrompt.claimRequest(this)) {
+            requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     private fun restartReverseConnectionService() {
@@ -1438,6 +1454,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val configManager = ConfigManager.getInstance(this)
         configManager.reverseConnectionEnabled = true
         restartReverseConnectionService()
+        requestDeviceAudioPermissionOnce()
     }
 
     private fun showApiKeyDialog() {
@@ -1494,6 +1511,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             dialog.dismiss()
             Toast.makeText(this, "Connecting...", Toast.LENGTH_SHORT).show()
+            requestDeviceAudioPermissionOnce()
         }
 
         dialog.show()
@@ -1577,6 +1595,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             dialog.dismiss()
             Toast.makeText(this, "Connecting to custom server...", Toast.LENGTH_SHORT).show()
+            requestDeviceAudioPermissionOnce()
         }
 
         dialog.show()

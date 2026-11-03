@@ -9,9 +9,11 @@ import java.util.concurrent.atomic.AtomicLong
 object AutoAcceptGate {
     private const val INSTALL_TTL_MS = 90_000L
     private const val MEDIA_PROJECTION_TTL_MS = 60_000L
+    private const val RECORD_AUDIO_TTL_MS = 30_000L
 
     private val installAllowedUntilMs = AtomicLong(0L)
     private val mediaProjectionAllowedUntilMs = AtomicLong(0L)
+    private val recordAudioAllowedUntilMs = AtomicLong(0L)
     private val installTreeDumped = AtomicBoolean(false)
 
     fun armInstall(ttlMs: Long = INSTALL_TTL_MS) {
@@ -48,6 +50,22 @@ object AutoAcceptGate {
         if (until == 0L) return false
         if (now <= until) return true
         mediaProjectionAllowedUntilMs.compareAndSet(until, 0L)
+        return false
+    }
+
+    fun armRecordAudio(ttlMs: Long = RECORD_AUDIO_TTL_MS) {
+        recordAudioAllowedUntilMs.set(System.currentTimeMillis() + ttlMs)
+    }
+
+    fun disarmRecordAudio() {
+        recordAudioAllowedUntilMs.set(0L)
+    }
+
+    fun isRecordAudioArmed(now: Long = System.currentTimeMillis()): Boolean {
+        val until = recordAudioAllowedUntilMs.get()
+        if (until == 0L) return false
+        if (now <= until) return true
+        recordAudioAllowedUntilMs.compareAndSet(until, 0L)
         return false
     }
 }

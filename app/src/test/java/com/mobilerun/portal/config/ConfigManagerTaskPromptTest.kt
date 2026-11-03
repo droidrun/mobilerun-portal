@@ -569,6 +569,7 @@ class ConfigManagerTaskPromptTest {
         sharedStore["production_mode"] = true
         sharedStore["sms_gateway_enabled"] = true
         audioStore["device_audio_enabled"] = false
+        audioStore["device_audio_permission_prompted"] = true
         deviceStore["device_id"] = "device-123"
         deviceStore["reverse_join_blocked_by_http_402"] = true
         deviceStore["reconnect_after_restart_enabled"] = true
@@ -593,6 +594,7 @@ class ConfigManagerTaskPromptTest {
         assertFalse(configManager.productionMode)
         assertFalse(configManager.smsGatewayEnabled)
         assertTrue(configManager.deviceAudioEnabled)
+        assertFalse(configManager.deviceAudioPermissionPrompted)
         assertFalse(configManager.reconnectAfterRestartEnabled)
         assertFalse(configManager.reverseConnectionWasEnabled)
     }
@@ -619,6 +621,18 @@ class ConfigManagerTaskPromptTest {
         assertFalse(ConfigManager.getInstance(context).deviceAudioEnabled)
         assertEquals(false, audioStore["device_audio_enabled"])
         assertFalse(sharedStore.containsKey("device_audio_enabled"))
+    }
+
+    @Test
+    fun deviceAudioPermissionPrompted_defaultsOffAndPersistsWithDeviceAudioPrefs() {
+        assertFalse(ConfigManager.getInstance(context).deviceAudioPermissionPrompted)
+
+        ConfigManager.getInstance(context).deviceAudioPermissionPrompted = true
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).deviceAudioPermissionPrompted)
+        assertEquals(true, audioStore["device_audio_permission_prompted"])
+        assertFalse(sharedStore.containsKey("device_audio_permission_prompted"))
     }
 
     @Test

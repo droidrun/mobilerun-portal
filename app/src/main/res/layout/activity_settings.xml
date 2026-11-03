@@ -338,7 +338,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Automatically grant permission"
+                        android:text="@string/screen_share_auto_accept_description"
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
                 </LinearLayout>

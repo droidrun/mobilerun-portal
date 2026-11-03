@@ -27,6 +27,7 @@ import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.keepalive.KeepAliveController
+import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
@@ -110,6 +111,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private val requestRecordAudioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
+        AutoAcceptGate.disarmRecordAudio()
         configManager.deviceAudioEnabled = isGranted
         updateDeviceAudioStatus()
     }
@@ -488,7 +490,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 !isChecked -> configManager.deviceAudioEnabled = false
                 hasRecordAudioPermission() -> configManager.deviceAudioEnabled = true
                 // The result turns the flag on, or a denial turns the switch back off.
-                else -> requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                else -> {
+                    AutoAcceptGate.armRecordAudio()
+                    requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
             }
         }
 

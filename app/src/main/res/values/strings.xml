@@ -194,6 +194,7 @@
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
+    <string name="screen_share_auto_accept_description">Automatically grant screen share and Portal\'s Record audio prompt</string>
     <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
     <string name="install_auto_accept_label">Auto-accept App Installs</string>
     <string name="install_auto_accept_description">Automatically confirm install prompts</string>

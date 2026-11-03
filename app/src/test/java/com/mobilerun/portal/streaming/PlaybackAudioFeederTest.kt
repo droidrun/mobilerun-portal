@@ -45,10 +45,65 @@ class PlaybackAudioFeederTest {
     }
 
     @Test
-    fun releaseNow_rearmsPlaybackCaptureAfterAFailure() {
+    fun failedSetupSendsSilenceAndRetriesOnlyAfterTheInterval() {
         mockkStatic(Log::class)
         every { Log.w(any(), any<String>()) } returns 0
-        val feeder = PlaybackAudioFeeder()
+        var now = 1_000_000_000L
+        var attempts = 0
+        val feeder = PlaybackAudioFeeder(hasPermission = { attempts++; false }, nowNs = { now })
+        val buffer = ByteBuffer.allocateDirect(960)
+        fun feed() = feeder.onBuffer(buffer, 2, 1, 48_000, 960, 0L)
+
+        feeder.attach(mockk<MediaProjection>(relaxed = true))
+        buffer.put(0, 7)
+        feed()
+        assertEquals(1, attempts)
+        assertEquals(0, buffer.get(0).toInt())
+
+        now += PlaybackAudioFeeder.RETRY_INTERVAL_NS - 1
+        feed()
+        assertEquals(1, attempts)
+
+        now += 1
+        feed()
+        assertEquals(2, attempts)
+        // One warning per failure streak.
+        verify(exactly = 1) { Log.w("PlaybackAudioFeeder", any<String>()) }
+    }
+
+    @Test
+    fun lateGrantStartsSetupAfterTheIntervalWithoutARelease() {
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>()) } returns 0
+        var now = 1_000_000_000L
+        var granted = false
+        var grantedChecks = 0
+        val feeder = PlaybackAudioFeeder(
+            hasPermission = { if (granted) grantedChecks++; granted },
+            nowNs = { now },
+        )
+        val buffer = ByteBuffer.allocateDirect(960)
+        fun feed() = feeder.onBuffer(buffer, 2, 1, 48_000, 960, 0L)
+
+        feeder.attach(mockk<MediaProjection>(relaxed = true))
+        feed()
+        granted = true
+        now += PlaybackAudioFeeder.RETRY_INTERVAL_NS - 1
+        feed()
+        assertEquals(0, grantedChecks)
+
+        // Past the interval the granted check passes and setup goes on to AudioRecord.
+        now += 1
+        feed()
+        assertEquals(1, grantedChecks)
+    }
+
+    @Test
+    fun releaseNow_clearsTheBackoffAndStartsANewLogStreak() {
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>()) } returns 0
+        var attempts = 0
+        val feeder = PlaybackAudioFeeder(hasPermission = { attempts++; true }, nowNs = { 1_000_000_000L })
         val buffer = ByteBuffer.allocateDirect(960)
         fun feed() = feeder.onBuffer(buffer, 2, 1, 48_000, 960, 0L)
 
@@ -56,11 +111,29 @@ class PlaybackAudioFeederTest {
         feeder.attach(mockk<MediaProjection>(relaxed = true))
         feed()
         feed()
+        assertEquals(1, attempts)
         verify(exactly = 1) { Log.w("PlaybackAudioFeeder", any<String>()) }
 
         feeder.releaseNow()
         feed()
+        assertEquals(2, attempts)
         verify(exactly = 2) { Log.w("PlaybackAudioFeeder", any<String>()) }
+    }
+
+    @Test
+    fun attachingANewProjectionRetriesAtOnce() {
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>()) } returns 0
+        var attempts = 0
+        val feeder = PlaybackAudioFeeder(hasPermission = { attempts++; false }, nowNs = { 1_000_000_000L })
+        val buffer = ByteBuffer.allocateDirect(960)
+        fun feed() = feeder.onBuffer(buffer, 2, 1, 48_000, 960, 0L)
+
+        feeder.attach(mockk<MediaProjection>(relaxed = true))
+        feed()
+        feeder.attach(mockk<MediaProjection>(relaxed = true))
+        feed()
+        assertEquals(2, attempts)
     }
 
     @Test
