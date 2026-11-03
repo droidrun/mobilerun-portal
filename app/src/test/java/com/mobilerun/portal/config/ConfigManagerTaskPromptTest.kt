@@ -26,6 +26,7 @@ class ConfigManagerTaskPromptTest {
     private lateinit var deviceStore: MutableMap<String, Any?>
     private lateinit var secretsStore: MutableMap<String, Any?>
     private lateinit var smsStore: MutableMap<String, Any?>
+    private lateinit var audioStore: MutableMap<String, Any?>
 
     @Before
     fun setUp() {
@@ -34,7 +35,8 @@ class ConfigManagerTaskPromptTest {
         deviceStore = mutableMapOf()
         secretsStore = mutableMapOf()
         smsStore = mutableMapOf()
-        context = mockContext(sharedStore, deviceStore, secretsStore, smsStore)
+        audioStore = mutableMapOf()
+        context = mockContext(sharedStore, deviceStore, secretsStore, smsStore, audioStore)
     }
 
     @After
@@ -566,6 +568,7 @@ class ConfigManagerTaskPromptTest {
         sharedStore["reverse_connection_enabled"] = true
         sharedStore["production_mode"] = true
         sharedStore["sms_gateway_enabled"] = true
+        audioStore["device_audio_enabled"] = false
         deviceStore["device_id"] = "device-123"
         deviceStore["reverse_join_blocked_by_http_402"] = true
         deviceStore["reconnect_after_restart_enabled"] = true
@@ -589,6 +592,7 @@ class ConfigManagerTaskPromptTest {
         assertFalse(configManager.reverseJoinBlockedByHttp402)
         assertFalse(configManager.productionMode)
         assertFalse(configManager.smsGatewayEnabled)
+        assertTrue(configManager.deviceAudioEnabled)
         assertFalse(configManager.reconnectAfterRestartEnabled)
         assertFalse(configManager.reverseConnectionWasEnabled)
     }
@@ -603,6 +607,18 @@ class ConfigManagerTaskPromptTest {
         assertTrue(ConfigManager.getInstance(context).smsGatewayEnabled)
         assertEquals(true, smsStore["sms_gateway_enabled"])
         assertFalse(sharedStore.containsKey("sms_gateway_enabled"))
+    }
+
+    @Test
+    fun deviceAudioEnabled_defaultsOnAndPersistsOutsideSharedPrefs() {
+        assertTrue(ConfigManager.getInstance(context).deviceAudioEnabled)
+
+        ConfigManager.getInstance(context).deviceAudioEnabled = false
+        clearSingleton()
+
+        assertFalse(ConfigManager.getInstance(context).deviceAudioEnabled)
+        assertEquals(false, audioStore["device_audio_enabled"])
+        assertFalse(sharedStore.containsKey("device_audio_enabled"))
     }
 
     @Test
@@ -664,12 +680,14 @@ class ConfigManagerTaskPromptTest {
         devicePrefsStore: MutableMap<String, Any?>,
         secretsPrefsStore: MutableMap<String, Any?>,
         smsPrefsStore: MutableMap<String, Any?>,
+        audioPrefsStore: MutableMap<String, Any?>,
     ): Context {
         val context = mockk<Context>(relaxed = true)
         val sharedPrefs = mockPreferences(sharedPrefsStore)
         val devicePrefs = mockPreferences(devicePrefsStore)
         val secretsPrefs = mockPreferences(secretsPrefsStore)
         val smsPrefs = mockPreferences(smsPrefsStore)
+        val audioPrefs = mockPreferences(audioPrefsStore)
 
         every { context.applicationContext } returns context
         every {
@@ -684,6 +702,9 @@ class ConfigManagerTaskPromptTest {
         every {
             context.getSharedPreferences("mobilerun_sms", Context.MODE_PRIVATE)
         } returns smsPrefs
+        every {
+            context.getSharedPreferences("mobilerun_audio", Context.MODE_PRIVATE)
+        } returns audioPrefs
 
         return context
     }

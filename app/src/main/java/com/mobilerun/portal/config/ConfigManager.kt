@@ -28,6 +28,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val DEVICE_PREFS_NAME = "mobilerun_device"
         private const val SECRET_PREFS_NAME = "mobilerun_secrets"
         private const val SMS_PREFS_NAME = "mobilerun_sms"
+        private const val AUDIO_PREFS_NAME = "mobilerun_audio"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
@@ -57,6 +58,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
         private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
+        private const val KEY_DEVICE_AUDIO_ENABLED = "device_audio_enabled"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
             "keep_alive_last_recovery_attempt_at_ms"
@@ -138,6 +140,10 @@ class ConfigManager private constructor(private val context: Context) {
     // Excluded from backup and device transfer, so a restore never re-enables the SMS gateway.
     private val smsPrefs: SharedPreferences =
         context.getSharedPreferences(SMS_PREFS_NAME, Context.MODE_PRIVATE)
+
+    // Excluded from backup and device transfer, so a restore never re-enables device audio.
+    private val audioPrefs: SharedPreferences =
+        context.getSharedPreferences(AUDIO_PREFS_NAME, Context.MODE_PRIVATE)
 
     init {
         migrateSecretPrefsIfNeeded()
@@ -526,6 +532,15 @@ class ConfigManager private constructor(private val context: Context) {
             listeners.forEach { it.onSmsGatewayEnabledChanged(value) }
         }
 
+    // Set only from Settings and the ContentProvider; streaming also needs RECORD_AUDIO.
+    var deviceAudioEnabled: Boolean
+        get() = audioPrefs.getBoolean(KEY_DEVICE_AUDIO_ENABLED, true)
+        set(value) {
+            if (deviceAudioEnabled == value) return
+            audioPrefs.edit { putBoolean(KEY_DEVICE_AUDIO_ENABLED, value) }
+            listeners.forEach { it.onDeviceAudioEnabledChanged(value) }
+        }
+
     var keepAliveLastRecoveryAtMs: Long
         get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, 0L)
         set(value) {
@@ -885,6 +900,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
         fun onSmsGatewayEnabledChanged(enabled: Boolean) {}
+        fun onDeviceAudioEnabledChanged(enabled: Boolean) {}
         fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {}
         fun onStreamSessionLimitChanged(limit: Int) {}
 
@@ -1100,6 +1116,7 @@ class ConfigManager private constructor(private val context: Context) {
             putBoolean("screen_share_auto_accept_enabled", true)
         }
         smsPrefs.edit(commit = true) { clear() }
+        audioPrefs.edit(commit = true) { clear() }
         // Notify listeners
         listeners.forEach {
             it.onOverlayVisibilityChanged(false)
@@ -1110,6 +1127,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
             it.onKeepScreenAwakeEnabledChanged(false)
             it.onSmsGatewayEnabledChanged(false)
+            it.onDeviceAudioEnabledChanged(true)
             it.onReconnectAfterRestartEnabledChanged(false)
             it.onStreamSessionLimitChanged(DEFAULT_STREAM_SESSION_LIMIT)
             it.onProductionModeChanged(false)

@@ -237,6 +237,8 @@ honored exactly.
 - On Android 13+, notification permission is required to show the background streaming prompt.
 - **Auto-accept Screen Share** in Settings can click the MediaProjection dialog automatically.
 - `stream/start` may return `prompting_user` or `waiting_for_user_notification_tap` while waiting for permission.
+- If the offer has an audio m-line (`recvonly` or `sendrecv`), the Portal answers it with the phone's media audio (Opus, `sendonly`) on Android 10+ when Record audio is granted and the **Device Audio** switch in Settings is on (the default); otherwise, and for offers without audio, the stream is video-only. Headless: `adb shell pm grant com.mobilerun.portal android.permission.RECORD_AUDIO`; turn it off with `adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:false`; `content query` on the same URI returns `enabled`, `permissionGranted` and `supported`.
+- Media and game audio is streamed. Calls, notifications, ringtones, alarms, system sounds and apps that block capture stay silent.
 
 ## Configure via ContentProvider (optional)
 
