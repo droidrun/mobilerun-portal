@@ -2,91 +2,84 @@ package com.mobilerun.portal.service
 
 import kotlin.random.Random
 
-internal data class ReverseReconnectStep(
-    val delayMs: Long,
-    val releaseMedia: Boolean,
-)
-
 /**
- * Paces reconnects within one outage: a fixed fast cadence first, then exponential backoff.
- * A connection only ends the outage once it has stayed open for [stableConnectionMs]; shorter
- * ones that lasted [minRealConnectionMs] re-arm the fast cadence, while near-instant
- * accept-then-close loops keep backing off.
+ * Paces reconnects like the iOS portal: 1 s doubling up to 30 s with jitter, within a 10 s budget
+ * per outage. Only a connection that stayed open for [healthyConnectionMs] starts a fresh budget,
+ * so a relay that accepts and drops at once spends the one it started with. The budget only runs
+ * while a network is there; without one it retries every [networkWaitDelayMs] until it returns.
+ * Android keeps a network validated for a while after its internet goes, so a budget spent with a
+ * network starts a [networkRecheckMs] window that calls [onNetworkRecheck] once before giving up.
  */
 internal class ReverseReconnectBackoff(
     private val baseDelayMs: Long = BASE_DELAY_MS,
     private val maxDelayMs: Long = MAX_DELAY_MS,
     private val jitterRatio: Double = JITTER_RATIO,
-    private val fastRetryWindowMs: Long = FAST_RETRY_WINDOW_MS,
-    private val minRealConnectionMs: Long = MIN_REAL_CONNECTION_MS,
-    private val stableConnectionMs: Long = STABLE_CONNECTION_MS,
-    private val longOutageMs: Long = LONG_OUTAGE_MS,
+    private val retryBudgetMs: Long = RETRY_BUDGET_MS,
+    private val healthyConnectionMs: Long = HEALTHY_CONNECTION_MS,
+    private val networkWaitDelayMs: Long = NETWORK_WAIT_DELAY_MS,
+    private val networkRecheckMs: Long = NETWORK_RECHECK_MS,
     private val random: () -> Double = { Random.nextDouble() },
+    private val onNetworkRecheck: () -> Unit = {},
 ) {
     companion object {
-        const val BASE_DELAY_MS = 3_000L
+        const val BASE_DELAY_MS = 1_000L
         const val MAX_DELAY_MS = 30_000L
         const val JITTER_RATIO = 0.2
-
-        // Covers the cloud's BYOD reconnect grace (30 s) plus relay presence TTL (30 s).
-        const val FAST_RETRY_WINDOW_MS = 60_000L
-        const val MIN_REAL_CONNECTION_MS = 5_000L
-        const val STABLE_CONNECTION_MS = 60_000L
-        const val LONG_OUTAGE_MS = 30 * 60 * 1000L
+        const val RETRY_BUDGET_MS = 10_000L
+        const val HEALTHY_CONNECTION_MS = 15_000L
+        const val NETWORK_WAIT_DELAY_MS = 5_000L
+        const val NETWORK_RECHECK_MS = 15_000L
         private const val MAX_SHIFT = 20
     }
 
-    private var outageStartedAtMs: Long? = null
-    private var fastUntilMs = 0L
+    private var deadlineMs: Long? = null
+    private var recheckUntilMs: Long? = null
     private var connectedAtMs: Long? = null
-    private var attempt = 0
-    private var mediaReleased = false
+    private var failures = 0
 
     @Synchronized
     fun onConnected(nowMs: Long) {
         connectedAtMs = nowMs
     }
 
-    /** [ReverseReconnectStep.releaseMedia] is set once per outage, when it turns long. */
+    /** The delay before the next attempt, or null once the outage has used up its budget and recheck. */
     @Synchronized
-    fun nextRetry(nowMs: Long): ReverseReconnectStep {
+    fun nextRetry(nowMs: Long, networkAvailable: Boolean): Long? {
         val connectedForMs = connectedAtMs?.let { nowMs - it }
         connectedAtMs = null
-        if (connectedForMs != null && connectedForMs >= stableConnectionMs) {
-            resetLocked()
+        if (connectedForMs != null && connectedForMs >= healthyConnectionMs) clearBudget()
+        if (!networkAvailable) {
+            clearBudget()
+            return jittered(networkWaitDelayMs)
         }
-        val startedAtMs = outageStartedAtMs
-        if (startedAtMs == null) {
-            outageStartedAtMs = nowMs
-            fastUntilMs = nowMs + fastRetryWindowMs
-        } else if (connectedForMs != null && connectedForMs >= minRealConnectionMs) {
-            fastUntilMs = nowMs + fastRetryWindowMs
-        }
-        val delayMs = if (nowMs < fastUntilMs) {
-            baseDelayMs
-        } else {
-            (baseDelayMs shl attempt.coerceAtMost(MAX_SHIFT)).coerceAtMost(maxDelayMs)
-                .also { attempt++ }
-        }
-        val releaseMedia = !mediaReleased && nowMs - (startedAtMs ?: nowMs) >= longOutageMs
-        if (releaseMedia) mediaReleased = true
-        val jitter = 1.0 + jitterRatio * (2 * random() - 1)
-        return ReverseReconnectStep(
-            delayMs = (delayMs * jitter).toLong().coerceAtLeast(1L),
-            releaseMedia = releaseMedia,
+        recheckUntilMs?.let { return if (nowMs < it) jittered(networkWaitDelayMs) else null }
+        val deadline = deadlineMs ?: (nowMs + retryBudgetMs).also { deadlineMs = it }
+        val delayMs = jittered(
+            (baseDelayMs shl failures.coerceAtMost(MAX_SHIFT)).coerceAtMost(maxDelayMs),
         )
+        if (deadline - nowMs <= delayMs) {
+            recheckUntilMs = nowMs + networkRecheckMs
+            onNetworkRecheck()
+            return jittered(networkWaitDelayMs)
+        }
+        failures++
+        return delayMs
     }
 
     @Synchronized
     fun reset() {
-        resetLocked()
+        clearBudget()
+        connectedAtMs = null
     }
 
-    private fun resetLocked() {
-        outageStartedAtMs = null
-        fastUntilMs = 0L
-        connectedAtMs = null
-        attempt = 0
-        mediaReleased = false
+    private fun clearBudget() {
+        deadlineMs = null
+        recheckUntilMs = null
+        failures = 0
+    }
+
+    private fun jittered(delayMs: Long): Long {
+        val jitter = 1.0 + jitterRatio * (2 * random() - 1)
+        return (delayMs * jitter).toLong().coerceAtLeast(1L)
     }
 }

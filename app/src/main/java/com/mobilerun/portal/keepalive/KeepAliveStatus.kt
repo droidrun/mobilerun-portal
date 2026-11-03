@@ -7,6 +7,7 @@ data class KeepAliveStatus(
     val serviceActive: Boolean,
     val interactive: Boolean,
     val deviceLocked: Boolean,
+    val keyguardLocked: Boolean,
     val lastRecoveryAtMs: Long,
     val consecutiveRecoveryFailures: Int,
     val degradedReason: String?,
@@ -26,6 +27,7 @@ data class KeepAliveStatus(
             put("serviceActive", serviceActive)
             put("interactive", interactive)
             put("deviceLocked", deviceLocked)
+            put("keyguardLocked", keyguardLocked)
             put("lastRecoveryAtMs", lastRecoveryAtMs)
             put("consecutiveRecoveryFailures", consecutiveRecoveryFailures)
             put("degradedReason", degradedReason ?: JSONObject.NULL)

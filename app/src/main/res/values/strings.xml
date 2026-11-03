@@ -188,9 +188,13 @@
     <string name="local_connection_service_text">WebSocket server is ready for local tasks</string>
     <string name="disable_ws_server_action">Disable WS Server</string>
     <string name="reverse_connection_disconnect_action">Disconnect</string>
+    <string name="reverse_connection_alert_channel">Connection alerts</string>
+    <string name="reverse_connection_gave_up_title">Disconnected from Mobilerun</string>
+    <string name="reverse_connection_gave_up_text">Couldn’t reach Mobilerun. Open Portal to reconnect.</string>
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
+    <string name="screen_share_auto_accept_description">Automatically grant screen share and Portal\'s Record audio prompt</string>
     <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
     <string name="install_auto_accept_label">Auto-accept App Installs</string>
     <string name="install_auto_accept_description">Automatically confirm install prompts</string>
@@ -218,6 +222,9 @@
     <string name="install_unknown_apps_description">Allow installing APK files</string>
     <string name="unrestricted_battery_label">Unrestricted Battery</string>
     <string name="unrestricted_battery_description">Keep local servers reachable in the background</string>
+    <string name="device_audio_label">Device Audio</string>
+    <string name="device_audio_description">Stream media and game audio with the screen. Calls, notifications, ringtones, alarms, system sounds and apps that block capture stay silent.</string>
+    <string name="device_audio_unsupported">Requires Android 10+</string>
     <string name="sms_gateway_label">SMS Gateway</string>
     <string name="sms_gateway_description">Allow API clients to send and read SMS</string>
     <string name="sms_permission_send">Send</string>

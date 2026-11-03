@@ -10,8 +10,9 @@ object KeepAliveRecoveryResultPolicy {
     private fun stateFailureReason(
         interactive: Boolean,
         deviceLocked: Boolean,
+        keyguardLocked: Boolean,
     ): String {
-        return if (deviceLocked) {
+        return if (deviceLocked || keyguardLocked) {
             "device_still_locked"
         } else if (!interactive) {
             "screen_not_interactive"
@@ -27,6 +28,7 @@ object KeepAliveRecoveryResultPolicy {
         callbackSuccess: Boolean,
         interactive: Boolean,
         deviceLocked: Boolean,
+        keyguardLocked: Boolean,
         failureReason: String?,
     ): KeepAliveRecoveryResultDecision {
         if (!enabled) {
@@ -43,7 +45,8 @@ object KeepAliveRecoveryResultPolicy {
             )
         }
 
-        if (interactive && !deviceLocked) {
+        // A reported dismissal counts while the keyguard still reads locked.
+        if (interactive && !deviceLocked && (!keyguardLocked || callbackSuccess)) {
             return KeepAliveRecoveryResultDecision(
                 shouldIgnore = false,
                 shouldMarkSuccess = true,
@@ -52,9 +55,9 @@ object KeepAliveRecoveryResultPolicy {
 
         val resolvedFailureReason =
             if (callbackSuccess) {
-                stateFailureReason(interactive, deviceLocked)
+                stateFailureReason(interactive, deviceLocked, keyguardLocked)
             } else {
-                failureReason ?: stateFailureReason(interactive, deviceLocked)
+                failureReason ?: stateFailureReason(interactive, deviceLocked, keyguardLocked)
             }
 
         return KeepAliveRecoveryResultDecision(

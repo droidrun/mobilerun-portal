@@ -1,14 +1,17 @@
 package com.mobilerun.portal.service
 
+import android.Manifest
 import android.content.ContentProvider
 import android.content.Context
 import android.content.ContentValues
 import android.content.Intent
 import android.content.UriMatcher
 import android.database.Cursor
+import android.content.pm.PackageManager
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Binder
+import android.os.Build
 import android.util.Base64
 import android.util.Log
 import androidx.core.net.toUri
@@ -232,6 +235,38 @@ internal fun handleSmsGatewayInsert(
         ?: return ApiResponse.Error("Missing required field: enabled")
     configManager.smsGatewayEnabled = enabled
     return ApiResponse.Success("SMS gateway set to $enabled")
+}
+
+internal fun buildDeviceAudioStatus(
+    configManager: ConfigManager,
+    permissionGranted: Boolean,
+    supported: Boolean,
+): ApiResponse =
+    ApiResponse.RawObject(
+        JSONObject().apply {
+            put("enabled", configManager.deviceAudioEnabled)
+            put("permissionGranted", permissionGranted)
+            put("supported", supported)
+        },
+    )
+
+// Sets the flag only; RECORD_AUDIO is never requested from here.
+internal fun handleDeviceAudioInsert(
+    configManager: ConfigManager,
+    values: ContentValues?,
+    permissionGranted: Boolean,
+    supported: Boolean,
+): ApiResponse {
+    val enabled = values?.getAsBoolean("enabled")
+        ?: return ApiResponse.Error("Missing required field: enabled")
+    configManager.deviceAudioEnabled = enabled
+    val note = when {
+        !enabled -> ""
+        !supported -> "; device audio needs Android 10+"
+        !permissionGranted -> "; RECORD_AUDIO permission is missing"
+        else -> ""
+    }
+    return ApiResponse.Success("Device audio set to $enabled$note")
 }
 
 internal fun handleReconnectAfterRestartInsert(
@@ -625,6 +660,7 @@ class MobilerunContentProvider : ContentProvider() {
         private const val SMS_SEND = 44
         private const val SMS_GATEWAY = 45
         private const val CLOUD_RECONNECT_AFTER_RESTART = 46
+        private const val DEVICE_AUDIO = 47
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -673,6 +709,7 @@ class MobilerunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "sms/messages/*", SMS_MESSAGE)
             addURI(AUTHORITY, "sms/send", SMS_SEND)
             addURI(AUTHORITY, "sms/gateway", SMS_GATEWAY)
+            addURI(AUTHORITY, "device_audio", DEVICE_AUDIO)
         }
     }
 
@@ -691,6 +728,11 @@ class MobilerunContentProvider : ContentProvider() {
             false
         }
     }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        context?.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun isDeviceAudioSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
     private fun getAppVersion(): String {
         val appContext = context ?: return "unknown"
@@ -768,6 +810,7 @@ class MobilerunContentProvider : ContentProvider() {
                 CLOUD_STATUS -> buildCloudStatusResponse(configManager)
                 CLOUD_RECONNECT_AFTER_RESTART -> buildReconnectAfterRestartStatus(configManager)
                 STREAM_SESSION_LIMIT -> buildStreamSessionLimitResponse(configManager)
+                DEVICE_AUDIO -> buildDeviceAudioStatus(configManager, hasRecordAudioPermission(), isDeviceAudioSupported())
                 SCREEN_KEEP_AWAKE_STATUS -> ApiResponse.RawObject(
                     KeepAliveController.getStatusJson(context ?: throw IllegalStateException("Provider context unavailable")),
                 )
@@ -966,6 +1009,12 @@ class MobilerunContentProvider : ContentProvider() {
 
         if (match == CLOUD_RECONNECT_AFTER_RESTART) {
             return responseToResultUri(handleReconnectAfterRestartInsert(configManager, values))
+        }
+
+        if (match == DEVICE_AUDIO) {
+            return responseToResultUri(
+                handleDeviceAudioInsert(configManager, values, hasRecordAudioPermission(), isDeviceAudioSupported()),
+            )
         }
 
         if (match == CONFIGURE_REVERSE_CONNECTION) {

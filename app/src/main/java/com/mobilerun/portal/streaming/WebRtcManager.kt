@@ -1,6 +1,8 @@
 package com.mobilerun.portal.streaming
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
@@ -10,6 +12,7 @@ import android.graphics.YuvImage
 import android.media.projection.MediaProjection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -29,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.max
 import org.json.JSONObject
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
 
 /**
  * Manages WebRTC PeerConnection, Signaling, and Stream lifecycle. Singleton to ensure only one
@@ -39,6 +43,8 @@ class WebRtcManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "WebRtcManager"
         private const val VIDEO_TRACK_ID = "ARDAMSv0"
+        private const val AUDIO_TRACK_ID = "ARDAMSa0"
+        private val SDP_DIRECTIONS = setOf("sendrecv", "sendonly", "recvonly", "inactive")
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
@@ -168,6 +174,113 @@ class WebRtcManager private constructor(private val context: Context) {
             currentCapture: Any?,
             hasPublishedSession: Boolean,
         ): Boolean = expectedToken == currentToken && expectedCapture === currentCapture && !hasPublishedSession
+
+        // Device audio needs the Settings switch, playback capture (API 29+) and stream mode.
+        // RECORD_AUDIO is not required here: the feeder sends silence until it is granted.
+        internal fun deviceAudioAllowed(
+            sdk: Int,
+            flagEnabled: Boolean,
+            streamMode: Boolean,
+        ): Boolean = sdk >= Build.VERSION_CODES.Q && flagEnabled && streamMode
+
+        // Mid of the first offered audio section the Portal can send into ("" if it has no a=mid), else null.
+        internal fun offerSendableAudioMid(sdp: String): String? {
+            val lines = sdp.lines()
+            var sessionDirection = "sendrecv"
+            var index = 0
+            while (index < lines.size && !lines[index].startsWith("m=")) {
+                sdpDirection(lines[index])?.let { sessionDirection = it }
+                index++
+            }
+            while (index < lines.size) {
+                val mLine = lines[index]
+                val end = (index + 1 until lines.size).firstOrNull { lines[it].startsWith("m=") } ?: lines.size
+                val section = lines.subList(index + 1, end)
+                index = end
+                if (!mLine.startsWith("m=audio ")) continue
+                val port = mLine.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
+                if (port == 0 && section.none { it.trim() == "a=bundle-only" }) continue
+                val direction = section.firstNotNullOfOrNull { sdpDirection(it) } ?: sessionDirection
+                if (direction != "recvonly" && direction != "sendrecv") continue
+                return section.firstOrNull { it.startsWith("a=mid:") }?.removePrefix("a=mid:")?.trim().orEmpty()
+            }
+            return null
+        }
+
+        private fun sdpDirection(line: String): String? =
+            line.trim().removePrefix("a=").takeIf { line.startsWith("a=") && it in SDP_DIRECTIONS }
+
+        // Keeps only H264 (and its RTX) in the first m=video section; other sections, e.g. Opus audio, stay intact.
+        internal fun forceH264(sdp: String): String? {
+            val lines = sdp.split("\r\n").toMutableList()
+            val mLineIndex = lines.indexOfFirst { it.startsWith("m=video ") }
+            if (mLineIndex == -1) return null
+            val sectionEnd =
+                (mLineIndex + 1 until lines.size).firstOrNull { lines[it].startsWith("m=") } ?: lines.size
+            val videoLines = mLineIndex + 1 until sectionEnd
+
+            val rtpmapRegex = Regex("^a=rtpmap:(\\d+) ([a-zA-Z0-9-]+)/\\d+.*")
+            val fmtpRegex = Regex("^a=fmtp:(\\d+) .*")
+            val rtcpFbRegex = Regex("^a=rtcp-fb:(\\d+) .*")
+            val aptRegex = Regex("\\bapt=(\\d+)\\b")
+
+            val h264Payloads = mutableSetOf<String>()
+            val rtxAptMap = mutableMapOf<String, String>()
+
+            for (line in videoLines.map { lines[it] }) {
+                val rtpmapMatch = rtpmapRegex.find(line)
+                if (rtpmapMatch != null) {
+                    val payload = rtpmapMatch.groupValues[1]
+                    val codec = rtpmapMatch.groupValues[2]
+                    if (codec.equals("H264", ignoreCase = true)) {
+                        h264Payloads.add(payload)
+                    }
+                    continue
+                }
+
+                val fmtpMatch = fmtpRegex.find(line)
+                if (fmtpMatch != null) {
+                    val payload = fmtpMatch.groupValues[1]
+                    val aptMatch = aptRegex.find(line)
+                    if (aptMatch != null) {
+                        rtxAptMap[payload] = aptMatch.groupValues[1]
+                    }
+                }
+            }
+
+            if (h264Payloads.isEmpty()) return null
+
+            val rtxPayloads = rtxAptMap.filter { it.value in h264Payloads }.keys
+            val allowed = (h264Payloads + rtxPayloads).toSet()
+
+            val parts = lines[mLineIndex].split(" ").filter { it.isNotBlank() }
+            if (parts.size <= 3) return null
+            val header = parts.take(3)
+            val payloads = parts.drop(3)
+            val filteredPayloads = payloads.filter { it in allowed }
+            if (filteredPayloads.isEmpty()) return null
+            lines[mLineIndex] = (header + filteredPayloads).joinToString(" ")
+
+            val filteredLines =
+                lines.filterIndexed { index, line ->
+                    if (index !in videoLines) return@filterIndexed true
+                    val rtpmapMatch = rtpmapRegex.find(line)
+                    if (rtpmapMatch != null) {
+                        return@filterIndexed allowed.contains(rtpmapMatch.groupValues[1])
+                    }
+                    val fmtpMatch = fmtpRegex.find(line)
+                    if (fmtpMatch != null) {
+                        return@filterIndexed allowed.contains(fmtpMatch.groupValues[1])
+                    }
+                    val rtcpFbMatch = rtcpFbRegex.find(line)
+                    if (rtcpFbMatch != null) {
+                        return@filterIndexed allowed.contains(rtcpFbMatch.groupValues[1])
+                    }
+                    true
+                }
+
+            return filteredLines.joinToString("\r\n")
+        }
 
         internal enum class KeyframeRequestScheduleDisposition {
             SKIP_NO_STREAM,
@@ -451,7 +564,9 @@ class WebRtcManager private constructor(private val context: Context) {
         val videoTrack: VideoTrack?,
         val surfaceTextureHelper: SurfaceTextureHelper?,
         val peerConnection: PeerConnection?,
-        val controlChannel: DataChannel?
+        val controlChannel: DataChannel?,
+        val audioSource: AudioSource? = null,
+        val audioTrack: AudioTrack? = null,
     )
 
     private data class PendingStreamStop(
@@ -535,6 +650,19 @@ class WebRtcManager private constructor(private val context: Context) {
     )
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
+    private val playbackAudioFeeder: PlaybackAudioFeeder? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val config = ConfigManager.getInstance(context)
+            PlaybackAudioFeeder(
+                isEnabled = { config.deviceAudioEnabled },
+                hasPermission = {
+                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                },
+            )
+        } else {
+            null
+        }
 
     @Volatile
     private var peerConnection: PeerConnection? = null
@@ -551,6 +679,8 @@ class WebRtcManager private constructor(private val context: Context) {
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
+    private var audioSource: AudioSource? = null
+    private var audioTrack: AudioTrack? = null
 
     @Volatile
     private var reverseConnectionService: ReverseConnectionService? = null
@@ -924,12 +1054,150 @@ class WebRtcManager private constructor(private val context: Context) {
                         setOf("H264", "VP8"),
                     )
                 Log.i(TAG, "Enabled video encoders: ${filteredEncoderFactory.codecListLabel()}")
+                val adm = createAudioDeviceModule()
+                audioDeviceModule = adm
                 PeerConnectionFactory.builder()
+                    .setAudioDeviceModule(adm)
                     .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
                     .setVideoEncoderFactory(filteredEncoderFactory)
                     .setOptions(PeerConnectionFactory.Options())
                     .createPeerConnectionFactory()
             }
+    }
+
+    // The mic is never opened: record buffers carry playback capture (API 29+) or silence.
+    private fun createAudioDeviceModule(): JavaAudioDeviceModule {
+        val builder =
+            JavaAudioDeviceModule.builder(context)
+                .setInputSampleRate(48_000)
+                .setUseStereoInput(false)
+                .setUseHardwareAcousticEchoCanceler(false)
+                .setUseHardwareNoiseSuppressor(false)
+                .setAudioRecordStateCallback(
+                    object : JavaAudioDeviceModule.AudioRecordStateCallback {
+                        override fun onWebRtcAudioRecordStart() {
+                            Log.i(TAG, "Device audio recording started")
+                        }
+
+                        override fun onWebRtcAudioRecordStop() {
+                            Log.i(TAG, "Device audio recording stopped")
+                            releasePlaybackAudio()
+                        }
+                    },
+                )
+                .setAudioRecordErrorCallback(
+                    object : JavaAudioDeviceModule.AudioRecordErrorCallback {
+                        override fun onWebRtcAudioRecordInitError(message: String?) {
+                            Log.e(TAG, "Audio record init error: $message")
+                        }
+
+                        override fun onWebRtcAudioRecordStartError(
+                            code: JavaAudioDeviceModule.AudioRecordStartErrorCode?,
+                            message: String?,
+                        ) {
+                            Log.e(TAG, "Audio record start error: $code $message")
+                        }
+
+                        override fun onWebRtcAudioRecordError(message: String?) {
+                            Log.e(TAG, "Audio record error: $message")
+                        }
+                    },
+                )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            playbackAudioFeeder?.let { builder.setAudioBufferCallback(it) }
+        }
+        return builder.createAudioDeviceModule().also { it.setAudioRecordEnabled(false) }
+    }
+
+    private fun attachPlaybackAudio(projection: MediaProjection?) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && projection != null) {
+            playbackAudioFeeder?.attach(projection)
+        }
+    }
+
+    private fun detachPlaybackAudio(projection: MediaProjection?) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && projection != null) {
+            playbackAudioFeeder?.detach(projection)
+        }
+    }
+
+    private fun releasePlaybackAudio() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            playbackAudioFeeder?.releaseNow()
+        }
+    }
+
+    private fun isDeviceAudioAllowed(): Boolean =
+        playbackAudioFeeder != null &&
+            deviceAudioAllowed(
+                sdk = Build.VERSION.SDK_INT,
+                flagEnabled = ConfigManager.getInstance(context).deviceAudioEnabled,
+                streamMode = synchronized(streamLock) { captureSessionMode == CaptureSessionMode.STREAM },
+            )
+
+    // One audio track per capture, shared by every session like the video track.
+    private fun ensureAudioTrack(): AudioTrack? {
+        checkNativeCallOutsideStreamLock()
+        val capture =
+            synchronized(streamLock) {
+                audioTrack?.let { return it }
+                videoTrack ?: return null
+            }
+        val factory = peerConnectionFactory ?: return null
+        val constraints =
+            MediaConstraints().apply {
+                listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter")
+                    .forEach { mandatory.add(MediaConstraints.KeyValuePair(it, "false")) }
+            }
+        val source = factory.createAudioSource(constraints)
+        val track = factory.createAudioTrack(AUDIO_TRACK_ID, source)
+        val active =
+            synchronized(streamLock) {
+                when {
+                    videoTrack !== capture -> null
+                    audioTrack != null -> audioTrack
+                    else -> track.also {
+                        audioSource = source
+                        audioTrack = it
+                    }
+                }
+            }
+        if (active !== track) {
+            track.dispose()
+            source.dispose()
+        }
+        return active
+    }
+
+    // Answers an offered audio m-line with device audio; offers without one stay video-only.
+    private fun attachDeviceAudioIfOffered(connection: PeerConnection, offerSdp: String, label: String) {
+        val mid = offerSendableAudioMid(offerSdp) ?: return
+        if (!isDeviceAudioAllowed()) {
+            Log.i(TAG, "Offer has audio but device audio is unavailable ($label)")
+            return
+        }
+        try {
+            val track = ensureAudioTrack() ?: return
+            val transceiver =
+                connection.transceivers.firstOrNull {
+                    it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO &&
+                        !it.isStopped &&
+                        (mid.isEmpty() || it.mid == mid)
+                }
+            if (transceiver == null) {
+                Log.w(TAG, "No audio transceiver for offered mid=$mid ($label)")
+                return
+            }
+            val sender = transceiver.sender
+            sender.setTrack(track, false)
+            if (sender.streams != listOf(VIDEO_TRACK_ID)) sender.setStreams(listOf(VIDEO_TRACK_ID))
+            if (transceiver.direction != RtpTransceiver.RtpTransceiverDirection.SEND_ONLY) {
+                transceiver.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY)
+            }
+            Log.i(TAG, "Attached device audio ($label mid=$mid)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed attaching device audio ($label)", e)
+        }
     }
 
     fun startStream(
@@ -1982,11 +2250,15 @@ class WebRtcManager private constructor(private val context: Context) {
                 videoTrack = videoTrack,
                 surfaceTextureHelper = surfaceTextureHelper,
                 peerConnection = peerResources.peerConnection,
-                controlChannel = peerResources.controlChannel
+                controlChannel = peerResources.controlChannel,
+                audioSource = audioSource,
+                audioTrack = audioTrack,
             )
         screenCapturer = null
         videoSource = null
         videoTrack = null
+        audioSource = null
+        audioTrack = null
         secondaryReservations.clear()
         surfaceTextureHelper = null
         captureLogStreamId = 0
@@ -2071,6 +2343,8 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun cleanupStreamResources(resources: StreamResources) {
         checkNativeCallOutsideStreamLock()
         clearCaptureFrameTapState("capture_stopped")
+        // stopCapture clears the capturer's projection.
+        detachPlaybackAudio((resources.screenCapturer as? ScreenCapturerAndroid)?.mediaProjection)
         try {
             resources.screenCapturer?.stopCapture()
         } catch (e: Exception) {
@@ -2099,6 +2373,13 @@ class WebRtcManager private constructor(private val context: Context) {
             resources.surfaceTextureHelper?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing surfaceTextureHelper", e)
+        }
+
+        try {
+            resources.audioTrack?.dispose()
+            resources.audioSource?.dispose()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disposing audio track", e)
         }
 
         cleanupPeerResources(PeerResources(resources.peerConnection, resources.controlChannel))
@@ -2268,6 +2549,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         }
                         isRemoteDescriptionSet = true
                     }
+                    attachDeviceAudioIfOffered(connection, offer.description, "primary")
                     createAnswer(connection, generation, sessionId)
                 }
             },
@@ -2506,6 +2788,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         if (current == null || current.streamId != streamId) return
                         current.isRemoteDescriptionSet = true
                     }
+                    attachDeviceAudioIfOffered(activeConnection, sdp, "secondary:$sessionId")
                     createAnswerForSecondary(activeConnection, streamId, sessionId)
                 }
             },
@@ -2855,11 +3138,13 @@ class WebRtcManager private constructor(private val context: Context) {
         streamId: Int,
     ): VideoTrack? {
         checkNativeCallOutsideStreamLock()
+        var projection: MediaProjection? = null
         val capturer =
             ScreenCapturerAndroid(
                 permissionResultData,
                 object : MediaProjection.Callback() {
                     override fun onStop() {
+                        detachPlaybackAudio(projection)
                         postStopStreamIfCurrent(streamId)
                         ScreenCaptureService.requestStop("projection_stopped")
                     }
@@ -2891,6 +3176,8 @@ class WebRtcManager private constructor(private val context: Context) {
             stopStream()
             throw RuntimeException("Failed to start screen capture: ${e.message}", e)
         }
+        projection = capturer.mediaProjection
+        attachPlaybackAudio(projection)
 
         val track =
             peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, source)
@@ -3111,73 +3398,6 @@ class WebRtcManager private constructor(private val context: Context) {
         lines[mLineIndex] = newLine
 
         return lines.joinToString("\r\n")
-    }
-
-    private fun forceH264(sdp: String): String? {
-        val lines = sdp.split("\r\n").toMutableList()
-        val mLineIndex = lines.indexOfFirst { it.startsWith("m=video ") }
-        if (mLineIndex == -1) return null
-
-        val rtpmapRegex = Regex("^a=rtpmap:(\\d+) ([a-zA-Z0-9-]+)/\\d+.*")
-        val fmtpRegex = Regex("^a=fmtp:(\\d+) .*")
-        val rtcpFbRegex = Regex("^a=rtcp-fb:(\\d+) .*")
-        val aptRegex = Regex("\\bapt=(\\d+)\\b")
-
-        val h264Payloads = mutableSetOf<String>()
-        val rtxAptMap = mutableMapOf<String, String>()
-
-        for (line in lines) {
-            val rtpmapMatch = rtpmapRegex.find(line)
-            if (rtpmapMatch != null) {
-                val payload = rtpmapMatch.groupValues[1]
-                val codec = rtpmapMatch.groupValues[2]
-                if (codec.equals("H264", ignoreCase = true)) {
-                    h264Payloads.add(payload)
-                }
-                continue
-            }
-
-            val fmtpMatch = fmtpRegex.find(line)
-            if (fmtpMatch != null) {
-                val payload = fmtpMatch.groupValues[1]
-                val aptMatch = aptRegex.find(line)
-                if (aptMatch != null) {
-                    rtxAptMap[payload] = aptMatch.groupValues[1]
-                }
-            }
-        }
-
-        if (h264Payloads.isEmpty()) return null
-
-        val rtxPayloads = rtxAptMap.filter { it.value in h264Payloads }.keys
-        val allowed = (h264Payloads + rtxPayloads).toSet()
-
-        val parts = lines[mLineIndex].split(" ").filter { it.isNotBlank() }
-        if (parts.size <= 3) return null
-        val header = parts.take(3)
-        val payloads = parts.drop(3)
-        val filteredPayloads = payloads.filter { it in allowed }
-        if (filteredPayloads.isEmpty()) return null
-        lines[mLineIndex] = (header + filteredPayloads).joinToString(" ")
-
-        val filteredLines =
-            lines.filter { line ->
-                val rtpmapMatch = rtpmapRegex.find(line)
-                if (rtpmapMatch != null) {
-                    return@filter allowed.contains(rtpmapMatch.groupValues[1])
-                }
-                val fmtpMatch = fmtpRegex.find(line)
-                if (fmtpMatch != null) {
-                    return@filter allowed.contains(fmtpMatch.groupValues[1])
-                }
-                val rtcpFbMatch = rtcpFbRegex.find(line)
-                if (rtcpFbMatch != null) {
-                    return@filter allowed.contains(rtcpFbMatch.groupValues[1])
-                }
-                true
-            }
-
-        return filteredLines.joinToString("\r\n")
     }
 
     private fun startStatsLogging(streamId: Int) {
@@ -3797,6 +4017,14 @@ class WebRtcManager private constructor(private val context: Context) {
             peerConnectionFactory = null
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing peerConnectionFactory", e)
+        }
+
+        try {
+            audioDeviceModule?.release()
+            audioDeviceModule = null
+            releasePlaybackAudio()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing audioDeviceModule", e)
         }
 
         try {
