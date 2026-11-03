@@ -257,6 +257,7 @@ adb shell content query --uri content://com.mobilerun.portal/clipboard/get
 adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 adb shell content query --uri content://com.mobilerun.portal/stream_session_limit
 adb shell content query --uri content://com.mobilerun.portal/cloud/reconnect_after_restart
+adb shell content query --uri content://com.mobilerun.portal/device_audio
 adb shell content query --uri content://com.mobilerun.portal/sms/capabilities
 adb shell content query --uri 'content://com.mobilerun.portal/sms/status?message_id=MSG_ID'
 adb shell "content query --uri 'content://com.mobilerun.portal/sms/messages?box=inbox&limit=10'"
@@ -296,6 +297,10 @@ adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_af
 
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:false
+
+# Stream media audio with the screen (default on; also needs RECORD_AUDIO and Android 10+)
+adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:false
 
 adb shell content insert --uri content://com.mobilerun.portal/sms/send \
   --bind phone_number:s:+15550001111 \

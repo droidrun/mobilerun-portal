@@ -8,4 +8,5 @@
     <exclude domain="sharedpref" path="mobilerun_device.xml"/>
     <exclude domain="sharedpref" path="mobilerun_secrets.xml"/>
     <exclude domain="sharedpref" path="mobilerun_sms.xml"/>
+    <exclude domain="sharedpref" path="mobilerun_audio.xml"/>
 </full-backup-content>

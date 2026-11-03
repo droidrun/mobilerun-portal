@@ -218,6 +218,9 @@
     <string name="install_unknown_apps_description">Allow installing APK files</string>
     <string name="unrestricted_battery_label">Unrestricted Battery</string>
     <string name="unrestricted_battery_description">Keep local servers reachable in the background</string>
+    <string name="device_audio_label">Device Audio</string>
+    <string name="device_audio_description">Stream media and game audio with the screen. Calls, notifications, ringtones, alarms, system sounds and apps that block capture stay silent.</string>
+    <string name="device_audio_unsupported">Requires Android 10+</string>
     <string name="sms_gateway_label">SMS Gateway</string>
     <string name="sms_gateway_description">Allow API clients to send and read SMS</string>
     <string name="sms_permission_send">Send</string>

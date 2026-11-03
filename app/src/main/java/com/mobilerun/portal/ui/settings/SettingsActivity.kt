@@ -52,6 +52,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private val portalCloudClient = PortalCloudClient()
     private var suppressSocketServerSwitchCallback = false
     private var suppressWebSocketSwitchCallback = false
+    private var suppressDeviceAudioSwitchCallback = false
     private var isInstallReceiverRegistered = false
     private var isSignatureConflictReceiverRegistered = false
 
@@ -104,6 +105,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         ActivityResultContracts.RequestPermission(),
     ) {
         updatePermissionSwitches()
+    }
+
+    private val requestRecordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { isGranted ->
+        configManager.deviceAudioEnabled = isGranted
+        updateDeviceAudioStatus()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -472,6 +480,16 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             }
             // Revert visual state until onResume confirms change
             binding.switchUnrestrictedBattery.isChecked = !binding.switchUnrestrictedBattery.isChecked
+        }
+
+        binding.switchDeviceAudio.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressDeviceAudioSwitchCallback) return@setOnCheckedChangeListener
+            when {
+                !isChecked -> configManager.deviceAudioEnabled = false
+                hasRecordAudioPermission() -> configManager.deviceAudioEnabled = true
+                // The result turns the flag on, or a denial turns the switch back off.
+                else -> requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
 
         binding.switchSmsGateway.setOnCheckedChangeListener { _, isChecked ->
@@ -980,8 +998,24 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         binding.switchUnrestrictedBattery.isChecked = isIgnoringBatteryOptimizations()
 
+        updateDeviceAudioStatus()
         updateSmsDiagnosticsStatus()
     }
+
+    // Playback capture needs Android 10+; the switch shows on only while the flag and permission are both set.
+    private fun updateDeviceAudioStatus() {
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        binding.switchDeviceAudio.isEnabled = supported
+        binding.textDeviceAudioDescription.setText(
+            if (supported) R.string.device_audio_description else R.string.device_audio_unsupported,
+        )
+        suppressDeviceAudioSwitchCallback = true
+        binding.switchDeviceAudio.isChecked = supported && configManager.deviceAudioEnabled && hasRecordAudioPermission()
+        suppressDeviceAudioSwitchCallback = false
+    }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun isIgnoringBatteryOptimizations(): Boolean =
         getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
@@ -1058,6 +1092,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onSmsGatewayEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             binding.switchSmsGateway.isChecked = enabled
+        }
+    }
+
+    override fun onDeviceAudioEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateDeviceAudioStatus()
         }
     }
 

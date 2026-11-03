@@ -530,6 +530,61 @@ class MobilerunContentProviderTest {
     }
 
     @Test
+    fun handleDeviceAudioInsert_setsFlagAndReportsMissingPermission() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val values = mockk<ContentValues>()
+
+        every { values.getAsBoolean("enabled") } returns true
+        assertEquals(
+            ApiResponse.Success("Device audio set to true"),
+            handleDeviceAudioInsert(configManager, values, permissionGranted = true, supported = true),
+        )
+        assertEquals(
+            ApiResponse.Success("Device audio set to true; RECORD_AUDIO permission is missing"),
+            handleDeviceAudioInsert(configManager, values, permissionGranted = false, supported = true),
+        )
+        assertEquals(
+            ApiResponse.Success("Device audio set to true; device audio needs Android 10+"),
+            handleDeviceAudioInsert(configManager, values, permissionGranted = true, supported = false),
+        )
+        every { values.getAsBoolean("enabled") } returns false
+        assertEquals(
+            ApiResponse.Success("Device audio set to false"),
+            handleDeviceAudioInsert(configManager, values, permissionGranted = false, supported = true),
+        )
+
+        verifySequence {
+            configManager.deviceAudioEnabled = true
+            configManager.deviceAudioEnabled = true
+            configManager.deviceAudioEnabled = true
+            configManager.deviceAudioEnabled = false
+        }
+    }
+
+    @Test
+    fun handleDeviceAudioInsert_rejectsMissingEnabled() {
+        val configManager = mockk<ConfigManager>(relaxed = true)
+
+        assertEquals(
+            ApiResponse.Error("Missing required field: enabled"),
+            handleDeviceAudioInsert(configManager, null, permissionGranted = true, supported = true),
+        )
+        verify(exactly = 0) { configManager.deviceAudioEnabled = any() }
+    }
+
+    @Test
+    fun buildDeviceAudioStatus_reportsFlagPermissionAndSupport() {
+        val configManager = mockk<ConfigManager>()
+        every { configManager.deviceAudioEnabled } returns true
+
+        val json = (buildDeviceAudioStatus(configManager, permissionGranted = false, supported = true) as ApiResponse.RawObject).json
+
+        assertTrue(json.getBoolean("enabled"))
+        assertFalse(json.getBoolean("permissionGranted"))
+        assertTrue(json.getBoolean("supported"))
+    }
+
+    @Test
     fun handleReconnectAfterRestartInsert_enablesWithCredentials() {
         val configManager = mockk<ConfigManager>(relaxed = true)
         val values = mockk<ContentValues>()
