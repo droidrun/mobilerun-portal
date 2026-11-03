@@ -14,16 +14,20 @@ import java.util.concurrent.locks.LockSupport
 import org.webrtc.audio.JavaAudioDeviceModule
 
 // Overwrites WebRTC's 10 ms record buffers with playback capture from the stream's MediaProjection.
-// Without a projection or on any failure the buffers stay silent; the microphone is never used.
+// Without a projection or after a failure the buffers stay silent and setup is retried every
+// RETRY_INTERVAL_NS, so a RECORD_AUDIO grant mid-stream starts audio; the microphone is never used.
 @RequiresApi(29)
 class PlaybackAudioFeeder(
     private val isEnabled: () -> Boolean = { true },
+    private val hasPermission: () -> Boolean = { true },
+    private val nowNs: () -> Long = System::nanoTime,
 ) : JavaAudioDeviceModule.AudioBufferCallback {
 
     companion object {
         private const val TAG = "PlaybackAudioFeeder"
         private const val BUFFER_INTERVAL_NS = 10_000_000L
         private const val PACE_RESYNC_NS = 50_000_000L
+        internal const val RETRY_INTERVAL_NS = 2_000_000_000L
 
         // Next 10 ms tick for silent buffers; resyncs to now after a stall instead of bursting.
         internal fun nextPaceDeadlineNs(nowNs: Long, previousDeadlineNs: Long): Long {
@@ -45,7 +49,8 @@ class PlaybackAudioFeeder(
     private var recordProjection: MediaProjection? = null
     private var recordFormat = 0L
     private var readBuffer: ByteBuffer? = null
-    private var failed = false
+    private var retryAtNs = 0L
+    private var failing = false
 
     // Audio thread only.
     private var zeros = ByteArray(0)
@@ -55,7 +60,7 @@ class PlaybackAudioFeeder(
         synchronized(lock) {
             if (projection === mediaProjection) return
             projection = mediaProjection
-            failed = false
+            failing = false
             stopRecordLocked()
         }
     }
@@ -68,10 +73,10 @@ class PlaybackAudioFeeder(
         }
     }
 
-    // Also clears the failure latch, so the next recording start retries playback capture once.
+    // Also clears the retry backoff, so the next recording start tries playback capture at once.
     fun releaseNow() {
         synchronized(lock) {
-            failed = false
+            failing = false
             closeLocked()
         }
     }
@@ -134,7 +139,12 @@ class PlaybackAudioFeeder(
             if (enabled && current != null && current === recordProjection && format == recordFormat) return it
             closeLocked()
         }
-        if (!enabled || current == null || failed) return null
+        if (!enabled || current == null) return null
+        if (failing && nowNs() - retryAtNs < 0) return null
+        if (!hasPermission()) {
+            failLocked("Record audio not granted")
+            return null
+        }
         return try {
             val mask = if (channelCount == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
             val config =
@@ -165,6 +175,7 @@ class PlaybackAudioFeeder(
             recordProjection = current
             recordFormat = format
             readBuffer = ByteBuffer.allocateDirect(capacity).order(ByteOrder.nativeOrder())
+            failing = false
             Log.i(TAG, "Playback capture started: ${sampleRate}Hz channels=$channelCount")
             created
         } catch (t: Throwable) {
@@ -173,9 +184,11 @@ class PlaybackAudioFeeder(
         }
     }
 
+    // Logs only the first failure of a streak; the next setup waits RETRY_INTERVAL_NS.
     private fun failLocked(reason: String) {
-        if (!failed) Log.w(TAG, "Playback capture unavailable, sending silence: $reason")
-        failed = true
+        if (!failing) Log.w(TAG, "Playback capture unavailable, sending silence and retrying: $reason")
+        failing = true
+        retryAtNs = nowNs() + RETRY_INTERVAL_NS
         closeLocked()
     }
 

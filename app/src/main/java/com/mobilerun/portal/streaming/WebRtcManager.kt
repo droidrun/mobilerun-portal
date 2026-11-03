@@ -175,13 +175,13 @@ class WebRtcManager private constructor(private val context: Context) {
             hasPublishedSession: Boolean,
         ): Boolean = expectedToken == currentToken && expectedCapture === currentCapture && !hasPublishedSession
 
-        // Device audio is opt-in: the Settings switch, RECORD_AUDIO and playback capture (API 29+), stream mode only.
+        // Device audio needs the Settings switch, playback capture (API 29+) and stream mode.
+        // RECORD_AUDIO is not required here: the feeder sends silence until it is granted.
         internal fun deviceAudioAllowed(
             sdk: Int,
             flagEnabled: Boolean,
-            permissionGranted: Boolean,
             streamMode: Boolean,
-        ): Boolean = sdk >= Build.VERSION_CODES.Q && flagEnabled && permissionGranted && streamMode
+        ): Boolean = sdk >= Build.VERSION_CODES.Q && flagEnabled && streamMode
 
         // Mid of the first offered audio section the Portal can send into ("" if it has no a=mid), else null.
         internal fun offerSendableAudioMid(sdp: String): String? {
@@ -654,7 +654,12 @@ class WebRtcManager private constructor(private val context: Context) {
     private val playbackAudioFeeder: PlaybackAudioFeeder? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val config = ConfigManager.getInstance(context)
-            PlaybackAudioFeeder { config.deviceAudioEnabled }
+            PlaybackAudioFeeder(
+                isEnabled = { config.deviceAudioEnabled },
+                hasPermission = {
+                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                },
+            )
         } else {
             null
         }
@@ -1127,8 +1132,6 @@ class WebRtcManager private constructor(private val context: Context) {
             deviceAudioAllowed(
                 sdk = Build.VERSION.SDK_INT,
                 flagEnabled = ConfigManager.getInstance(context).deviceAudioEnabled,
-                permissionGranted =
-                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
                 streamMode = synchronized(streamLock) { captureSessionMode == CaptureSessionMode.STREAM },
             )
 

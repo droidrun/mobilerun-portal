@@ -1,11 +1,14 @@
 package com.mobilerun.portal.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.util.Log
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.CaptureSizing
 import com.mobilerun.portal.service.MediaProjectionScreenshotter
@@ -22,6 +25,7 @@ class ScreenCaptureActivity : Activity() {
 
     companion object {
         private const val REQUEST_CODE_CAPTURE_PERM = 1001
+        private const val REQUEST_CODE_RECORD_AUDIO = 1002
         private const val TAG = "ScreenCaptureActivity"
 
         const val EXTRA_MODE = "mode"
@@ -33,6 +37,7 @@ class ScreenCaptureActivity : Activity() {
     }
 
     private lateinit var mediaProjectionManager: MediaProjectionManager
+    private var recordAudioRequestPending = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,16 +84,47 @@ class ScreenCaptureActivity : Activity() {
                     putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, intent.getBooleanExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, false))
                 }
                 startForegroundService(serviceIntent)
+                // Asked after the stream has started, so the answer never delays it; audio follows a grant.
+                if (DeviceAudioPermissionPrompt.claimRequest(this)) {
+                    recordAudioRequestPending = true
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_RECORD_AUDIO)
+                }
             } else {
                 Log.e(TAG, "MediaProjection permission denied")
                 // Notify cloud of permission denial
                 notifyPermissionDenied()
             }
 
-            finish()
+            if (!recordAudioRequestPending) finish()
         } else {
             super.onActivityResult(requestCode, resultCode, data)
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            recordAudioRequestPending = false
+            AutoAcceptGate.disarmRecordAudio()
+            finish()
+        } else {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        }
+    }
+
+    override fun onDestroy() {
+        // Closed before the Record audio answer: disarm, and let a later moment ask again.
+        if (recordAudioRequestPending) {
+            recordAudioRequestPending = false
+            AutoAcceptGate.disarmRecordAudio()
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ConfigManager.getInstance(this).deviceAudioPermissionPrompted = false
+            }
+        }
+        super.onDestroy()
     }
     
     private fun notifyPermissionDenied() {

@@ -214,6 +214,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastWebSocketServerToastAtMs = 0L
     private var lastAutoAcceptFailureToastAtMs = 0L
+    private val portalAppLabel by lazy { packageManager.getApplicationLabel(applicationInfo).toString() }
 
     // Servers
     // TODO Make nullable
@@ -355,6 +356,21 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                     if (result is MediaProjectionAutoAccept.AutoAcceptResult.Failed) {
                         showAutoAcceptFailedToastIfEnoughTimeIsPassed()
                     }
+                } finally {
+                    rootNode.recycle()
+                }
+            }
+        }
+
+        // Auto-accept Portal's own Record audio prompt (same setting as screen share)
+        if (RecordAudioAutoAccept.isPermissionDialog(event, eventClassName) &&
+            configManager.screenShareAutoAcceptEnabled &&
+            AutoAcceptGate.isRecordAudioArmed()
+        ) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                try {
+                    RecordAudioAutoAccept.tryAutoAccept(rootNode, portalAppLabel)
                 } finally {
                     rootNode.recycle()
                 }

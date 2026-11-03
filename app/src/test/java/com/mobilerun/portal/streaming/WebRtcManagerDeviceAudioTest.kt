@@ -8,9 +8,8 @@ class WebRtcManagerDeviceAudioTest {
     private fun allowed(
         sdk: Int = 29,
         flagEnabled: Boolean = true,
-        permissionGranted: Boolean = true,
         streamMode: Boolean = true,
-    ) = WebRtcManager.deviceAudioAllowed(sdk, flagEnabled, permissionGranted, streamMode)
+    ) = WebRtcManager.deviceAudioAllowed(sdk, flagEnabled, streamMode)
 
     @Test
     fun deviceAudioAllowed_needsEveryCondition() {
@@ -19,13 +18,12 @@ class WebRtcManagerDeviceAudioTest {
     }
 
     @Test
-    fun deviceAudioAllowed_permissionAloneIsNotConsent() {
+    fun deviceAudioAllowed_needsTheSettingsSwitch() {
         assertFalse(allowed(flagEnabled = false))
     }
 
     @Test
-    fun deviceAudioAllowed_rejectsMissingPermissionOldSdkAndNonStreamCapture() {
-        assertFalse(allowed(permissionGranted = false))
+    fun deviceAudioAllowed_rejectsOldSdkAndNonStreamCapture() {
         assertFalse(allowed(sdk = 28))
         assertFalse(allowed(streamMode = false))
     }

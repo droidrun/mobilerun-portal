@@ -59,6 +59,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
         private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
         private const val KEY_DEVICE_AUDIO_ENABLED = "device_audio_enabled"
+        private const val KEY_DEVICE_AUDIO_PERMISSION_PROMPTED = "device_audio_permission_prompted"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
             "keep_alive_last_recovery_attempt_at_ms"
@@ -539,6 +540,13 @@ class ConfigManager private constructor(private val context: Context) {
             if (deviceAudioEnabled == value) return
             audioPrefs.edit { putBoolean(KEY_DEVICE_AUDIO_ENABLED, value) }
             listeners.forEach { it.onDeviceAudioEnabledChanged(value) }
+        }
+
+    // Set once Portal has asked for RECORD_AUDIO on its own; the Settings switch can still ask.
+    var deviceAudioPermissionPrompted: Boolean
+        get() = audioPrefs.getBoolean(KEY_DEVICE_AUDIO_PERMISSION_PROMPTED, false)
+        set(value) {
+            audioPrefs.edit { putBoolean(KEY_DEVICE_AUDIO_PERMISSION_PROMPTED, value) }
         }
 
     var keepAliveLastRecoveryAtMs: Long

@@ -298,7 +298,7 @@ adb shell content insert --uri content://com.mobilerun.portal/cloud/reconnect_af
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/sms/gateway --bind enabled:b:false
 
-# Stream media audio with the screen (default on; also needs RECORD_AUDIO and Android 10+)
+# Stream media audio with the screen (default on, Android 10+; silent until RECORD_AUDIO is granted)
 adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:true
 adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:false
 
