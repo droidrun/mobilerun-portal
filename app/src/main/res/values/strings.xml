@@ -188,6 +188,9 @@
     <string name="local_connection_service_text">WebSocket server is ready for local tasks</string>
     <string name="disable_ws_server_action">Disable WS Server</string>
     <string name="reverse_connection_disconnect_action">Disconnect</string>
+    <string name="reverse_connection_alert_channel">Connection alerts</string>
+    <string name="reverse_connection_gave_up_title">Disconnected from Mobilerun</string>
+    <string name="reverse_connection_gave_up_text">Couldn’t reach Mobilerun. Open Portal to reconnect.</string>
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
