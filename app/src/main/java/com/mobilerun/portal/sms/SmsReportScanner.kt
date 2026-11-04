@@ -44,7 +44,8 @@ interface SmsReportRowSource {
  * Finds provider rows to report as sms/received. in = inbox rows; out = sent rows the owner sent
  * from another app (never the Portal's own). New rows are those past the watermark; when the
  * watermark row is gone or its date changed (_id reuse), rows dated from watermarkDate - 5 min
- * are read instead and already reported ids are skipped.
+ * are read instead and already reported ids are skipped. Rows dated before coveredFrom (the
+ * moment cloud SMS was turned on) are never reported.
  */
 class SmsReportScanner(
     private val rows: SmsReportRowSource,
@@ -58,10 +59,9 @@ class SmsReportScanner(
         now: Long,
     ): SmsScanResult {
         val reports = LinkedHashMap<String, SmsReportCandidate>()
-        val floor = state.coveredFrom - SLACK_MS
 
         fun eligible(row: SmsProviderRow, direction: String): Boolean =
-            row.date >= floor &&
+            row.date >= state.coveredFrom &&
                 (subscriptionFilter == null || row.subscriptionId == subscriptionFilter) &&
                 (direction == SmsBridgeListParams.DIRECTION_IN || (row.creator != packageName && row !in ownSends))
 

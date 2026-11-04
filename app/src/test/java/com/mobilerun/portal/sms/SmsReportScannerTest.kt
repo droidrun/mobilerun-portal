@@ -75,14 +75,36 @@ class SmsReportScannerTest {
     @Test
     fun restoreFlood_datedBeforeCoveredFrom_isSkippedButWatermarkMoves() {
         val state = seeded(coveredFrom = NOW)
-        val old = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - SmsReportScanner.SLACK_MS - 1)
-        val slack = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - SmsReportScanner.SLACK_MS)
+        provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - SmsReportScanner.SLACK_MS - 1)
+        provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - 1)
+        val fresh = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW)
 
         val result = scan(state)
 
-        assertEquals(listOf(slack.messageId), result.ids())
-        assertTrue(old.messageId !in result.ids())
-        assertEquals(slack.id, result.state.inbound.id)
+        assertEquals(listOf(fresh.messageId), result.ids())
+        assertEquals(fresh.id, result.state.inbound.id)
+    }
+
+    @Test
+    fun watermarkRowGone_rowsDatedBeforeCoveredFromInTheWindow_areNeverReported() {
+        provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - 2 * 60_000)
+        provider.add(SmsProviderRow.TYPE_SENT, date = NOW - 90_000)
+        val outbox = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW - 75_000)
+        val newest = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - 60_000)
+        val state = seeded(coveredFrom = NOW)
+
+        // The owner deletes the newest thread; the next SMS reuses its _id.
+        provider.remove(newest.id)
+        val arrived = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 60_000)
+        assertEquals(newest.id, arrived.id)
+
+        val result = scan(state)
+        assertEquals(listOf(arrived.messageId), result.ids())
+        assertTrue(result.state.recheck.isEmpty())
+
+        provider.update(outbox.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        val again = scan(result.state.copy(recheck = listOf(SmsRecheck(outbox.id, NOW))))
+        assertTrue(again.reports.isEmpty())
     }
 
     @Test
