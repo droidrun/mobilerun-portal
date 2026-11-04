@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.PermissionChecker
 import com.mobilerun.portal.config.ConfigManager
 
 /** Turns Mobilerun cloud SMS on and off. Enabling never backfills: watermarks start at the newest row. */
@@ -98,15 +99,16 @@ object SmsCloud {
         }
 }
 
+/** The permission and its app-op: a soft-denied op leaves it granted, but the SMS provider then reads empty. */
+internal fun isGranted(context: Context, permission: String): Boolean =
+    PermissionChecker.checkSelfPermission(context, permission) == PermissionChecker.PERMISSION_GRANTED
+
 /** The relay SMS bridge handlers wired to the device. */
 fun smsBridgeApiFor(context: Context): SmsBridgeApi {
     val appContext = context.applicationContext
     val config = ConfigManager.getInstance(appContext)
     val resolver = SmsSubscriptionResolver(appContext)
-    val granted = { permission: String ->
-        androidx.core.content.ContextCompat.checkSelfPermission(appContext, permission) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-    }
+    val granted = { permission: String -> isGranted(appContext, permission) }
     return SmsBridgeApi(
         cloudEnabled = { config.smsCloudEnabled },
         cloudSubscriptionId = { config.cloudSubscriptionId },

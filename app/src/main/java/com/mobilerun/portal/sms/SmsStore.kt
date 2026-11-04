@@ -3,13 +3,11 @@ package com.mobilerun.portal.sms
 import android.Manifest
 import android.content.ContentValues
 import android.content.Context
-import android.content.pm.PackageManager
 import android.database.Cursor
 import android.database.DatabaseUtils
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
-import androidx.core.content.ContextCompat
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -394,8 +392,7 @@ class SmsStore private constructor(
         }
     }
 
-    private fun hasReadSms(): Boolean =
-        ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+    private fun hasReadSms(): Boolean = isGranted(appContext, Manifest.permission.READ_SMS)
 
     // --- locked helpers (store thread only) ---
 

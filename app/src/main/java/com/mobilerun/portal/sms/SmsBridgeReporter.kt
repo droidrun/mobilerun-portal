@@ -2,11 +2,9 @@ package com.mobilerun.portal.sms
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.provider.Telephony
 import android.util.Log
-import androidx.core.content.ContextCompat
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ReverseRpcResult
@@ -102,8 +100,7 @@ object SmsBridgeReporter {
         return SmsCancellable { resolver.unregisterContentObserver(created) }
     }
 
-    private fun hasReadSms(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+    private fun hasReadSms(context: Context): Boolean = isGranted(context, Manifest.permission.READ_SMS)
 
     private class SwitchListener : ConfigManager.ConfigChangeListener {
         override fun onSmsCloudEnabledChanged(enabled: Boolean) {
