@@ -260,6 +260,17 @@ class SmsBridgeApiTest {
     }
 
     @Test
+    fun implicitSingleSim_hidesRowsOfOtherSubscriptions() {
+        // No cloud SIM chosen; SIM A is the only active one and a removed SIM's rows remain.
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 100, subscriptionId = 2)
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 200, subscriptionId = 1)
+
+        assertEquals(listOf("2-200"), ids(api.handle("sms/list", JSONObject())))
+        assertEquals("sms: not_found", error(api.handle("sms/get", JSONObject().put("id", "1-100"))))
+        assertEquals("2-200", ok(api.handle("sms/get", JSONObject().put("id", "2-200"))).getString("id"))
+    }
+
+    @Test
     fun noActiveSim_blocksListAndGet() {
         subscriptions = SmsSubscriptionsResult.Available(emptyList())
         provider.add(SmsProviderRow.TYPE_INBOX, date = 100, subscriptionId = 1)

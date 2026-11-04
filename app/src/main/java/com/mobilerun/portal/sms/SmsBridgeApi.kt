@@ -104,7 +104,7 @@ class SmsBridgeApi(
         val (providerId, date) = SmsMessageIds.parse(id) ?: refuse(SmsBridgeError.NOT_FOUND_ERROR)
         val row = provider.get(providerId)
             ?.takeIf { it.date == date }
-            ?.takeIf { scope.filterSubscriptionId == null || it.subscriptionId == scope.filterSubscriptionId }
+            ?.takeIf { it.subscriptionId == scope.filterSubscriptionId }
             ?: refuse(SmsBridgeError.NOT_FOUND_ERROR)
         val message = row.toBridgeMessage(scope.phoneNumbers) ?: refuse(SmsBridgeError.NOT_FOUND_ERROR)
         return SmsBridgeResult.Ok(message)
@@ -209,20 +209,20 @@ class SmsBridgeApi(
     }
 
     private class SimScope(
-        val filterSubscriptionId: Int?,
+        val filterSubscriptionId: Int,
         val visible: List<SmsSimInfo>,
     ) {
         val phoneNumbers: Map<Int, String> =
             visible.mapNotNull { sim -> sim.phoneNumber?.let { sim.subscriptionId to it } }.toMap()
     }
 
-    /** Only the covered SIM is exposed; a chosen cloud SIM always filters rows, whatever the SIM count. */
+    /** Only the covered SIM is exposed, and only its rows, whether it was chosen or is the only active SIM. */
     private fun simScope(): SimScope {
         val sims = activeSims()
         val cloudId = cloudSubscriptionId()
         val sim = SmsCloudSims.pick(sims, cloudId)
             ?: refuse(if (cloudId == null && sims.isEmpty()) SmsBridgeError.NO_SUBSCRIPTION else SmsBridgeError.NO_CLOUD_SIM)
-        return SimScope(filterSubscriptionId = cloudId, visible = listOf(sim))
+        return SimScope(filterSubscriptionId = sim.subscriptionId, visible = listOf(sim))
     }
 
     private fun activeSims(): List<SmsSimInfo> = when (val result = subscriptions()) {

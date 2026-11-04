@@ -507,7 +507,7 @@ class SmsReportScannerTest {
         val b = SmsSimInfo(subscriptionId = 2, simSlot = 1)
 
         assertEquals(
-            SmsReporterSims.Covered(null, mapOf(1 to "+15550001111")),
+            SmsReporterSims.Covered(1, mapOf(1 to "+15550001111")),
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a)), cloudSubscriptionId = null),
         )
         assertEquals(
@@ -524,6 +524,20 @@ class SmsReportScannerTest {
         )
         assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.PermissionDenied, 1))
         assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(emptyList()), null))
+    }
+
+    @Test
+    fun reporterSims_theOnlyActiveSimFiltersWithoutAChosenCloudSim() {
+        val state = seeded()
+        // A removed SIM's row, then the only active SIM's.
+        provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1, subscriptionId = 2)
+        val covered = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2, subscriptionId = 1)
+        val sims = SmsReporterSims.from(
+            SmsSubscriptionsResult.Available(listOf(SmsSimInfo(subscriptionId = 1, simSlot = 0))),
+            cloudSubscriptionId = null,
+        ) as SmsReporterSims.Covered
+
+        assertEquals(listOf(covered.messageId), scan(state, filter = sims.subscriptionFilter).ids())
     }
 
     @Test
