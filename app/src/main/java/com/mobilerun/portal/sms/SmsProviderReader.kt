@@ -21,6 +21,9 @@ class AndroidSmsProviderSource(
 
     override fun row(providerId: Long): SmsProviderRow? = get(providerId)
 
+    override fun rows(providerIds: Collection<Long>): List<SmsProviderRow> =
+        if (providerIds.isEmpty()) emptyList() else query("_id IN (${providerIds.joinToString(",")})", null, sortOrder = null)
+
     override fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow> =
         query(
             "type IN (${types.joinToString(",")}) AND _id > ?",

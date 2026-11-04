@@ -423,6 +423,19 @@ class SmsReportScannerTest {
     }
 
     @Test
+    fun out_recheckList_isReadInOneQuery() {
+        val held = (0 until SmsReportScanner.MAX_RECHECKS).map { provider.add(SmsProviderRow.TYPE_FAILED, date = NOW + it) }
+        val state = seeded().copy(recheck = held.map { SmsRecheck(it.id, NOW) })
+        val reads = provider.queries + provider.rowReads
+
+        val result = scan(state, now = NOW + 1_000)
+
+        assertEquals(state.recheck, result.state.recheck)
+        // Watermark checks, the two _id pages and the recheck list.
+        assertEquals(reads + 5, provider.queries + provider.rowReads)
+    }
+
+    @Test
     fun out_failedRowRetriedOnTheSameRowIsReportedOnceSent() {
         val state = seeded()
         val outbox = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1)

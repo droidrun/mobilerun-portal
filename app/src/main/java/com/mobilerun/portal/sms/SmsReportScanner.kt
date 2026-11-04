@@ -48,6 +48,9 @@ interface SmsReportRowSource {
 
     fun row(providerId: Long): SmsProviderRow?
 
+    /** The rows with these _ids that still exist, in one read (none for no ids). */
+    fun rows(providerIds: Collection<Long>): List<SmsProviderRow>
+
     /** Rows of [types] with _id > [afterId], by _id ascending. */
     fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow>
 
@@ -104,8 +107,9 @@ class SmsReportScanner(
 
         val out = page(state.out, state.outRecovery, OUT_TYPES, MAX_ROWS_PER_SCAN - inbound.rows.size, now)
         val recheck = LinkedHashMap<Long, SmsRecheck>()
+        val current = rows.rows(state.recheck.map { it.providerId }).associateBy { it.id }
         for (entry in state.recheck) {
-            val row = rows.row(entry.providerId)
+            val row = current[entry.providerId]
             when {
                 row == null -> Unit
                 row.type == SmsProviderRow.TYPE_SENT -> {

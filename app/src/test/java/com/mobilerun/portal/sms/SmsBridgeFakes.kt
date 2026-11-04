@@ -9,6 +9,8 @@ class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
     var queries = 0
     /** The next N rowsAfterId reads throw, like a transient provider failure. */
     var failReads = 0
+    /** Single-row reads by _id. */
+    var rowReads = 0
 
     fun add(
         type: Int,
@@ -63,7 +65,17 @@ class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
 
     override fun get(providerId: Long): SmsProviderRow? = rows.firstOrNull { it.id == providerId }
 
-    override fun row(providerId: Long): SmsProviderRow? = get(providerId)
+    override fun row(providerId: Long): SmsProviderRow? {
+        rowReads += 1
+        return get(providerId)
+    }
+
+    override fun rows(providerIds: Collection<Long>): List<SmsProviderRow> {
+        if (providerIds.isEmpty()) return emptyList()
+        queries += 1
+        val wanted = providerIds.toSet()
+        return rows.filter { it.id in wanted }
+    }
 
     override fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow> {
         queries += 1
