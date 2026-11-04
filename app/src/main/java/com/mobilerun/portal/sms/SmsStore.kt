@@ -359,7 +359,7 @@ class SmsStore private constructor(
                 source.ownSends(appContext.packageName, since, after, limit)
             }
         } else {
-            emptyList()
+            null
         }
         var retryAt: Long? = null
         candidates.forEach { record ->

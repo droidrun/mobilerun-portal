@@ -81,6 +81,16 @@ class SmsStorePolicyTest {
     }
 
     @Test
+    fun recovery_withoutReadSms_waitsInsteadOfFailing() {
+        val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
+
+        assertEquals(
+            SmsRecoveryDecision.Wait(100_000 + SmsStoreRetry.SLOW_RETRY_DELAY_MS),
+            SmsSendRecovery.decide(record, 100_000, 50_000, null, SmsOwnSends(), pkg),
+        )
+    }
+
+    @Test
     fun ownSends_aReusedIdNewerThanTheRecordIsNotOwn() {
         val own = SmsOwnSends(mapOf(9L to 2_000L))
 

@@ -153,13 +153,14 @@ object SmsSendRecovery {
     /**
      * A prepared record from an earlier process is checked against the provider once it is a minute
      * old: a Portal-created row to the same address, dated at or after the record, with the same body
-     * hash, resolves it; no such row fails it with RESULT_INTERRUPTED. Dispatched records never time out.
+     * hash, resolves it; no such row fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing)
+     * prove nothing, so it is checked again later. Dispatched records never time out.
      */
     fun decide(
         record: SmsSendRecord,
         now: Long,
         processStartedAt: Long,
-        rows: List<SmsProviderRow>,
+        rows: List<SmsProviderRow>?,
         ownSends: SmsOwnSends,
         packageName: String,
     ): SmsRecoveryDecision {
@@ -167,6 +168,7 @@ object SmsSendRecovery {
         if (now - record.createdAt < SmsStorePolicy.RECOVERY_GRACE_MS) {
             return SmsRecoveryDecision.Wait(record.createdAt + SmsStorePolicy.RECOVERY_GRACE_MS)
         }
+        if (rows == null) return SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
         val target = SmsPhoneNumbers.compactAddress(record.to)
         val match = rows
             .filter {
