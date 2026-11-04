@@ -462,6 +462,19 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun sendState_failedLoadOnOpen_isRetriedWithoutAReconnect() {
+        store.records["r"] = relayRecord("r", SmsSendState.SENT)
+        store.failUnreportedReads = 1
+
+        open()
+        assertTrue(calls.calls.isEmpty())
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        val call = calls.inFlight(SmsReporterCore.SEND_STATE).single()
+        assertEquals("r", call.params.getJSONObject("status").getString("id"))
+    }
+
+    @Test
     fun sendState_newerStateWhileInFlight_goesOutAfterwards() {
         open()
         core.onSendStateChanged(relayRecord("s", SmsSendState.SENT, updatedAt = 1))

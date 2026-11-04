@@ -79,6 +79,7 @@ class SmsReporterCore(
     private var drainTask: SmsCancellable? = null
     private var drainAt = Long.MAX_VALUE
     private var stateTask: SmsCancellable? = null
+    private var loadTask: SmsCancellable? = null
     private val inFlight = HashSet<String>()
 
     private data class StateItem(
@@ -122,6 +123,8 @@ class SmsReporterCore(
         drainAt = Long.MAX_VALUE
         stateTask?.cancel()
         stateTask = null
+        loadTask?.cancel()
+        loadTask = null
     }
 
     fun onCloudSwitchChanged(enabled: Boolean) = post {
@@ -297,10 +300,23 @@ class SmsReporterCore(
     // --- sms/sendState ---
 
     private fun loadStates() {
+        loadTask?.cancel()
+        loadTask = null
         val unreported = try {
             store.unreportedRelayRecords()
         } catch (e: Exception) {
             log("send records read failed (${e.javaClass.simpleName})")
+            if (online()) {
+                loadTask = scheduler.schedule(BLOCKED_RETRY_MS) {
+                    guarded {
+                        loadTask = null
+                        if (online()) {
+                            loadStates()
+                            drainStates()
+                        }
+                    }
+                }
+            }
             return
         }
         val now = clock()
