@@ -97,6 +97,9 @@ class FakeReporterStore : SmsReporterStore {
     var failUnreportedReads = 0
     var failPendingWrites = 0
 
+    /** Queue writes of these msg ids throw until removed. */
+    val failWritesFor = mutableSetOf<String>()
+
     private fun failIf(count: Int, decrement: () -> Unit) {
         if (count > 0) {
             decrement()
@@ -141,11 +144,13 @@ class FakeReporterStore : SmsReporterStore {
 
     override fun updatePending(report: SmsPendingReport) {
         failIf(failPendingWrites) { failPendingWrites -= 1 }
+        check(report.msgId !in failWritesFor) { "store unavailable" }
         if (pending.containsKey(report.msgId)) pending[report.msgId] = report
     }
 
     override fun deletePending(msgId: String) {
         failIf(failPendingWrites) { failPendingWrites -= 1 }
+        check(msgId !in failWritesFor) { "store unavailable" }
         pending.remove(msgId)
     }
 

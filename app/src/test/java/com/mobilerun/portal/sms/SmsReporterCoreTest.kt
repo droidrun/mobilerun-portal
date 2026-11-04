@@ -354,6 +354,60 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun deleteFailureAfterOk_neverSendsTheReportAgain() {
+        val row = inbox()
+        open()
+
+        store.failWritesFor += row.messageId
+        calls.completeAll(SmsReporterCore.RECEIVED, SmsReportOutcome.Ok)
+        time.advanceBy(10 * SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(listOf(row.messageId), calls.receivedIds())
+
+        store.failWritesFor.clear()
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertTrue(store.pending.isEmpty())
+        assertEquals(listOf(row.messageId), calls.receivedIds())
+    }
+
+    @Test
+    fun deleteFailure_keepsTheReportOutOfOtherDrains() {
+        val a = inbox()
+        val b = inbox()
+        open()
+        val (callA, callB) = calls.inFlight()
+
+        store.failWritesFor += a.messageId
+        calls.complete(callA, SmsReportOutcome.Ok)
+        calls.complete(callB, SmsReportOutcome.Ok)
+        time.runDue()
+        val c = inbox()
+        scanned()
+
+        assertEquals(listOf(a.messageId, b.messageId, c.messageId), calls.receivedIds())
+    }
+
+    @Test
+    fun updateFailureOnRetry_keepsTheBackoffAndTheAttemptCount() {
+        val row = inbox()
+        open()
+        val error = SmsReportOutcome.Error("sms: device_side_failure: forward failed")
+
+        store.failWritesFor += row.messageId
+        calls.completeAll(SmsReporterCore.RECEIVED, error)
+        time.advanceBy(1_999L)
+        assertEquals(1, calls.calls.size)
+        time.advanceBy(1L)
+        assertEquals(2, calls.calls.size)
+
+        // The second error counts: the next backoff is 5 s.
+        calls.completeAll(SmsReporterCore.RECEIVED, error)
+        time.advanceBy(4_999L)
+        assertEquals(2, calls.calls.size)
+        time.advanceBy(1L)
+        assertEquals(3, calls.calls.size)
+    }
+
+    @Test
     fun errors_giveUpAfter24h() {
         inbox()
         open()

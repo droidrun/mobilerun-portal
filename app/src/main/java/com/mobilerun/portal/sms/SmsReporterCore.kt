@@ -82,6 +82,9 @@ class SmsReporterCore(
     private var loadTask: SmsCancellable? = null
     private val inFlight = HashSet<String>()
 
+    /** Queue writes that failed, tried again on each drain: the report to save, or null to delete it. */
+    private val unsaved = HashMap<String, SmsPendingReport?>()
+
     private data class StateItem(
         val record: SmsSendRecord,
         val attempts: Int = 0,
@@ -205,9 +208,12 @@ class SmsReporterCore(
         if (!online() || !active()) return
         val free = MAX_IN_FLIGHT - inFlight.size
         if (free <= 0) return
+        retryUnsaved()
         val now = clock()
+        // Until its write lands, a finished report stays out and a retried one keeps its backoff and count.
+        val held = unsaved.filterValues { it == null || it.nextAttemptAt > now }.keys
         val due = try {
-            store.duePending(now, free, inFlight.toSet())
+            store.duePending(now, free, inFlight + held).map { unsaved[it.msgId] ?: it }
         } catch (e: Exception) {
             log("pending read failed (${e.javaClass.simpleName})")
             scheduleDrain(now + BLOCKED_RETRY_MS)
@@ -219,24 +225,18 @@ class SmsReporterCore(
                 scheduleDrain(now + BLOCKED_RETRY_MS)
                 return
             }
-            var written = true
-            due.forEach { if (!send(it, covered, now)) written = false }
-            // A report whose queue write failed is still due: retry later, not at once.
-            if (!written) {
-                scheduleDrain(now + BLOCKED_RETRY_MS)
-                return
-            }
+            due.forEach { send(it, covered, now) }
         }
         scheduleNextDrain()
     }
 
-    /** False when the queue write failed. */
-    private fun send(report: SmsPendingReport, covered: SmsReporterSims.Covered, now: Long): Boolean {
+    private fun send(report: SmsPendingReport, covered: SmsReporterSims.Covered, now: Long) {
         val row = try {
             rows.row(report.providerId)
         } catch (e: Exception) {
             log("row read failed (${e.javaClass.simpleName})")
-            return stored { store.updatePending(report.copy(nextAttemptAt = now + BLOCKED_RETRY_MS)) }
+            save(report.msgId, report.copy(nextAttemptAt = now + BLOCKED_RETRY_MS))
+            return
         }
         val message = row
             ?.takeIf { it.messageId == report.msgId }
@@ -244,52 +244,68 @@ class SmsReporterCore(
             ?.toBridgeMessage(covered.phoneNumbers)
             ?.takeIf { it.optString("direction") == report.direction }
         if (message == null) {
-            if (!stored { store.deletePending(report.msgId) }) return false
+            save(report.msgId, null)
             log("dropped SMS report ${report.msgId}: row gone")
-            return true
+            return
         }
         inFlight += report.msgId
         calls.call(RECEIVED, JSONObject().put("message", message)) { outcome ->
             post { onReceivedOutcome(report, outcome) }
         }
-        return true
     }
 
     private fun onReceivedOutcome(report: SmsPendingReport, outcome: SmsReportOutcome) {
         inFlight -= report.msgId
         val now = clock()
-        val written = when (val decision = SmsReportPolicy.apply(report, outcome, now)) {
-            is SmsReportDecision.Retry -> stored {
-                store.updatePending(
-                    report.copy(
-                        attempts = decision.attempts,
-                        unconfirmed = decision.unconfirmed,
-                        nextAttemptAt = decision.nextAttemptAt,
-                        lastError = decision.lastError,
-                    ),
-                )
-            }
+        when (val decision = SmsReportPolicy.apply(report, outcome, now)) {
+            is SmsReportDecision.Retry -> save(
+                report.msgId,
+                report.copy(
+                    attempts = decision.attempts,
+                    unconfirmed = decision.unconfirmed,
+                    nextAttemptAt = decision.nextAttemptAt,
+                    lastError = decision.lastError,
+                ),
+            )
             SmsReportDecision.Requeue -> {
                 if (online()) scheduleDrain(now + REQUEUE_DELAY_MS)
                 return
             }
             else -> {
                 describe(decision)?.let { log("SMS report ${report.msgId} $it") }
-                stored { store.deletePending(report.msgId) }
+                save(report.msgId, null)
             }
         }
-        if (written) drain() else scheduleDrain(now + BLOCKED_RETRY_MS)
+        drain()
     }
 
     private fun scheduleNextDrain() {
         if (inFlight.size >= MAX_IN_FLIGHT) return
-        val next = try {
-            store.nextPendingAt(inFlight.toSet())
+        val now = clock()
+        val queued = try {
+            store.nextPendingAt(inFlight + unsaved.keys)
         } catch (e: Exception) {
             log("pending read failed (${e.javaClass.simpleName})")
-            clock() + BLOCKED_RETRY_MS
-        } ?: return
+            now + BLOCKED_RETRY_MS
+        }
+        val held = unsaved.values.mapNotNull { it?.nextAttemptAt }.filter { it > now }.minOrNull()
+        val rewrite = if (unsaved.isEmpty()) null else now + BLOCKED_RETRY_MS
+        val next = listOfNotNull(queued, held, rewrite).minOrNull() ?: return
         scheduleDrain(next)
+    }
+
+    /** Saves [report], or deletes [msgId] when it is null; a failed write is kept in [unsaved]. */
+    private fun save(msgId: String, report: SmsPendingReport?): Boolean {
+        val written = stored { if (report == null) store.deletePending(msgId) else store.updatePending(report) }
+        if (written) unsaved.remove(msgId) else unsaved[msgId] = report
+        return written
+    }
+
+    /** Stops at the first write that fails again. */
+    private fun retryUnsaved() {
+        for ((msgId, report) in unsaved.toList()) {
+            if (!save(msgId, report)) return
+        }
     }
 
     private fun scheduleDrain(at: Long) {
