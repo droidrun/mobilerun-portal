@@ -165,6 +165,28 @@ class SmsStorePolicyTest {
         assertEquals(SmsStoreRetry.MAX_ATTEMPTS, runs)
     }
 
+    @Test
+    fun storeRetry_untilDone_keepsTryingSlowerAfterTheLastAttempt() {
+        val time = FakeReporterScheduler()
+        val retry = SmsStoreRetry(schedule = { delay, task -> time.scheduler.schedule(delay, task) })
+        var failures = SmsStoreRetry.MAX_ATTEMPTS + 2
+        var runs = 0
+
+        retry.run("recover", untilDone = true) {
+            runs += 1
+            if (failures-- > 0) throw IllegalStateException("provider unavailable")
+        }
+        time.advanceBy((SmsStoreRetry.MAX_ATTEMPTS - 1) * SmsStoreRetry.RETRY_DELAY_MS)
+        assertEquals(SmsStoreRetry.MAX_ATTEMPTS, runs)
+
+        time.advanceBy(SmsStoreRetry.SLOW_RETRY_DELAY_MS - 1)
+        assertEquals(SmsStoreRetry.MAX_ATTEMPTS, runs)
+        time.advanceBy(1 + 2 * SmsStoreRetry.SLOW_RETRY_DELAY_MS)
+        assertEquals(SmsStoreRetry.MAX_ATTEMPTS + 3, runs)
+        time.advanceBy(10 * SmsStoreRetry.SLOW_RETRY_DELAY_MS)
+        assertEquals(SmsStoreRetry.MAX_ATTEMPTS + 3, runs)
+    }
+
     private fun row(
         id: Long,
         type: Int,

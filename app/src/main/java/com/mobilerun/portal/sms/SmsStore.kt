@@ -72,8 +72,9 @@ class SmsStore private constructor(
     /** Records created before this instant were written by an earlier process. */
     val openedAt: Long = clock()
 
+    // Nothing else resolves an earlier process's prepared records, so recovery never gives up.
     init {
-        executor.execute { retry.run("recover") { recoverInterrupted() } }
+        executor.execute { retry.run("recover", untilDone = true) { recoverInterrupted() } }
     }
 
     private fun <T> call(block: (SQLiteDatabase) -> T): T {
@@ -378,7 +379,7 @@ class SmsStore private constructor(
         }
         retryAt?.let { at ->
             executor.schedule(
-                Runnable { retry.run("recover") { recoverInterrupted() } },
+                Runnable { retry.run("recover", untilDone = true) { recoverInterrupted() } },
                 (at - now).coerceAtLeast(0L) + 50L,
                 TimeUnit.MILLISECONDS,
             )

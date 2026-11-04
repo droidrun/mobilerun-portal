@@ -28,24 +28,28 @@ object SmsStorePolicy {
     }
 }
 
-/** Store work tried again after a failure: [MAX_ATTEMPTS] tries in all, [RETRY_DELAY_MS] apart. */
+/**
+ * Store work tried again after a failure: [MAX_ATTEMPTS] tries in all, [RETRY_DELAY_MS] apart. Work
+ * run [untilDone] keeps trying after that, [SLOW_RETRY_DELAY_MS] apart.
+ */
 class SmsStoreRetry(
     private val schedule: (delayMs: Long, task: () -> Unit) -> Unit,
     private val log: (String) -> Unit = {},
 ) {
-    fun run(name: String, block: () -> Unit) = attempt(name, 1, block)
+    fun run(name: String, untilDone: Boolean = false, block: () -> Unit) = attempt(name, 1, untilDone, block)
 
-    private fun attempt(name: String, attempt: Int, block: () -> Unit) {
+    private fun attempt(name: String, attempt: Int, untilDone: Boolean, block: () -> Unit) {
         try {
             block()
         } catch (e: Exception) {
-            if (attempt >= MAX_ATTEMPTS) {
+            if (attempt >= MAX_ATTEMPTS && !untilDone) {
                 log("$name failed (${e.javaClass.simpleName}), giving up")
                 return
             }
             log("$name failed (${e.javaClass.simpleName}), retrying")
+            val delay = if (attempt >= MAX_ATTEMPTS) SLOW_RETRY_DELAY_MS else RETRY_DELAY_MS
             try {
-                schedule(RETRY_DELAY_MS) { attempt(name, attempt + 1, block) }
+                schedule(delay) { attempt(name, minOf(attempt + 1, MAX_ATTEMPTS), untilDone, block) }
             } catch (_: Exception) {
                 log("$name retry not scheduled")
             }
@@ -55,6 +59,7 @@ class SmsStoreRetry(
     companion object {
         const val MAX_ATTEMPTS = 5
         const val RETRY_DELAY_MS = 30_000L
+        const val SLOW_RETRY_DELAY_MS = 5L * 60L * 1000L
     }
 }
 
