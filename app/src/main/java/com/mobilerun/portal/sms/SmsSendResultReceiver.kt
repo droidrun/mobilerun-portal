@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.provider.Telephony
 import android.telephony.SmsMessage
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.events.EventHub
@@ -22,6 +23,16 @@ internal fun smsDeliveryOutcome(status: Int?): SmsDeliveryOutcome {
         status < 0x20 -> SmsDeliveryOutcome.DELIVERED
         status >= 0x40 -> SmsDeliveryOutcome.PERMANENT_FAILURE
         else -> SmsDeliveryOutcome.TEMPORARY_FAILURE
+    }
+}
+
+/** A status report's TP-Status; a 3GPP2 one (error class << 24 | status << 16) is mapped onto it, as AOSP Messaging does. */
+internal fun smsDeliveryStatus(status: Int, format: String?): Int {
+    if (format != SmsMessage.FORMAT_3GPP2) return status
+    return when ((status shr 24) and 0x03) {
+        0 -> if (((status shr 16) and 0x3f) == 0x02) Telephony.Sms.STATUS_COMPLETE else Telephony.Sms.STATUS_PENDING
+        3 -> Telephony.Sms.STATUS_FAILED
+        else -> Telephony.Sms.STATUS_PENDING
     }
 }
 
@@ -124,8 +135,9 @@ class SmsSendResultReceiver : BroadcastReceiver() {
 
     private fun extractDeliveryStatus(intent: Intent): Int? {
         val pdu = intent.getByteArrayExtra("pdu") ?: return null
+        val format = intent.getStringExtra("format")
         return runCatching {
-            SmsMessage.createFromPdu(pdu, intent.getStringExtra("format")).status
+            smsDeliveryStatus(SmsMessage.createFromPdu(pdu, format).status, format)
         }.getOrNull()
     }
 
