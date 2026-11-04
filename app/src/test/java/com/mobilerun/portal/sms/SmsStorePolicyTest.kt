@@ -71,16 +71,110 @@ class SmsStorePolicyTest {
     }
 
     @Test
-    fun recovery_ignoresDispatchedAndCurrentProcessRecords() {
+    fun recovery_ignoresTerminalExpiredAndCurrentProcessRecords() {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
+        val dispatched = record.copy(phase = SmsSendPhase.DISPATCHED)
         assertEquals(
             SmsRecoveryDecision.None,
-            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.DISPATCHED), 1_000_000, UPTIME, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
+            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.TERMINAL), 1_000_000, UPTIME, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
         )
         assertEquals(
             SmsRecoveryDecision.None,
             SmsSendRecovery.decide(record.copy(instanceId = CURRENT), 1_000_000, UPTIME, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
         )
+        assertEquals(
+            SmsRecoveryDecision.None,
+            SmsSendRecovery.decide(dispatched.copy(instanceId = CURRENT), 1_000_000, UPTIME, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
+        )
+        val expired = 1_001 + SmsStorePolicy.RECORD_TTL_MS
+        assertEquals(
+            SmsRecoveryDecision.None,
+            SmsSendRecovery.decide(dispatched, expired, UPTIME, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
+        )
+    }
+
+    @Test
+    fun recovery_dispatchedRecordOfAnEarlierProcess_settlesFromItsRowButNeverFailsWithoutOne() {
+        // The sent callback's write was lost with the process.
+        val record = SmsSendRecordTest.record(parts = 2, createdAt = 1_000).copy(phase = SmsSendPhase.DISPATCHED)
+        val now = 100_000L
+        val decide = { rows: List<SmsProviderRow>? ->
+            SmsSendRecovery.decide(record, now, UPTIME, CURRENT, 1_000, rows, SmsOwnSends(), pkg)
+        }
+        val recheck = SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
+
+        val sent = decide(listOf(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000))) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.SENT, sent.record.state)
+        assertEquals(setOf(0, 1), sent.record.sentParts)
+        assertTrue(sent.record.isTerminal)
+        assertEquals(9L, sent.providerId)
+        assertNull(sent.recheckAt)
+
+        val failed = decide(listOf(row(id = 9, type = SmsProviderRow.TYPE_FAILED, date = 2_000))) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.FAILED, failed.record.state)
+        assertEquals("RESULT_ERROR_GENERIC_FAILURE", failed.record.errorCode)
+
+        // SmsManager took it: no row or a row still in the outbox is not a failure.
+        assertEquals(recheck, decide(emptyList()))
+        assertEquals(recheck, decide(listOf(row(id = 9, type = SmsProviderRow.TYPE_OUTBOX, date = 2_000))))
+        assertEquals(recheck, decide(null))
+    }
+
+    @Test
+    fun recovery_dispatchedRecordAwaitingDelivery_settlesFromItsOwnRowStatus() {
+        // The sent callback landed and claimed row 9; the delivered callback's write was lost.
+        val record = SmsSendRecordTest.record(parts = 1, deliveryReport = true, createdAt = 1_000).copy(
+            phase = SmsSendPhase.DISPATCHED,
+            state = SmsSendState.SENT,
+            sentParts = setOf(0),
+            messageUri = "content://sms/9",
+        )
+        val own = SmsOwnSends(mapOf(9L to 2_000L))
+        val now = 100_000L
+        val decide = { r: SmsSendRecord, status: Int? ->
+            val rows = listOf(
+                row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_500, status = 64),
+                row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, status = status),
+            )
+            SmsSendRecovery.decide(r, now, UPTIME, CURRENT, 1_000, rows, own, pkg)
+        }
+        val recheck = SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
+
+        val delivered = decide(record, 0) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.DELIVERED, delivered.record.state)
+        assertTrue(delivered.record.isTerminal)
+        assertEquals(9L, delivered.providerId)
+
+        val undelivered = decide(record, 64) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.FAILED, undelivered.record.state)
+        assertEquals("DELIVERY_FAILED", undelivered.record.errorCode)
+
+        assertEquals(recheck, decide(record, 32))
+        assertEquals(recheck, decide(record, -1))
+        assertEquals(recheck, decide(record, null))
+        // A multipart row holds the latest part's report only.
+        assertEquals(recheck, decide(record.copy(parts = 2, sentParts = setOf(0, 1)), 0))
+    }
+
+    @Test
+    fun recovery_sentButUndeliveredRecord_staysACandidateAndIsCheckedAgain() {
+        val record = SmsSendRecordTest.record(parts = 1, deliveryReport = true, createdAt = 1_000)
+        val now = 100_000L
+
+        val sent = SmsSendRecovery.decide(
+            record, now, UPTIME, CURRENT, 60_000, listOf(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, status = 32)),
+            SmsOwnSends(), pkg,
+        ) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.SENT, sent.record.state)
+        assertEquals(SmsSendPhase.DISPATCHED, sent.record.phase)
+        assertEquals(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS, sent.recheckAt)
+
+        // The next check finds its row although recovery listed it as the Portal's own.
+        val delivered = SmsSendRecovery.decide(
+            sent.record, now, UPTIME, CURRENT, 60_000, listOf(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, status = 0)),
+            SmsOwnSends(mapOf(9L to now)), pkg,
+        ) as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.DELIVERED, delivered.record.state)
     }
 
     @Test
@@ -198,6 +292,7 @@ class SmsStorePolicyTest {
         assertEquals(SmsSendPhase.DISPATCHED, outbox.record.phase)
         assertEquals(SmsSendState.PENDING, outbox.record.state)
         assertEquals(3L, outbox.providerId)
+        assertEquals(100_000 + SmsStoreRetry.SLOW_RETRY_DELAY_MS, outbox.recheckAt)
 
         val failed = SmsSendRecovery.decide(
             record, 100_000, UPTIME, CURRENT, 50_000, listOf(row(id = 4, type = SmsProviderRow.TYPE_FAILED, date = 2_000)), SmsOwnSends(), pkg,
@@ -333,5 +428,6 @@ class SmsStorePolicyTest {
         address: String = "+15550001111",
         body: String = "hello",
         creator: String = pkg,
-    ) = SmsProviderRow(id = id, type = type, address = address, body = body, date = date, creator = creator)
+        status: Int? = null,
+    ) = SmsProviderRow(id = id, type = type, address = address, body = body, date = date, creator = creator, status = status)
 }

@@ -363,13 +363,14 @@ class SmsStore private constructor(
 
     private fun recoverInterrupted() {
         val db = helper.writableDatabase
+        val now = clock()
         val candidates = db.query(
-            TABLE_RECORDS, null, "phase = ? AND instance_id != ?",
-            arrayOf(SmsSendPhase.PREPARED.wire, instanceId), null, null, "created_at ASC",
+            TABLE_RECORDS, null, "phase IN (?, ?) AND instance_id != ?",
+            arrayOf(SmsSendPhase.PREPARED.wire, SmsSendPhase.DISPATCHED.wire, instanceId), null, null, "created_at ASC",
         ).use { cursor -> generateSequence { if (cursor.moveToNext()) cursor.toRecord() else null }.toList() }
+            .filter { SmsSendRecovery.isCandidate(it, instanceId, now) }
         if (candidates.isEmpty()) return
 
-        val now = clock()
         val elapsedNow = SystemClock.elapsedRealtime()
         val sinceOpenMs = elapsedNow - openedElapsed
         var own = ownSendsLocked(db)
@@ -395,6 +396,7 @@ class SmsStore private constructor(
                     }
                     decision.providerId?.let { own = own.plus(it, clock()) }
                     if (decision.record.state != record.state) SmsBridgeSendStates.changed(decision.record)
+                    decision.recheckAt?.let { at -> retryAt = minOf(retryAt ?: at, at) }
                 }
                 SmsRecoveryDecision.None -> Unit
             }

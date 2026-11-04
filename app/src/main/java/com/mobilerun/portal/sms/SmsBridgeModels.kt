@@ -17,6 +17,8 @@ data class SmsProviderRow(
     val threadId: Long? = null,
     val subscriptionId: Int? = null,
     val creator: String? = null,
+    /** Delivery status of a sent row: -1 none, 0 complete, 32 pending, 64 failed. */
+    val status: Int? = null,
 ) {
     val messageId: String get() = SmsMessageIds.format(id, date)
 

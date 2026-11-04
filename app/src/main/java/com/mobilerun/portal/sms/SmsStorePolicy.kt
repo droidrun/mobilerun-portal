@@ -129,17 +129,25 @@ class SmsOwnSends(private val recordedAt: Map<Long, Long> = emptyMap()) {
 sealed class SmsRecoveryDecision {
     object None : SmsRecoveryDecision()
     data class Wait(val atMs: Long) : SmsRecoveryDecision()
-    data class Resolve(val record: SmsSendRecord, val providerId: Long?) : SmsRecoveryDecision()
+    /** [recheckAt]: the record is still unresolved and is checked again then. */
+    data class Resolve(val record: SmsSendRecord, val providerId: Long?, val recheckAt: Long? = null) : SmsRecoveryDecision()
 }
 
-/** Restart rules for relay sends that were persisted as prepared but never marked dispatched. */
+/** Restart rules for relay sends an earlier process left prepared or dispatched. */
 object SmsSendRecovery {
     private const val GENERIC_FAILURE = "RESULT_ERROR_GENERIC_FAILURE"
     const val PAGE_SIZE = 200
 
-    /** Prepared by an earlier process: no wall-clock comparison, which a clock set back would defeat. */
-    fun isCandidate(record: SmsSendRecord, instanceId: String): Boolean =
-        record.phase == SmsSendPhase.PREPARED && record.instanceId != instanceId
+    /**
+     * Left by an earlier process: prepared (no wall-clock comparison, which a clock set back would
+     * defeat), or dispatched, whose callback write may have been lost with it, up to the record TTL.
+     */
+    fun isCandidate(record: SmsSendRecord, instanceId: String, now: Long): Boolean =
+        record.instanceId != instanceId && when (record.phase) {
+            SmsSendPhase.PREPARED -> true
+            SmsSendPhase.DISPATCHED -> now - record.createdAt <= SmsStorePolicy.RECORD_TTL_MS
+            SmsSendPhase.TERMINAL -> false
+        }
 
     /**
      * Portal-created rows with the address and body hash of one of [candidates], read page by page
@@ -179,8 +187,9 @@ object SmsSendRecovery {
      * A prepared record from an earlier process is checked against the provider once it is a minute
      * old, by uptime when inserted this boot, else by the clock, and at least [sinceOpenMs]: a
      * Portal-created row to the same address, dated from [evidenceFrom] on, with the same body hash,
-     * resolves it; no such row fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing) prove
-     * nothing, so it is checked again later. Dispatched records never time out.
+     * resolves it; no such row fails it with RESULT_INTERRUPTED. A dispatched one is checked at once,
+     * against its own row once a callback named it, and never fails for want of a row: SmsManager took
+     * it. Null [rows] (READ_SMS missing) prove nothing, and an unresolved record is checked again later.
      */
     fun decide(
         record: SmsSendRecord,
@@ -192,19 +201,23 @@ object SmsSendRecovery {
         ownSends: SmsOwnSends,
         packageName: String,
     ): SmsRecoveryDecision {
-        if (!isCandidate(record, instanceId)) return SmsRecoveryDecision.None
+        if (!isCandidate(record, instanceId, now)) return SmsRecoveryDecision.None
+        val dispatched = record.phase == SmsSendPhase.DISPATCHED
         // Written before this process started, so at least sinceOpenMs old.
         val age = maxOf(sinceInsertMs(record, elapsedNow) ?: (now - record.createdAt), sinceOpenMs)
-        if (age < SmsStorePolicy.RECOVERY_GRACE_MS) {
+        if (!dispatched && age < SmsStorePolicy.RECOVERY_GRACE_MS) {
             return SmsRecoveryDecision.Wait(now + SmsStorePolicy.RECOVERY_GRACE_MS - age)
         }
-        if (rows == null) return SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
+        val recheckAt = now + SmsStoreRetry.SLOW_RETRY_DELAY_MS
+        if (rows == null) return SmsRecoveryDecision.Wait(recheckAt)
         val target = SmsPhoneNumbers.compactAddress(record.to)
         val from = evidenceFrom(record, now, elapsedNow)
+        // A callback lists the record's own row among ownSends.
+        val ownRow = SmsSendCallbacks.providerIdFromUri(record.messageUri)
         val match = rows
             .filter {
                 it.creator == packageName &&
-                    it !in ownSends &&
+                    (if (ownRow != null) it.id == ownRow else it !in ownSends) &&
                     it.date >= from &&
                     it.body != null &&
                     SmsPhoneNumbers.compactAddress(it.address) == target &&
@@ -212,14 +225,33 @@ object SmsSendRecovery {
             }
             .minByOrNull { it.date }
         val resolved = when (match?.type) {
-            SmsProviderRow.TYPE_SENT -> record.withAllSent(now)
+            SmsProviderRow.TYPE_SENT -> fromSentRow(record, match?.status, now)
             SmsProviderRow.TYPE_FAILED -> record.withFailure(GENERIC_FAILURE, "Generic SMS send failure", now)
             SmsProviderRow.TYPE_OUTBOX, SmsProviderRow.TYPE_QUEUED -> record.withDispatched(now)
             else -> null
         }
-        if (resolved != null) return SmsRecoveryDecision.Resolve(resolved, match?.id)
+        if (match != null && resolved != null) {
+            val claimed = if (resolved.messageUri != null) resolved else resolved.copy(messageUri = "content://sms/${match.id}")
+            val again = recheckAt.takeIf { isCandidate(claimed, instanceId, now) }
+            return SmsRecoveryDecision.Resolve(claimed, match.id, again)
+        }
+        if (dispatched) return SmsRecoveryDecision.Wait(recheckAt)
         val failed = record.withFailure(SmsSendCallbacks.RESULT_INTERRUPTED, "Interrupted before dispatch", now)
             ?: return SmsRecoveryDecision.None
         return SmsRecoveryDecision.Resolve(failed, null)
+    }
+
+    /** Every part sent; a requested delivery report settles from the row's status, which holds the latest part's. */
+    private fun fromSentRow(record: SmsSendRecord, rowStatus: Int?, now: Long): SmsSendRecord? {
+        val sent = record.withAllSent(now) ?: record
+        val status = rowStatus?.takeIf { sent.deliveryReport && it >= 0 }
+        val settled = when (status?.let(::smsDeliveryOutcome)) {
+            SmsDeliveryOutcome.PERMANENT_FAILURE ->
+                sent.withFailure(SmsSendCallbacks.DELIVERY_FAILED, "Delivery failed (status=$status)", now)
+            // Another part's report may still be outstanding.
+            SmsDeliveryOutcome.DELIVERED -> if (sent.parts == 1) sent.withPartDelivered(0, now) else null
+            else -> null
+        }
+        return (settled ?: sent).takeIf { it !== record }
     }
 }

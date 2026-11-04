@@ -89,6 +89,7 @@ class AndroidSmsProviderSource(
             threadId = optLong(Telephony.Sms.THREAD_ID),
             subscriptionId = optInt(Telephony.Sms.SUBSCRIPTION_ID),
             creator = optString(Telephony.Sms.CREATOR),
+            status = optInt(Telephony.Sms.STATUS),
         )
 
     private fun Cursor.optString(column: String): String? {
@@ -118,6 +119,7 @@ class AndroidSmsProviderSource(
             Telephony.Sms.THREAD_ID,
             Telephony.Sms.SUBSCRIPTION_ID,
             Telephony.Sms.CREATOR,
+            Telephony.Sms.STATUS,
         )
     }
 }
