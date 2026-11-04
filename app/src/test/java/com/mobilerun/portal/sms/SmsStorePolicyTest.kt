@@ -2,6 +2,7 @@ package com.mobilerun.portal.sms
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -185,6 +186,46 @@ class SmsStorePolicyTest {
         assertEquals(SmsStoreRetry.MAX_ATTEMPTS + 3, runs)
         time.advanceBy(10 * SmsStoreRetry.SLOW_RETRY_DELAY_MS)
         assertEquals(SmsStoreRetry.MAX_ATTEMPTS + 3, runs)
+    }
+
+    @Test
+    fun preparedDiscard_thatFailed_runsBeforeALookupOfItsId() {
+        val time = FakeReporterScheduler()
+        val retry = SmsStoreRetry(schedule = { delay, task -> time.scheduler.schedule(delay, task) })
+        val prepared = mutableMapOf("x" to "token", "other" to "token")
+        var failures = 1
+        val discards = SmsPreparedDiscards(retry) { id, callbackToken ->
+            if (failures-- > 0) throw IllegalStateException("disk I/O error")
+            if (prepared[id] == callbackToken) prepared.remove(id)
+        }
+
+        discards.discard("x", "token")
+        assertTrue("x" in prepared)
+
+        assertEquals(null, discards.find("x") { prepared["x"] })
+        assertEquals("token", discards.find("other") { prepared["other"] })
+        time.advanceBy(10 * SmsStoreRetry.RETRY_DELAY_MS)
+        assertEquals(mapOf("other" to "token"), prepared)
+    }
+
+    @Test
+    fun preparedDiscard_lookupThrowsWhileTheDiscardKeepsFailing() {
+        val time = FakeReporterScheduler()
+        val retry = SmsStoreRetry(schedule = { delay, task -> time.scheduler.schedule(delay, task) })
+        var failing = true
+        var deletes = 0
+        val discards = SmsPreparedDiscards(retry) { _, _ ->
+            if (failing) throw IllegalStateException("disk I/O error")
+            deletes += 1
+        }
+        discards.discard("x", "token")
+        time.advanceBy(10 * SmsStoreRetry.RETRY_DELAY_MS)
+
+        assertThrows(IllegalStateException::class.java) { discards.find("x") { "stale" } }
+        failing = false
+        assertEquals("fresh", discards.find("x") { "fresh" })
+        assertEquals("fresh", discards.find("x") { "fresh" })
+        assertEquals(1, deletes)
     }
 
     private fun row(

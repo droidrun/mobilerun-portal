@@ -64,6 +64,35 @@ class SmsStoreRetry(
 }
 
 /**
+ * Discards of prepared records whose insert was reported as failed but may still land. A failed one
+ * runs again, and a lookup of its id runs it first, so the record never answers a retried sms/send
+ * as pending and then vanishes. Store thread only.
+ */
+class SmsPreparedDiscards(
+    private val retry: SmsStoreRetry,
+    private val delete: (id: String, callbackToken: String) -> Unit,
+) {
+    private val pending = HashMap<String, String>()
+
+    fun discard(id: String, callbackToken: String) {
+        pending[id] = callbackToken
+        retry.run("discard") { settle(id) }
+    }
+
+    /** [lookup] once the pending discard of [id], if any, ran; throws while that keeps failing. */
+    fun <T> find(id: String, lookup: () -> T): T {
+        settle(id)
+        return lookup()
+    }
+
+    private fun settle(id: String) {
+        val callbackToken = pending[id] ?: return
+        delete(id, callbackToken)
+        pending.remove(id)
+    }
+}
+
+/**
  * The Portal's own sends: provider _id -> when it was recorded. The sms table reuses _id after
  * deletes, so a row matches only when it is not newer than the record.
  */

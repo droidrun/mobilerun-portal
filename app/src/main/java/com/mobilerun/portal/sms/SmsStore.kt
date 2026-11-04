@@ -69,6 +69,13 @@ class SmsStore private constructor(
         log = { Log.w(TAG, it) },
     )
 
+    private val discards = SmsPreparedDiscards(retry) { id, callbackToken ->
+        helper.writableDatabase.delete(
+            TABLE_RECORDS, "id = ? AND phase = ? AND callback_token = ?",
+            arrayOf(id, SmsSendPhase.PREPARED.wire, callbackToken),
+        )
+    }
+
     /** Records created before this instant were written by an earlier process. */
     val openedAt: Long = clock()
 
@@ -112,7 +119,7 @@ class SmsStore private constructor(
 
     // --- send records ---
 
-    override fun find(id: String): SmsSendRecord? = call { db -> findLocked(db, id) }
+    override fun find(id: String): SmsSendRecord? = call { db -> discards.find(id) { findLocked(db, id) } }
 
     override fun insert(record: SmsSendRecord): Boolean = call { db ->
         db.inTransaction {
@@ -122,17 +129,9 @@ class SmsStore private constructor(
         }
     }
 
-    /**
-     * Queued behind any insert still pending after a timeout or interrupt, so it always sees it. A
-     * record left prepared would answer a retried sms/send as pending, so a failed discard runs again.
-     */
+    /** Queued behind any insert still pending after a timeout or interrupt, so it always sees it. */
     override fun discardPrepared(id: String, callbackToken: String) {
-        async("discard", retried = true) { db ->
-            db.delete(
-                TABLE_RECORDS, "id = ? AND phase = ? AND callback_token = ?",
-                arrayOf(id, SmsSendPhase.PREPARED.wire, callbackToken),
-            )
-        }
+        async("discard") { discards.discard(id, callbackToken) }
     }
 
     override fun markDispatched(id: String, now: Long): SmsSendRecord? = call { db ->
