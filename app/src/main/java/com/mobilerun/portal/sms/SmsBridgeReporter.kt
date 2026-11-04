@@ -172,8 +172,10 @@ private class LazyReporterStore(private val context: Context) : SmsReporterStore
     override fun nextPendingAt(exclude: Set<String>): Long? = store.nextPendingAt(exclude)
     override fun updatePending(report: SmsPendingReport) = store.updatePending(report)
     override fun deletePending(msgId: String) = store.deletePending(msgId)
-    override fun unreportedRelayRecords(): List<SmsSendRecord> =
+    override fun unreportedRelayRecords(): List<SmsUnreportedSend> =
         SmsStore.existing(context)?.unreportedRelayRecords().orEmpty()
+
+    override fun saveSendStateRetry(id: String, retry: SmsSendStateRetry) = store.saveSendStateRetry(id, retry)
 
     override fun markReported(id: String, state: SmsSendState) = store.markReported(id, state)
 }

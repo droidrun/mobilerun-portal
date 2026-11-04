@@ -12,6 +12,18 @@ data class SmsPendingReport(
     val lastError: String? = null,
 )
 
+/** Retry bookkeeping of a relay send's unreported [state], saved with the record so a restart keeps it. */
+data class SmsSendStateRetry(
+    val state: SmsSendState,
+    val attempts: Int,
+    val unconfirmed: Int,
+    val nextAttemptAt: Long,
+    val firstQueuedAt: Long,
+)
+
+/** A relay send whose current state is unreported, with the retry bookkeeping saved for it. */
+data class SmsUnreportedSend(val record: SmsSendRecord, val retry: SmsSendStateRetry?)
+
 /** How a device -> relay call ended. */
 sealed class SmsReportOutcome {
     object Ok : SmsReportOutcome()

@@ -88,6 +88,7 @@ class FakeReporterStore : SmsReporterStore {
     /** provider _id -> recorded at */
     val own = mutableMapOf<Long, Long>()
     val records = linkedMapOf<String, SmsSendRecord>()
+    val retries = mutableMapOf<String, SmsSendStateRetry>()
     val reported = mutableListOf<String>()
     var seeded = 0
 
@@ -132,8 +133,14 @@ class FakeReporterStore : SmsReporterStore {
         pending.remove(msgId)
     }
 
-    override fun unreportedRelayRecords(): List<SmsSendRecord> =
-        records.values.filter { it.origin == SmsSendRecord.ORIGIN_RELAY && it.lastReportedState != it.state.wire }
+    override fun unreportedRelayRecords(): List<SmsUnreportedSend> =
+        records.values
+            .filter { it.origin == SmsSendRecord.ORIGIN_RELAY && it.lastReportedState != it.state.wire }
+            .map { SmsUnreportedSend(it, retries[it.id]) }
+
+    override fun saveSendStateRetry(id: String, retry: SmsSendStateRetry) {
+        if (records.containsKey(id)) retries[id] = retry
+    }
 
     override fun markReported(id: String, state: SmsSendState) {
         reported += "$id:${state.wire}"

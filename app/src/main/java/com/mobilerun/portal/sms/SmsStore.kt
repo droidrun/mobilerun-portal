@@ -138,12 +138,28 @@ class SmsStore private constructor(
     }
 
     /** Relay records whose current state was not reported yet. */
-    override fun unreportedRelayRecords(): List<SmsSendRecord> = call { db ->
+    override fun unreportedRelayRecords(): List<SmsUnreportedSend> = call { db ->
         db.query(
             TABLE_RECORDS, null,
             "origin = ? AND (last_reported_state IS NULL OR last_reported_state != state)",
             arrayOf(SmsSendRecord.ORIGIN_RELAY), null, null, "updated_at ASC",
-        ).use { cursor -> generateSequence { if (cursor.moveToNext()) cursor.toRecord() else null }.toList() }
+        ).use { cursor ->
+            generateSequence { if (cursor.moveToNext()) SmsUnreportedSend(cursor.toRecord(), cursor.toRetry()) else null }
+                .toList()
+        }
+    }
+
+    override fun saveSendStateRetry(id: String, retry: SmsSendStateRetry) {
+        call { db ->
+            val values = ContentValues().apply {
+                put("report_state", retry.state.wire)
+                put("report_attempts", retry.attempts)
+                put("report_unconfirmed", retry.unconfirmed)
+                put("report_next_attempt_at", retry.nextAttemptAt)
+                put("report_first_queued_at", retry.firstQueuedAt)
+            }
+            db.update(TABLE_RECORDS, values, "id = ?", arrayOf(id))
+        }
     }
 
     override fun markReported(id: String, state: SmsSendState) {
@@ -460,6 +476,7 @@ class SmsStore private constructor(
                     error_code TEXT,
                     error_message TEXT,
                     last_reported_state TEXT,
+                    ${SEND_STATE_RETRY_COLUMNS.joinToString(", ")},
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 )
@@ -488,13 +505,17 @@ class SmsStore private constructor(
             )
         }
 
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 2) {
+                SEND_STATE_RETRY_COLUMNS.forEach { db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $it") }
+            }
+        }
     }
 
     companion object {
         private const val TAG = "SmsStore"
         const val DB_NAME = "mobilerun_sms.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
         private const val CALL_TIMEOUT_SECONDS = 10L
 
         const val TABLE_RECORDS = "send_records"
@@ -502,6 +523,15 @@ class SmsStore private constructor(
         const val TABLE_REPORTED_IDS = "reported_ids"
         const val TABLE_REPORTER_STATE = "reporter_state"
         const val TABLE_PENDING_REPORTS = "pending_reports"
+
+        /** send_records columns added in version 2: retry bookkeeping of the unreported sms/sendState. */
+        private val SEND_STATE_RETRY_COLUMNS = listOf(
+            "report_state TEXT",
+            "report_attempts INTEGER NOT NULL DEFAULT 0",
+            "report_unconfirmed INTEGER NOT NULL DEFAULT 0",
+            "report_next_attempt_at INTEGER",
+            "report_first_queued_at INTEGER",
+        )
 
         @Volatile
         private var instance: SmsStore? = null
@@ -565,6 +595,17 @@ class SmsStore private constructor(
                 firstQueuedAt = long("first_queued_at") ?: 0L,
                 lastError = string("last_error"),
             )
+
+        private fun Cursor.toRetry(): SmsSendStateRetry? {
+            val state = string("report_state") ?: return null
+            return SmsSendStateRetry(
+                state = smsSendStateFromWire(state),
+                attempts = int("report_attempts") ?: 0,
+                unconfirmed = int("report_unconfirmed") ?: 0,
+                nextAttemptAt = long("report_next_attempt_at") ?: return null,
+                firstQueuedAt = long("report_first_queued_at") ?: return null,
+            )
+        }
 
         private fun Cursor.toRecord(): SmsSendRecord =
             SmsSendRecord(

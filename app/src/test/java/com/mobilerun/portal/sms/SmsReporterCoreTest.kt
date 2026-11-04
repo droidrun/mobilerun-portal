@@ -23,18 +23,28 @@ class SmsReporterCoreTest {
         provider = FakeSmsProvider()
         store = FakeReporterStore()
         calls = FakeReportCalls()
-        core = SmsReporterCore(
-            scheduler = time.scheduler,
-            store = store,
-            rows = provider,
-            calls = calls,
-            packageName = PORTAL,
-            cloudEnabled = { cloudEnabled },
-            hasReadSms = { readSms },
-            sims = { sims },
-            clock = time.clock,
-        )
+        core = newCore()
         store.seedScanState(null, coveredFrom = START)
+    }
+
+    private fun newCore() = SmsReporterCore(
+        scheduler = time.scheduler,
+        store = store,
+        rows = provider,
+        calls = calls,
+        packageName = PORTAL,
+        cloudEnabled = { cloudEnabled },
+        hasReadSms = { readSms },
+        sims = { sims },
+        clock = time.clock,
+    )
+
+    /** A new process: the store and the provider survive; tasks, calls and memory do not. */
+    private fun restart() {
+        val now = time.now
+        time = FakeReporterScheduler().also { it.advanceBy(now) }
+        calls = FakeReportCalls()
+        core = newCore()
     }
 
     private fun inbox(date: Long = time.now) = provider.add(SmsProviderRow.TYPE_INBOX, date = date)
@@ -487,6 +497,63 @@ class SmsReporterCoreTest {
 
         open()
         assertEquals(2, calls.calls.size)
+    }
+
+    @Test
+    fun sendState_unconfirmedCountSurvivesARestart() {
+        store.records["r"] = relayRecord("r", SmsSendState.SENT)
+        open()
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Timeout)
+        time.advanceBy(2_000L)
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Timeout)
+        time.runDue()
+
+        restart()
+        open()
+        assertTrue(calls.calls.isEmpty())
+        time.advanceBy(5_000L)
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Timeout)
+        time.runDue()
+
+        // The third timeout overall finishes it, as without the restart.
+        assertEquals(listOf("r:sent"), store.reported)
+    }
+
+    @Test
+    fun sendState_24hWindowSurvivesARestart() {
+        store.records["g"] = relayRecord("g", SmsSendState.SENT)
+        open()
+        assertEquals(1, calls.inFlight(SmsReporterCore.SEND_STATE).size)
+
+        // The process dies with the call unanswered and comes back a day later.
+        time.advanceBy(SmsReportPolicy.GIVE_UP_MS)
+        restart()
+        open()
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Error("sms: device_side_failure: forward failed"))
+        time.runDue()
+
+        assertEquals(listOf("g:sent"), store.reported)
+    }
+
+    @Test
+    fun sendState_aNewStateStartsFreshBookkeeping() {
+        store.records["n"] = relayRecord("n", SmsSendState.SENT)
+        open()
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Timeout)
+        time.advanceBy(2_000L)
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Timeout)
+        time.runDue()
+
+        store.records["n"] = relayRecord("n", SmsSendState.DELIVERED, updatedAt = 2)
+        restart()
+        open()
+
+        val call = calls.inFlight(SmsReporterCore.SEND_STATE).single()
+        assertEquals("delivered", call.params.getJSONObject("status").getString("state"))
+        calls.complete(call, SmsReportOutcome.Timeout)
+        time.advanceBy(2_000L)
+        assertEquals(1, calls.inFlight(SmsReporterCore.SEND_STATE).size)
+        assertTrue(store.reported.isEmpty())
     }
 
     @Test

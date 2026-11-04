@@ -47,7 +47,10 @@ interface SmsReporterStore {
 
     fun deletePending(msgId: String)
 
-    fun unreportedRelayRecords(): List<SmsSendRecord>
+    fun unreportedRelayRecords(): List<SmsUnreportedSend>
+
+    /** Saves the retry bookkeeping of a send's unreported state; no-op when the record is gone. */
+    fun saveSendStateRetry(id: String, retry: SmsSendStateRetry)
 
     fun markReported(id: String, state: SmsSendState)
 }
@@ -84,7 +87,9 @@ class SmsReporterCore(
         val unconfirmed: Int = 0,
         val nextAttemptAt: Long,
         val firstQueuedAt: Long,
-    )
+    ) {
+        fun retry() = SmsSendStateRetry(record.state, attempts, unconfirmed, nextAttemptAt, firstQueuedAt)
+    }
 
     private val states = LinkedHashMap<String, StateItem>()
     private val statesInFlight = HashMap<String, SmsSendState>()
@@ -290,24 +295,38 @@ class SmsReporterCore(
     // --- sms/sendState ---
 
     private fun loadStates() {
-        val records = try {
+        val unreported = try {
             store.unreportedRelayRecords()
         } catch (e: Exception) {
             log("send records read failed (${e.javaClass.simpleName})")
             return
         }
         val now = clock()
-        records.forEach { offerState(it, now) }
+        unreported.forEach { offerState(it.record, now, it.retry) }
     }
 
-    private fun offerState(record: SmsSendRecord, now: Long) {
+    private fun offerState(record: SmsSendRecord, now: Long, saved: SmsSendStateRetry? = null) {
         if (!record.needsSendStateReport()) return
         val existing = states[record.id]
         if (existing != null && existing.record.state == record.state) {
             if (record.updatedAt > existing.record.updatedAt) states[record.id] = existing.copy(record = record)
             return
         }
-        states[record.id] = StateItem(record, nextAttemptAt = now, firstQueuedAt = now)
+        // Saved bookkeeping counts only for the state it was saved for.
+        val retry = saved?.takeIf { it.state == record.state }
+        states[record.id] = if (retry != null) {
+            StateItem(record, retry.attempts, retry.unconfirmed, retry.nextAttemptAt, retry.firstQueuedAt)
+        } else {
+            StateItem(record, nextAttemptAt = now, firstQueuedAt = now).also(::saveRetry)
+        }
+    }
+
+    private fun saveRetry(item: StateItem) {
+        try {
+            store.saveSendStateRetry(item.record.id, item.retry())
+        } catch (e: Exception) {
+            log("send state retry save failed (${e.javaClass.simpleName})")
+        }
     }
 
     private fun drainStates() {
@@ -346,11 +365,15 @@ class SmsReporterCore(
         }
         val now = clock()
         when (val decision = SmsReportPolicy.decide(item.attempts, item.unconfirmed, item.firstQueuedAt, outcome, now)) {
-            is SmsReportDecision.Retry -> states[sent.id] = item.copy(
-                attempts = decision.attempts,
-                unconfirmed = decision.unconfirmed,
-                nextAttemptAt = decision.nextAttemptAt,
-            )
+            is SmsReportDecision.Retry -> {
+                val retried = item.copy(
+                    attempts = decision.attempts,
+                    unconfirmed = decision.unconfirmed,
+                    nextAttemptAt = decision.nextAttemptAt,
+                )
+                states[sent.id] = retried
+                saveRetry(retried)
+            }
             SmsReportDecision.Requeue -> states[sent.id] = item.copy(nextAttemptAt = now + REQUEUE_DELAY_MS)
             else -> {
                 states.remove(sent.id)
