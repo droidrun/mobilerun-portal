@@ -990,8 +990,9 @@ class ReverseConnectionService : Service() {
 
             val requestId = id
             val dispatchStartedAtMs = SystemClock.elapsedRealtime()
+            val bucket = WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)
             val executor =
-                when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
+                when (bucket) {
                     WebSocketDispatchBucket.SIGNALING -> signalingExecutor
                     WebSocketDispatchBucket.LIGHTWEIGHT -> lightweightExecutor
                     WebSocketDispatchBucket.COMMAND -> commandExecutor
@@ -999,6 +1000,11 @@ class ReverseConnectionService : Service() {
                     WebSocketDispatchBucket.SMS -> smsExecutor
                 }
             executor.submit {
+                // Its caller can no longer get the reply and may retry, so a stale SMS request must not act.
+                if (bucket == WebSocketDispatchBucket.SMS && rpcSocket?.client !== client) {
+                    Log.w(TAG, "Dropped $normalizedMethod (id=$requestId): its socket was closed")
+                    return@submit
+                }
                 dispatchAndRespond(
                     client = client,
                     dispatcher = dispatcher,

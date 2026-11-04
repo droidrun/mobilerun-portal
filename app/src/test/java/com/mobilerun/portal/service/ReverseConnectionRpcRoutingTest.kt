@@ -9,6 +9,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.spyk
 import io.mockk.unmockkAll
+import io.mockk.verify
 import org.java_websocket.client.WebSocketClient
 import org.json.JSONObject
 import org.junit.After
@@ -62,6 +63,7 @@ class ReverseConnectionRpcRoutingTest {
 
     @Test
     fun smsRequestIsAnsweredWhileCommandExecutorIsBlocked() {
+        installRpc()
         val release = CountDownLatch(1)
         val command = newExecutor()
         command.submit { release.await() }
@@ -81,6 +83,27 @@ class ReverseConnectionRpcRoutingTest {
         assertEquals("queued", JSONObject(smsReply).getString("result"))
         release.countDown()
         assertEquals(1, JSONObject(frames.poll(5, TimeUnit.SECONDS)!!).getInt("id"))
+    }
+
+    @Test
+    fun smsRequestQueuedWhenItsSocketIsReplaced_isNotRun() {
+        installRpc()
+        val release = CountDownLatch(1)
+        val sms = newExecutor()
+        sms.submit { release.await() }
+        setField("smsExecutor", sms)
+        every { dispatcher.dispatch("sms/send", any(), any(), any()) } returns
+            ApiResponse.Success("queued")
+
+        receive(client, request(2, "sms/send"))
+        val newClient = mockk<WebSocketClient>(relaxed = true)
+        setField("rpcSocket", ReverseRpcSocket(newClient, generation = 5))
+        release.countDown()
+        sms.submit {}.get(5, TimeUnit.SECONDS)
+
+        verify(exactly = 0) { dispatcher.dispatch(any(), any(), any(), any()) }
+        verify(exactly = 0) { newClient.send(any<String>()) }
+        assertTrue(frames.isEmpty())
     }
 
     @Test
