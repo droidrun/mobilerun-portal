@@ -100,6 +100,17 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun scanFailure_retriesWithoutAnotherEvent() {
+        val row = inbox()
+        provider.failReads = 1
+        scanned()
+        assertTrue(store.pending.isEmpty())
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(listOf(row.messageId), store.pending.keys.toList())
+    }
+
+    @Test
     fun scanBurst_scansAgainAfterTheDefaultSmsAppWritesTheRow() {
         core.scanBurst()
         time.advanceBy(SmsReporterCore.DEBOUNCE_MS)

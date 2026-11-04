@@ -45,11 +45,11 @@ interface SmsReportRowSource {
     /** Rows of [types] with _id > [afterId], by _id ascending. */
     fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow>
 
-    /** Rows of [types] with date >= [fromDate], by (date, _id) ascending. */
-    fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow>
+    /** Rows of [types] with date >= [fromDate] and _id <= [maxId], by (date, _id) ascending. */
+    fun rowsFromDate(types: List<Int>, fromDate: Long, maxId: Long, limit: Int): List<SmsProviderRow>
 
-    /** Rows of [types] strictly after ([afterDate], [afterId]), by (date, _id) ascending. */
-    fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow>
+    /** Rows of [types] strictly after ([afterDate], [afterId]) with _id <= [maxId], by (date, _id) ascending. */
+    fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, maxId: Long, limit: Int): List<SmsProviderRow>
 }
 
 /**
@@ -134,7 +134,7 @@ class SmsReportScanner(
     private fun page(watermark: SmsWatermark, recovery: SmsRecovery?, types: List<Int>, limit: Int, now: Long): Page {
         if (limit <= 0) return Page(emptyList(), watermark, recovery, full = true)
         if (recovery != null) {
-            val page = rows.rowsAfterDate(types, recovery.date, recovery.id, limit)
+            val page = rows.rowsAfterDate(types, recovery.date, recovery.id, recovery.top.id, limit)
             return recovered(watermark, recovery.top, page, limit)
         }
         val valid = watermark.id <= 0L || rows.row(watermark.id)?.date == watermark.date
@@ -143,11 +143,11 @@ class SmsReportScanner(
             val next = page.lastOrNull()?.let { SmsWatermark(it.id, it.date) } ?: watermark
             return Page(page, next, null, page.size >= limit)
         }
-        // Taken before the read: rows added after it get a higher _id.
+        // Taken before the read: rows added after it get a higher _id and are left to the _id scan.
         val top = rows.latest()?.let { SmsWatermark(it.id, it.date) } ?: watermark
         // A watermark dated ahead of now (clock moved back) must not hide rows dated now.
         val from = minOf(watermark.date, now) - SLACK_MS
-        return recovered(watermark, top, rows.rowsFromDate(types, from, limit), limit)
+        return recovered(watermark, top, rows.rowsFromDate(types, from, top.id, limit), limit)
     }
 
     /** A full date-ordered page continues after its last row; the last page ends the re-read at [top]. */

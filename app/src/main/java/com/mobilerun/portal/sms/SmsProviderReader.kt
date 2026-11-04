@@ -28,17 +28,17 @@ class AndroidSmsProviderSource(
             sortOrder = "_id ASC LIMIT $limit",
         )
 
-    override fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow> =
+    override fun rowsFromDate(types: List<Int>, fromDate: Long, maxId: Long, limit: Int): List<SmsProviderRow> =
         query(
-            "type IN (${types.joinToString(",")}) AND date >= ?",
-            arrayOf(fromDate.toString()),
+            "type IN (${types.joinToString(",")}) AND date >= ? AND _id <= ?",
+            arrayOf(fromDate.toString(), maxId.toString()),
             sortOrder = "date ASC, _id ASC LIMIT $limit",
         )
 
-    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow> =
+    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, maxId: Long, limit: Int): List<SmsProviderRow> =
         query(
-            "type IN (${types.joinToString(",")}) AND (date > ? OR (date = ? AND _id > ?))",
-            arrayOf(afterDate.toString(), afterDate.toString(), afterId.toString()),
+            "type IN (${types.joinToString(",")}) AND (date > ? OR (date = ? AND _id > ?)) AND _id <= ?",
+            arrayOf(afterDate.toString(), afterDate.toString(), afterId.toString(), maxId.toString()),
             sortOrder = "date ASC, _id ASC LIMIT $limit",
         )
 

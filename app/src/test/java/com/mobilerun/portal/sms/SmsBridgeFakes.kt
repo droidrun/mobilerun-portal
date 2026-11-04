@@ -7,6 +7,8 @@ package com.mobilerun.portal.sms
 class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
     val rows = mutableListOf<SmsProviderRow>()
     var queries = 0
+    /** The next N rowsAfterId reads throw, like a transient provider failure. */
+    var failReads = 0
 
     fun add(
         type: Int,
@@ -65,21 +67,25 @@ class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
 
     override fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow> {
         queries += 1
+        if (failReads > 0) {
+            failReads -= 1
+            throw IllegalStateException("provider unavailable")
+        }
         return rows.filter { it.type in types && it.id > afterId }.sortedBy { it.id }.take(limit)
     }
 
-    override fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow> {
+    override fun rowsFromDate(types: List<Int>, fromDate: Long, maxId: Long, limit: Int): List<SmsProviderRow> {
         queries += 1
         return rows
-            .filter { it.type in types && it.date >= fromDate }
+            .filter { it.type in types && it.date >= fromDate && it.id <= maxId }
             .sortedWith(compareBy<SmsProviderRow>({ it.date }, { it.id }))
             .take(limit)
     }
 
-    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow> {
+    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, maxId: Long, limit: Int): List<SmsProviderRow> {
         queries += 1
         return rows
-            .filter { it.type in types && (it.date > afterDate || (it.date == afterDate && it.id > afterId)) }
+            .filter { it.type in types && (it.date > afterDate || (it.date == afterDate && it.id > afterId)) && it.id <= maxId }
             .sortedWith(compareBy<SmsProviderRow>({ it.date }, { it.id }))
             .take(limit)
     }

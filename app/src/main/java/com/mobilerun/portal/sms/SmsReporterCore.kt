@@ -185,6 +185,7 @@ class SmsReporterCore(
             }
         } catch (e: Exception) {
             log("scan failed (${e.javaClass.simpleName})")
+            if (scanTask == null) scanTask = scheduler.schedule(BLOCKED_RETRY_MS) { guarded { scanTask = null; scan() } }
             null
         } ?: return
         if (result.reports.isNotEmpty()) log("queued ${result.reports.size} SMS report(s)")

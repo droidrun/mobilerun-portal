@@ -229,6 +229,30 @@ class SmsReportScannerTest {
     }
 
     @Test
+    fun watermarkRowGone_rowsArrivingDuringRecovery_doNotExtendIt() {
+        val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val state = seeded()
+        val backlog = (1..SmsReportScanner.MAX_ROWS_PER_SCAN + 10).map {
+            provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1 + it)
+        }
+        provider.remove(gone.id)
+
+        val first = scan(state)
+        assertTrue(first.more)
+
+        // A full page of newer rows lands before the next scan.
+        val arriving = (1..SmsReportScanner.MAX_ROWS_PER_SCAN).map {
+            provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 10_000 + it)
+        }
+        val second = scan(first.state)
+        assertNull(second.state.inboundRecovery)
+        assertEquals(SmsWatermark(backlog.last().id, backlog.last().date), second.state.inbound)
+        assertEquals(backlog.map { it.messageId }, first.ids() + second.ids())
+
+        assertEquals(arriving.map { it.messageId }, scan(second.state).ids())
+    }
+
+    @Test
     fun watermarkRowGone_rowAddedDuringRecovery_datedBeforeTheCursor_isReported() {
         val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
         val state = seeded()
@@ -249,11 +273,12 @@ class SmsReportScannerTest {
         // The re-read ends at the newest row when it started, not past the delayed row.
         assertEquals(SmsWatermark(rows.last().id, rows.last().date), second.state.inbound)
 
+        // Both rows added during the re-read are left to the _id scan.
         val third = scan(second.state)
-        assertEquals(listOf(delayed.messageId), third.ids())
+        assertEquals(listOf(delayed.messageId, newer.messageId), third.ids())
         assertEquals(SmsWatermark(newer.id, newer.date), third.state.inbound)
         assertEquals(
-            (rows + newer + delayed).map { it.messageId },
+            (rows + delayed + newer).map { it.messageId },
             first.ids() + second.ids() + third.ids(),
         )
     }
