@@ -182,6 +182,22 @@ class SmsReportScannerTest {
         assertEquals(listOf(outbox.messageId), scan(full.state, room = 1).ids())
     }
 
+    @Test
+    fun fullQueue_recheckTurnedSentIsNotEvictedOverCapacity() {
+        val held = (0 until SmsReportScanner.MAX_RECHECKS).map { provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + it) }
+        val state = seeded().copy(recheck = held.mapIndexed { i, row -> SmsRecheck(row.id, NOW + i) })
+        provider.update(held[0].id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        val newest = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1_000)
+
+        val full = scan(state, now = NOW + 2_000, room = 0)
+        assertTrue(full.queueFull)
+        // The oldest unsent goes instead.
+        assertEquals(listOf(SmsRecheck(held[1].id, NOW + 1)), full.evictedRechecks)
+        assertEquals(listOf(held[0].id) + held.drop(2).map { it.id } + newest.id, full.state.recheck.map { it.providerId })
+
+        assertEquals(listOf(held[0].messageId), scan(full.state, now = NOW + 3_000, room = 1).ids())
+    }
+
     // --- _id reuse ---
 
     @Test

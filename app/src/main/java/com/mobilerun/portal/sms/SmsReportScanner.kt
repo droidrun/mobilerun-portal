@@ -37,7 +37,7 @@ data class SmsScanResult(
     val reports: List<SmsReportCandidate>,
     /** A page was full: scan again soon. */
     val more: Boolean,
-    /** Oldest-seen rechecks dropped over [SmsReportScanner.MAX_RECHECKS]. */
+    /** Oldest-seen unsent rechecks dropped over [SmsReportScanner.MAX_RECHECKS]. */
     val evictedRechecks: List<SmsRecheck> = emptyList(),
     /** A report had no room in the queue: the scan stopped before its row, to go on once the queue drains. */
     val queueFull: Boolean = false,
@@ -118,6 +118,7 @@ class SmsReportScanner(
 
         val outRead = page(state.out, state.outRecovery, OUT_TYPES, MAX_ROWS_PER_SCAN - inboundRead.rows.size, now)
         val recheck = LinkedHashMap<Long, SmsRecheck>()
+        val awaitingRoom = HashSet<Long>()
         val current = rows.rows(state.recheck.map { it.providerId }).associateBy { it.id }
         for (entry in state.recheck) {
             val row = current[entry.providerId]
@@ -127,6 +128,7 @@ class SmsReportScanner(
                 row.type == SmsProviderRow.TYPE_SENT -> {
                     if (eligible(row, SmsBridgeListParams.DIRECTION_OUT) && !report(row, SmsBridgeListParams.DIRECTION_OUT)) {
                         recheck[entry.providerId] = entry
+                        awaitingRoom += entry.providerId
                     }
                 }
                 row.type in RECHECK_TYPES -> recheck[entry.providerId] = entry
@@ -142,20 +144,23 @@ class SmsReportScanner(
             true
         }
 
-        // In first-seen order, so the oldest-seen go first over capacity.
+        // In first-seen order, so the oldest-seen unsent go first over capacity; sent ones awaiting room stay.
         val rechecks = recheck.values.toList()
+        val evicted = rechecks.filter { it.providerId !in awaitingRoom }
+            .dropLast(maxOf(MAX_RECHECKS - awaitingRoom.size, 0))
+            .toSet()
         return SmsScanResult(
             state = state.copy(
                 inbound = inbound.watermark,
                 out = out.watermark,
-                recheck = rechecks.takeLast(MAX_RECHECKS),
+                recheck = rechecks - evicted,
                 inboundRecovery = inbound.recovery,
                 outRecovery = out.recovery,
                 newRowsFrom = newRowsFrom,
             ),
             reports = reports.values.toList(),
             more = inbound.full || out.full,
-            evictedRechecks = rechecks.dropLast(MAX_RECHECKS),
+            evictedRechecks = evicted.toList(),
             queueFull = queueFull,
         )
     }
