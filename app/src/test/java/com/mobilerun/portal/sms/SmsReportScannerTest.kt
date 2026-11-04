@@ -183,6 +183,27 @@ class SmsReportScannerTest {
     }
 
     @Test
+    fun fullQueue_freshDateReReadWithNoRoom_resumesAtItsFirstRow() {
+        // Reported while the clock ran 2 h ahead; the clock is corrected, the row deleted and its _id reused.
+        val state = seeded()
+        val ahead = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2 * HOUR)
+        val reported = scan(state)
+        provider.remove(ahead.id)
+        val reused = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1_000)
+        assertEquals(ahead.id, reused.id)
+
+        val blocked = scan(reported.state, now = NOW + 2_000, room = 0)
+        assertTrue(blocked.reports.isEmpty())
+        assertEquals(SmsRecovery(reused.date, reused.id - 1, SmsWatermark(reused.id, reused.date)), blocked.state.inboundRecovery)
+
+        // More SMS arrive while the queue stays full for 20 min.
+        val later = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 10 * 60_000)
+        val drained = scan(blocked.state, now = NOW + 20 * 60_000)
+        val next = scan(drained.state, now = NOW + 21 * 60_000)
+        assertEquals(listOf(reused.messageId, later.messageId), drained.ids() + next.ids())
+    }
+
+    @Test
     fun fullQueue_recheckTurnedSentIsNotEvictedOverCapacity() {
         val held = (0 until SmsReportScanner.MAX_RECHECKS).map { provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + it) }
         val state = seeded().copy(recheck = held.mapIndexed { i, row -> SmsRecheck(row.id, NOW + i) })

@@ -176,7 +176,8 @@ class SmsReportScanner(
 
     /**
      * [page] up to the first row [take] refuses: the next scan reads on after the last row taken, or
-     * from [start] and [startRecovery] again when none was.
+     * from [start] and [startRecovery] again when none was. A fresh date re-read keeps a cursor at
+     * its first row instead: started again later, it could begin after rows dated meanwhile.
      */
     private inline fun taken(
         page: Page,
@@ -187,7 +188,11 @@ class SmsReportScanner(
         val count = page.rows.indexOfFirst { !take(it) }
         if (count < 0) return page
         val kept = page.rows.take(count)
-        val last = kept.lastOrNull() ?: return Page(kept, start, startRecovery, full = true)
+        val last = kept.lastOrNull() ?: run {
+            val first = page.rows.first()
+            val cursor = startRecovery ?: page.top?.let { SmsRecovery(first.date, first.id - 1, it) }
+            return Page(kept, start, cursor, full = true)
+        }
         val top = page.top ?: return Page(kept, SmsWatermark(last.id, last.date), null, full = true)
         return Page(kept, start, SmsRecovery(last.date, last.id, top), full = true, top)
     }
