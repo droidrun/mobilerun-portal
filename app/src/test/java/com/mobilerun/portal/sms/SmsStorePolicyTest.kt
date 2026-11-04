@@ -54,6 +54,23 @@ class SmsStorePolicyTest {
     }
 
     @Test
+    fun evictions_overTheCapNeverTakeUnreportedRecords() {
+        val now = 30 * day
+        val records = listOf(
+            SmsStorePolicy.EvictionCandidate("old-unreported", terminal = true, createdAt = now - 3 * day, unreported = true),
+            SmsStorePolicy.EvictionCandidate(
+                "old-awaiting-unreported", terminal = false, createdAt = now - 2 * day, awaitingDelivery = true, unreported = true,
+            ),
+            SmsStorePolicy.EvictionCandidate("reported", terminal = true, createdAt = now - 1 * day),
+            SmsStorePolicy.EvictionCandidate("new-pending", terminal = false, createdAt = now),
+        )
+
+        assertEquals(listOf("reported"), SmsStorePolicy.evictions(records, now, maxRecords = 3))
+        // Its sms/sendState and request id would be lost: the insert is refused instead.
+        assertNull(SmsStorePolicy.evictions(records, now, maxRecords = 2))
+    }
+
+    @Test
     fun recovery_ignoresDispatchedAndCurrentProcessRecords() {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         assertEquals(

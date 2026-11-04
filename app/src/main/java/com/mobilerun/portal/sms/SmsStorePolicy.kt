@@ -9,18 +9,22 @@ object SmsStorePolicy {
     const val MAX_REPORTED_IDS = 2000
     const val MAX_PENDING_REPORTS = 2000
 
-    /** [awaitingDelivery]: every part sent, only delivery reports outstanding. */
+    /**
+     * [awaitingDelivery]: every part sent, only delivery reports outstanding. [unreported]: its
+     * current state still has to be reported.
+     */
     data class EvictionCandidate(
         val id: String,
         val terminal: Boolean,
         val createdAt: Long,
         val awaitingDelivery: Boolean = false,
+        val unreported: Boolean = false,
     )
 
     /**
      * Records older than the TTL, then the oldest records over the cap: terminal ones, then sends
-     * only awaiting delivery reports. Other sends are never evicted over the cap: null when they
-     * alone exceed it.
+     * only awaiting delivery reports. Other sends and unreported records are never evicted over the
+     * cap: null when they alone exceed it.
      */
     fun evictions(
         records: List<EvictionCandidate>,
@@ -32,7 +36,7 @@ object SmsStorePolicy {
         val excess = kept.size - maxRecords
         if (excess <= 0) return expired.map { it.id }
         val overCap = kept
-            .filter { it.terminal || it.awaitingDelivery }
+            .filter { (it.terminal || it.awaitingDelivery) && !it.unreported }
             .sortedWith(compareBy<EvictionCandidate>({ !it.terminal }, { it.createdAt }))
             .take(excess)
         if (overCap.size < excess) return null
