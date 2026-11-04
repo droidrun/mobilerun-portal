@@ -6,27 +6,29 @@ class SmsPartRateLimiter(
     private val windowMs: Long = DEFAULT_WINDOW_MS,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
-    private val entries = ArrayDeque<Pair<Long, Int>>()
+    /** One send's parts in the window; refunding it removes exactly this entry. */
+    class Acquisition internal constructor(internal val at: Long, internal val parts: Int)
 
+    private val entries = ArrayDeque<Acquisition>()
+
+    /** Null past the cap. */
     @Synchronized
-    fun tryAcquire(parts: Int): Boolean {
+    fun tryAcquire(parts: Int): Acquisition? {
         prune()
-        if (usedLocked() + parts > maxParts) return false
-        entries.addLast(clock() to parts)
-        return true
+        if (usedLocked() + parts > maxParts) return null
+        return Acquisition(clock(), parts).also { entries.addLast(it) }
     }
 
     @Synchronized
     fun record(parts: Int) {
         prune()
-        entries.addLast(clock() to parts)
+        entries.addLast(Acquisition(clock(), parts))
     }
 
-    /** Returns parts taken by a tryAcquire whose send never started. */
+    /** Returns the parts of a tryAcquire whose send never started. */
     @Synchronized
-    fun refund(parts: Int) {
-        val index = entries.indexOfLast { it.second == parts }
-        if (index >= 0) entries.removeAt(index)
+    fun refund(acquisition: Acquisition) {
+        entries.removeAll { it === acquisition }
     }
 
     @Synchronized
@@ -35,11 +37,11 @@ class SmsPartRateLimiter(
         return usedLocked()
     }
 
-    private fun usedLocked(): Int = entries.sumOf { it.second }
+    private fun usedLocked(): Int = entries.sumOf { it.parts }
 
     private fun prune() {
         val cutoff = clock() - windowMs
-        while (entries.isNotEmpty() && entries.first().first <= cutoff) entries.removeFirst()
+        while (entries.isNotEmpty() && entries.first().at <= cutoff) entries.removeFirst()
     }
 
     companion object {

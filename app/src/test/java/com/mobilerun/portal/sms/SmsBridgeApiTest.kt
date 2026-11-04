@@ -479,6 +479,14 @@ class SmsBridgeApiTest {
     }
 
     @Test
+    fun send_dispatchThatThrows_refundsParts() {
+        sender.parts = { listOf("x", "y") }
+        sender.sendException = IllegalStateException("radio off")
+        assertEquals("failed", ok(api.handle("sms/send", sendParams(id = "a"))).getString("state"))
+        assertEquals(0, limiter.used())
+    }
+
+    @Test
     fun send_storeFullOfOutstandingSends_refusesWithoutSendingOrDiscarding() {
         store.full = true
         assertEquals("sms: device_side_failure: store_full", error(api.handle("sms/send", sendParams(id = "a"))))

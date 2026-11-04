@@ -128,7 +128,7 @@ class SmsBridgeApi(
         } catch (e: Exception) {
             refuse(SmsBridgeError(SmsBridgeError.DEVICE_SIDE_FAILURE, "divide failed"))
         }
-        if (!limiter.tryAcquire(parts.size)) refuse(SmsBridgeError.RATE_LIMITED)
+        val acquired = limiter.tryAcquire(parts.size) ?: refuse(SmsBridgeError.RATE_LIMITED)
 
         val now = clock()
         val record = SmsSendRecord(
@@ -152,16 +152,16 @@ class SmsBridgeApi(
         val inserted = try {
             records.insert(record)
         } catch (e: SmsStoreFullException) {
-            limiter.refund(parts.size)
+            limiter.refund(acquired)
             refuse(SmsBridgeError.STORE_FULL)
         } catch (e: Exception) {
-            limiter.refund(parts.size)
+            limiter.refund(acquired)
             // A timed-out or interrupted insert may still land; drop it so a retry of this id sends.
             runCatching { records.discardPrepared(id, record.callbackToken) }
             refuse(SmsBridgeError(SmsBridgeError.DEVICE_SIDE_FAILURE, "store unavailable"))
         }
         if (!inserted) {
-            limiter.refund(parts.size)
+            limiter.refund(acquired)
             val existing = records.find(id) ?: refuse(SmsBridgeError(SmsBridgeError.DEVICE_SIDE_FAILURE, "store unavailable"))
             return storedStatus(existing, fingerprint)
         }
@@ -169,6 +169,8 @@ class SmsBridgeApi(
         try {
             sender.sendBridgeMultipart(id, p.to, parts, sim.subscriptionId, p.deliveryReport, record.callbackToken)
         } catch (e: Exception) {
+            // SmsManager threw before taking any part: nothing went out.
+            limiter.refund(acquired)
             val message = e.javaClass.simpleName
             val failed = runCatching { records.markFailed(id, SmsSendCallbacks.SEND_EXCEPTION, message, clock()) }
                 .getOrNull()

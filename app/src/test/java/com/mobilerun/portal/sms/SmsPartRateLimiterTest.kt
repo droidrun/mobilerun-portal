@@ -1,8 +1,8 @@
 package com.mobilerun.portal.sms
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SmsPartRateLimiterTest {
@@ -11,26 +11,38 @@ class SmsPartRateLimiterTest {
 
     @Test
     fun refusesPastTwentyFivePartsInSixtySeconds() {
-        assertTrue(limiter.tryAcquire(25))
-        assertFalse(limiter.tryAcquire(1))
+        assertNotNull(limiter.tryAcquire(25))
+        assertNull(limiter.tryAcquire(1))
         now = 59_999
-        assertFalse(limiter.tryAcquire(1))
+        assertNull(limiter.tryAcquire(1))
         now = 60_000
-        assertTrue(limiter.tryAcquire(25))
+        assertNotNull(limiter.tryAcquire(25))
     }
 
     @Test
     fun singleSendOverTheCapIsAlwaysRefused() {
-        assertFalse(limiter.tryAcquire(26))
+        assertNull(limiter.tryAcquire(26))
         assertEquals(0, limiter.used())
     }
 
     @Test
     fun recordedLocalSendsCountAndRefundReturnsParts() {
         limiter.record(20)
-        assertFalse(limiter.tryAcquire(6))
-        assertTrue(limiter.tryAcquire(5))
-        limiter.refund(5)
+        assertNull(limiter.tryAcquire(6))
+        limiter.refund(limiter.tryAcquire(5)!!)
         assertEquals(20, limiter.used())
+    }
+
+    @Test
+    fun refundRemovesItsOwnAcquisition_notALaterLocalSendOfTheSameSize() {
+        val relay = limiter.tryAcquire(2)!!
+        now = 50_000
+        limiter.record(2)
+        limiter.refund(relay)
+
+        // The local send at 50 s still counts until 110 s.
+        now = 60_000
+        assertEquals(2, limiter.used())
+        assertNull(limiter.tryAcquire(24))
     }
 }
