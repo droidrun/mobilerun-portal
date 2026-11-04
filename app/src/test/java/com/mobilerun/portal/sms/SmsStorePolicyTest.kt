@@ -120,7 +120,7 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 2, createdAt = 1_000).copy(phase = SmsSendPhase.DISPATCHED)
         val now = 100_000L
         val decide = { rows: List<SmsProviderRow>? ->
-            SmsSendRecovery.decide(record, now, UPTIME, CURRENT, 1_000, rows, SmsOwnSends(), pkg)
+            SmsSendRecovery.decide(record, now, UPTIME, CURRENT, 60_000, rows, SmsOwnSends(), pkg)
         }
         val recheck = SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
 
@@ -142,6 +142,22 @@ class SmsStorePolicyTest {
     }
 
     @Test
+    fun recovery_dispatchedRecord_waitsAMinuteOfThisProcessForQueuedCallbacks() {
+        // A failure callback restarted the Portal; the framework already failed the row.
+        val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000).copy(phase = SmsSendPhase.DISPATCHED)
+        val rows = listOf(row(id = 9, type = SmsProviderRow.TYPE_FAILED, date = 2_000))
+        val now = 600_000L
+
+        assertEquals(
+            SmsRecoveryDecision.Wait(now + 59_000),
+            SmsSendRecovery.decide(record, now, UPTIME, CURRENT, 1_000, rows, SmsOwnSends(), pkg),
+        )
+        val failed = SmsSendRecovery.decide(record, now, UPTIME, CURRENT, 60_000, rows, SmsOwnSends(), pkg)
+            as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.FAILED, failed.record.state)
+    }
+
+    @Test
     fun recovery_dispatchedRecordAwaitingDelivery_settlesFromItsOwnRowStatus() {
         // The sent callback landed and claimed row 9; the delivered callback's write was lost.
         val record = SmsSendRecordTest.record(parts = 1, deliveryReport = true, createdAt = 1_000).copy(
@@ -157,7 +173,7 @@ class SmsStorePolicyTest {
                 row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_500, status = 64),
                 row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, status = status),
             )
-            SmsSendRecovery.decide(r, now, UPTIME, CURRENT, 1_000, rows, own, pkg)
+            SmsSendRecovery.decide(r, now, UPTIME, CURRENT, 60_000, rows, own, pkg)
         }
         val recheck = SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
 

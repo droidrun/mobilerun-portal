@@ -190,9 +190,10 @@ object SmsSendRecovery {
      * A prepared record from an earlier process is checked against the provider once it is a minute
      * old, by uptime when inserted this boot, else by the clock, and at least [sinceOpenMs]: a
      * Portal-created row to the same address, dated from [evidenceFrom] on, with the same body hash,
-     * resolves it; no such row fails it with RESULT_INTERRUPTED. A dispatched one is checked at once,
-     * against its own row once a callback named it, and never fails for want of a row: SmsManager took
-     * it. Null [rows] (READ_SMS missing) prove nothing, and an unresolved record is checked again later.
+     * resolves it; no such row fails it with RESULT_INTERRUPTED. A dispatched one is checked once this
+     * process is a minute old, after callbacks queued at its start, against its own row once a callback
+     * named it, and never fails for want of a row: SmsManager took it. Null [rows] (READ_SMS missing)
+     * prove nothing, and an unresolved record is checked again later.
      */
     fun decide(
         record: SmsSendRecord,
@@ -208,9 +209,9 @@ object SmsSendRecovery {
         val dispatched = record.phase == SmsSendPhase.DISPATCHED
         // Written before this process started, so at least sinceOpenMs old.
         val age = maxOf(sinceInsertMs(record, elapsedNow) ?: (now - record.createdAt), sinceOpenMs)
-        if (!dispatched && age < SmsStorePolicy.RECOVERY_GRACE_MS) {
-            return SmsRecoveryDecision.Wait(now + SmsStorePolicy.RECOVERY_GRACE_MS - age)
-        }
+        // A dispatched record's callback may be what started this process: its exact result lands first.
+        val wait = SmsStorePolicy.RECOVERY_GRACE_MS - if (dispatched) sinceOpenMs else age
+        if (wait > 0) return SmsRecoveryDecision.Wait(now + wait)
         val recheckAt = now + SmsStoreRetry.SLOW_RETRY_DELAY_MS
         if (rows == null) return SmsRecoveryDecision.Wait(recheckAt)
         val target = SmsPhoneNumbers.compactAddress(record.to)
