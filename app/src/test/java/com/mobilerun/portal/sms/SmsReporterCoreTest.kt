@@ -698,6 +698,25 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun sendState_failedMarkReported_isWrittenAgainWhileOffline() {
+        store.records["m"] = relayRecord("m", SmsSendState.SENT)
+        open()
+        store.failMarkReported = 1
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Ok)
+        time.runDue()
+
+        calls.socketOpen = false
+        core.onSocketClosed()
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(listOf("m:sent"), store.reported)
+
+        // A restart before the next connect finds it reported.
+        restart()
+        open()
+        assertTrue(calls.calls.isEmpty())
+    }
+
+    @Test
     fun sendState_ignoresLocalRecordsAndInitialPending() {
         open()
         core.onSendStateChanged(relayRecord("l", SmsSendState.SENT, origin = "local"))

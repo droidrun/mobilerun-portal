@@ -126,10 +126,9 @@ class SmsReporterCore(
         drainTask?.cancel()
         drainTask = null
         drainAt = Long.MAX_VALUE
-        stateTask?.cancel()
-        stateTask = null
         loadTask?.cancel()
         loadTask = null
+        drainStates()
     }
 
     fun onCloudSwitchChanged(enabled: Boolean) = post {
@@ -377,9 +376,13 @@ class SmsReporterCore(
     private fun drainStates() {
         stateTask?.cancel()
         stateTask = null
-        if (!online()) return
         val now = clock()
+        // markReported needs no socket, so a finished item is written again while offline too.
         states.values.filter { it.finished && it.nextAttemptAt <= now }.forEach { finish(it, now) }
+        if (!online()) {
+            states.values.filter { it.finished }.minOfOrNull { it.nextAttemptAt }?.let { scheduleStates(it - now) }
+            return
+        }
         var free = MAX_STATE_IN_FLIGHT - statesInFlight.size
         for (item in states.values.sortedBy { it.record.updatedAt }) {
             if (free <= 0) break
@@ -393,7 +396,11 @@ class SmsReporterCore(
         }
         if (free <= 0) return
         val next = states.values.filter { it.record.id !in statesInFlight }.minOfOrNull { it.nextAttemptAt } ?: return
-        stateTask = scheduler.schedule((next - now).coerceAtLeast(0L)) {
+        scheduleStates(next - now)
+    }
+
+    private fun scheduleStates(delayMs: Long) {
+        stateTask = scheduler.schedule(delayMs.coerceAtLeast(0L)) {
             guarded {
                 stateTask = null
                 drainStates()
