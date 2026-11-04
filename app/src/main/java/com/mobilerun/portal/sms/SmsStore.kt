@@ -162,7 +162,7 @@ class SmsStore private constructor(
         try {
             call { db -> markFailedLocked(db, id, code, message, now) }
         } catch (e: Exception) {
-            async("fail", retried = true) { db -> markFailedLocked(db, id, code, message, now) }
+            async("fail", retried = true, untilDone = true) { db -> markFailedLocked(db, id, code, message, now) }
             throw e
         }
 
