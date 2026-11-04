@@ -2,6 +2,7 @@ package com.mobilerun.portal.sms
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,10 +29,28 @@ class SmsStorePolicyTest {
 
         assertEquals(listOf("expired"), SmsStorePolicy.evictions(records, now, maxRecords = 4))
         assertEquals(listOf("expired", "old-terminal", "new-terminal"), SmsStorePolicy.evictions(records, now, maxRecords = 2))
-        assertEquals(
-            listOf("expired", "old-terminal", "new-terminal", "old-pending"),
-            SmsStorePolicy.evictions(records, now, maxRecords = 1),
+    }
+
+    @Test
+    fun evictions_overTheCapTakeAwaitingDeliveryNextButNeverOutstandingSends() {
+        val now = 30 * day
+        val records = listOf(
+            SmsStorePolicy.EvictionCandidate("old-pending", terminal = false, createdAt = now - 4 * day),
+            SmsStorePolicy.EvictionCandidate("old-awaiting", terminal = false, createdAt = now - 3 * day, awaitingDelivery = true),
+            SmsStorePolicy.EvictionCandidate("new-awaiting", terminal = false, createdAt = now - 2 * day, awaitingDelivery = true),
+            SmsStorePolicy.EvictionCandidate("terminal", terminal = true, createdAt = now - 1 * day),
+            SmsStorePolicy.EvictionCandidate("new-pending", terminal = false, createdAt = now),
         )
+
+        assertEquals(listOf("terminal", "old-awaiting"), SmsStorePolicy.evictions(records, now, maxRecords = 3))
+        assertEquals(
+            listOf("terminal", "old-awaiting", "new-awaiting"),
+            SmsStorePolicy.evictions(records, now, maxRecords = 2),
+        )
+        // Only outstanding sends left over the cap: the insert is refused instead.
+        assertNull(SmsStorePolicy.evictions(records, now, maxRecords = 1))
+        // Expiry still drops an outstanding send past the TTL.
+        assertEquals(listOf("old-pending"), SmsStorePolicy.evictions(records, now, maxRecords = 4, ttlMs = 3 * day + 1))
     }
 
     @Test

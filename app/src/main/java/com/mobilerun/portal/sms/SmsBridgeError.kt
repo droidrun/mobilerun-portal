@@ -23,6 +23,7 @@ data class SmsBridgeError(val code: String, val detail: String? = null) {
         val NO_SUBSCRIPTION = SmsBridgeError(TELEPHONY_UNAVAILABLE, "no_subscription")
         val NO_CLOUD_SIM = SmsBridgeError(TELEPHONY_UNAVAILABLE, "no_cloud_sim")
         val RATE_LIMITED = SmsBridgeError(DEVICE_SIDE_FAILURE, "rate_limited")
+        val STORE_FULL = SmsBridgeError(DEVICE_SIDE_FAILURE, "store_full")
         val NOT_FOUND_ERROR = SmsBridgeError(NOT_FOUND)
 
         fun invalid(detail: String) = SmsBridgeError(INVALID_PARAMS, detail)

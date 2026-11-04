@@ -151,6 +151,9 @@ class SmsBridgeApi(
         )
         val inserted = try {
             records.insert(record)
+        } catch (e: SmsStoreFullException) {
+            limiter.refund(parts.size)
+            refuse(SmsBridgeError.STORE_FULL)
         } catch (e: Exception) {
             limiter.refund(parts.size)
             // A timed-out or interrupted insert may still land; drop it so a retry of this id sends.

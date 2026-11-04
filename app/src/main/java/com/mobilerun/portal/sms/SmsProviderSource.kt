@@ -56,11 +56,14 @@ interface SmsProviderSource {
     fun ownSends(packageName: String, since: Long, after: SmsWatermark?, limit: Int): List<SmsProviderRow>
 }
 
+/** Outstanding sends alone fill the store: nothing was inserted. */
+class SmsStoreFullException : Exception("store_full")
+
 /** Persistence used by relay sends. */
 interface SmsSendRecordStore {
     fun find(id: String): SmsSendRecord?
 
-    /** Inserts a new record; false when the id already exists. */
+    /** Inserts a new record; false when the id already exists. Throws [SmsStoreFullException]. */
     fun insert(record: SmsSendRecord): Boolean
 
     /** Removes [id] if it is still a prepared record with [callbackToken]: an insert reported as failed may still land. */

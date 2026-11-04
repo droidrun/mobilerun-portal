@@ -127,6 +127,9 @@ class InMemorySendRecordStore : SmsSendRecordStore {
     val events = mutableListOf<String>()
     var failInsert = false
 
+    /** Outstanding sends alone fill the store. */
+    var full = false
+
     /** The insert lands but the caller sees a failure, like a store-thread timeout or interrupt. */
     var insertLandsThenFails = false
 
@@ -134,6 +137,7 @@ class InMemorySendRecordStore : SmsSendRecordStore {
 
     override fun insert(record: SmsSendRecord): Boolean {
         if (failInsert) throw IllegalStateException("disk full")
+        if (full) throw SmsStoreFullException()
         if (records.containsKey(record.id)) return false
         records[record.id] = record
         events += "insert:${record.id}:${record.phase.wire}"

@@ -479,6 +479,19 @@ class SmsBridgeApiTest {
     }
 
     @Test
+    fun send_storeFullOfOutstandingSends_refusesWithoutSendingOrDiscarding() {
+        store.full = true
+        assertEquals("sms: device_side_failure: store_full", error(api.handle("sms/send", sendParams(id = "a"))))
+        assertTrue(sender.sends.isEmpty())
+        assertTrue(store.events.isEmpty())
+        assertEquals(0, limiter.used())
+
+        store.full = false
+        assertEquals("pending", ok(api.handle("sms/send", sendParams(id = "a"))).getString("state"))
+        assertEquals(listOf("a"), sender.sends.map { it.first })
+    }
+
+    @Test
     fun send_insertThatLandsAfterAReportedFailure_isDiscarded_soARetrySends() {
         store.insertLandsThenFails = true
         assertEquals("sms: device_side_failure: store unavailable", error(api.handle("sms/send", sendParams(id = "a"))))
