@@ -121,9 +121,12 @@ class SmsStore private constructor(
         }
     }
 
-    /** Queued behind any insert still pending after a timeout or interrupt, so it always sees it. */
+    /**
+     * Queued behind any insert still pending after a timeout or interrupt, so it always sees it. A
+     * record left prepared would answer a retried sms/send as pending, so a failed discard runs again.
+     */
     override fun discardPrepared(id: String, callbackToken: String) {
-        async("discard") { db ->
+        async("discard", retried = true) { db ->
             db.delete(
                 TABLE_RECORDS, "id = ? AND phase = ? AND callback_token = ?",
                 arrayOf(id, SmsSendPhase.PREPARED.wire, callbackToken),
