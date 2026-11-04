@@ -5,12 +5,14 @@ internal enum class WebSocketDispatchBucket {
     LIGHTWEIGHT,
     COMMAND,
     INSTALL,
+    SMS,
 }
 
 internal object WebSocketDispatchPolicy {
     fun bucketForNormalizedMethod(normalizedMethod: String): WebSocketDispatchBucket {
         return when {
             normalizedMethod == "install" -> WebSocketDispatchBucket.INSTALL
+            normalizedMethod.startsWith("sms/") -> WebSocketDispatchBucket.SMS
             isLightweightSignalingMethod(normalizedMethod) -> WebSocketDispatchBucket.LIGHTWEIGHT
             isOrderedSignalingMethod(normalizedMethod) -> WebSocketDispatchBucket.SIGNALING
             else -> WebSocketDispatchBucket.COMMAND

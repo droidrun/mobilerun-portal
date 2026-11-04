@@ -29,6 +29,7 @@ import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.input.MobilerunKeyboardIME
+import com.mobilerun.portal.sms.SmsSubscriptionResolver
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.streaming.WebRtcManager
@@ -38,6 +39,7 @@ import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.URI
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
@@ -141,6 +143,16 @@ class ReverseConnectionService : Service() {
     private val lightweightExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val smsExecutor = Executors.newSingleThreadExecutor()
+    private val rpcTimeoutExecutor = Executors.newSingleThreadScheduledExecutor()
+
+    @Volatile
+    private var rpcSocket: ReverseRpcSocket? = null
+    internal val rpcCalls = ReverseRpcCalls(
+        transport = { rpcSocket?.takeIf { webSocketGeneration.isCurrent(it.generation) } },
+        schedule = { delayMs, task -> rpcTimeoutExecutor.schedule(task, delayMs, TimeUnit.MILLISECONDS) },
+        log = { Log.w(TAG, it) },
+    )
     private var lastReverseToastAtMs = 0L
     private var isForeground = false
 
@@ -298,6 +310,14 @@ class ReverseConnectionService : Service() {
         } catch (_: Exception) {
         }
         try {
+            smsExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
+        try {
+            rpcTimeoutExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
+        try {
             sessionExecutor.shutdownNow()
         } catch (_: Exception) {
         }
@@ -349,6 +369,8 @@ class ReverseConnectionService : Service() {
             headers["X-Remote-Device-Key"] = serviceKey
         }
 
+        headers.putAll(PortalCapabilityTokens.headers(SmsSubscriptionResolver(this).hasTelephony()))
+
         return headers
     }
 
@@ -369,7 +391,7 @@ class ReverseConnectionService : Service() {
                 configManager.reverseConnectionToken.isNotBlank()
             } serviceKeyPresent=${configManager.reverseConnectionServiceKey.isNotBlank()} headerNames=${
                 headers.keys.sorted().joinToString()
-            }",
+            } capabilities=${headers[PortalCapabilityTokens.CAPABILITIES_HEADER]}",
         )
     }
 
@@ -408,6 +430,7 @@ class ReverseConnectionService : Service() {
                         TAG,
                         "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
                     )
+                    rpcSocket = ReverseRpcSocket(this, connectionGeneration)
                     retryController.onConnected()
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
@@ -433,6 +456,7 @@ class ReverseConnectionService : Service() {
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
                     if (!isCurrentWebSocketCallback(connectionGeneration, "onClose")) return
                     Log.w(TAG, "Disconnected from Host: code=$code reason=$reason remote=$remote")
+                    releaseRpcSocket(connectionGeneration)
                     logNetworkState("onClose")
 
                     when (val decision = retryController.onClose(reason, ::cancelPendingReconnects)) {
@@ -617,6 +641,7 @@ class ReverseConnectionService : Service() {
 
     private fun closeWebSocket(leave: Boolean): Long {
         val connectionGeneration = webSocketGeneration.advance()
+        releaseRpcSocket(connectionGeneration - 1)
         try {
             webSocketClient?.let { closeRelaySocket(it, leave) }
             webSocketClient = null
@@ -628,6 +653,11 @@ class ReverseConnectionService : Service() {
 
     private fun disconnect() {
         closeWebSocket(leave = true)
+    }
+
+    private fun releaseRpcSocket(closedGeneration: Long) {
+        rpcSocket = null
+        rpcCalls.failAll(closedGeneration)
     }
 
     private fun isCurrentWebSocketCallback(connectionGeneration: Long, callback: String): Boolean {
@@ -919,6 +949,13 @@ class ReverseConnectionService : Service() {
             }
 
             if (method.isEmpty()) {
+                val socket = rpcSocket
+                if (socket != null && socket.client === client &&
+                    rpcCalls.onResponse(json, socket.generation)
+                ) {
+                    Log.d(TAG, "Received reply to device call id=$id")
+                    return
+                }
                 if (json.has("result")) {
                     Log.d(TAG, "Received JSON-RPC result for id=$id")
                 } else if (json.has("error")) {
@@ -956,6 +993,7 @@ class ReverseConnectionService : Service() {
                     WebSocketDispatchBucket.LIGHTWEIGHT -> lightweightExecutor
                     WebSocketDispatchBucket.COMMAND -> commandExecutor
                     WebSocketDispatchBucket.INSTALL -> installExecutor
+                    WebSocketDispatchBucket.SMS -> smsExecutor
                 }
             executor.submit {
                 dispatchAndRespond(

@@ -15,6 +15,14 @@ data class SmsSubscriptionResolution(
     val error: String? = null,
 )
 
+internal fun hasTelephonyFeature(sdkInt: Int, hasSystemFeature: (String) -> Boolean): Boolean =
+    if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+        hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
+    } else {
+        @Suppress("DEPRECATION")
+        hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+    }
+
 class SmsSubscriptionResolver(
     private val context: Context,
 ) {
@@ -62,12 +70,7 @@ class SmsSubscriptionResolver(
 
     fun hasTelephony(): Boolean {
         val packageManager = context.packageManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
-        }
+        return hasTelephonyFeature(Build.VERSION.SDK_INT, packageManager::hasSystemFeature)
     }
 
     fun hasSendSms(): Boolean = hasPermission(Manifest.permission.SEND_SMS)

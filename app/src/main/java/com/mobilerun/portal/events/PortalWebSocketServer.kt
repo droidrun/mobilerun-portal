@@ -117,7 +117,8 @@ class PortalWebSocketServer(
                     when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
                         WebSocketDispatchBucket.SIGNALING -> signalingExecutor
                         WebSocketDispatchBucket.LIGHTWEIGHT -> lightweightExecutor
-                        WebSocketDispatchBucket.COMMAND -> commandExecutor
+                        WebSocketDispatchBucket.COMMAND,
+                        WebSocketDispatchBucket.SMS -> commandExecutor
                         WebSocketDispatchBucket.INSTALL -> installExecutor
                     }
                 executor.submit {
