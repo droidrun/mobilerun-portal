@@ -28,6 +28,36 @@ object SmsStorePolicy {
     }
 }
 
+/** Store work tried again after a failure: [MAX_ATTEMPTS] tries in all, [RETRY_DELAY_MS] apart. */
+class SmsStoreRetry(
+    private val schedule: (delayMs: Long, task: () -> Unit) -> Unit,
+    private val log: (String) -> Unit = {},
+) {
+    fun run(name: String, block: () -> Unit) = attempt(name, 1, block)
+
+    private fun attempt(name: String, attempt: Int, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            if (attempt >= MAX_ATTEMPTS) {
+                log("$name failed (${e.javaClass.simpleName}), giving up")
+                return
+            }
+            log("$name failed (${e.javaClass.simpleName}), retrying")
+            try {
+                schedule(RETRY_DELAY_MS) { attempt(name, attempt + 1, block) }
+            } catch (_: Exception) {
+                log("$name retry not scheduled")
+            }
+        }
+    }
+
+    companion object {
+        const val MAX_ATTEMPTS = 5
+        const val RETRY_DELAY_MS = 30_000L
+    }
+}
+
 /**
  * The Portal's own sends: provider _id -> when it was recorded. The sms table reuses _id after
  * deletes, so a row matches only when it is not newer than the record.

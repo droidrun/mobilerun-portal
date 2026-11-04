@@ -129,6 +129,42 @@ class SmsStorePolicyTest {
         assertEquals(SmsSendState.SENT, decision.record.state)
     }
 
+    @Test
+    fun storeRetry_runsAFailedWriteAgainUntilItLands() {
+        val time = FakeReporterScheduler()
+        val retry = SmsStoreRetry(schedule = { delay, task -> time.scheduler.schedule(delay, task) })
+        var failures = 2
+        var runs = 0
+
+        retry.run("write") {
+            runs += 1
+            if (failures-- > 0) throw IllegalStateException("disk I/O error")
+        }
+        assertEquals(1, runs)
+
+        time.advanceBy(SmsStoreRetry.RETRY_DELAY_MS)
+        assertEquals(2, runs)
+        time.advanceBy(SmsStoreRetry.RETRY_DELAY_MS)
+        assertEquals(3, runs)
+        time.advanceBy(10 * SmsStoreRetry.RETRY_DELAY_MS)
+        assertEquals(3, runs)
+    }
+
+    @Test
+    fun storeRetry_givesUpAfterTheLastAttempt() {
+        val time = FakeReporterScheduler()
+        val retry = SmsStoreRetry(schedule = { delay, task -> time.scheduler.schedule(delay, task) })
+        var runs = 0
+
+        retry.run("write") {
+            runs += 1
+            throw IllegalStateException("disk I/O error")
+        }
+        time.advanceBy(100 * SmsStoreRetry.RETRY_DELAY_MS)
+
+        assertEquals(SmsStoreRetry.MAX_ATTEMPTS, runs)
+    }
+
     private fun row(
         id: Long,
         type: Int,

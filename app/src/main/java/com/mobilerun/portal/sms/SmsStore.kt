@@ -64,11 +64,16 @@ class SmsStore private constructor(
         }
     }
 
+    private val retry = SmsStoreRetry(
+        schedule = { delayMs, task -> executor.schedule(Runnable { task() }, delayMs, TimeUnit.MILLISECONDS) },
+        log = { Log.w(TAG, it) },
+    )
+
     /** Records created before this instant were written by an earlier process. */
     val openedAt: Long = clock()
 
     init {
-        executor.execute { safely("recover") { recoverInterrupted() } }
+        executor.execute { retry.run("recover") { recoverInterrupted() } }
     }
 
     private fun <T> call(block: (SQLiteDatabase) -> T): T {
@@ -81,12 +86,19 @@ class SmsStore private constructor(
         }
     }
 
-    /** Runs [block] on the store thread, then [done] (for BroadcastReceiver.goAsync). */
-    fun async(name: String, done: () -> Unit = {}, block: (SQLiteDatabase) -> Unit) {
+    /**
+     * Runs [block] on the store thread, then [done] (for BroadcastReceiver.goAsync). A [retried]
+     * block that fails runs again later, after [done].
+     */
+    fun async(name: String, done: () -> Unit = {}, retried: Boolean = false, block: (SQLiteDatabase) -> Unit) {
         try {
             executor.execute {
                 try {
-                    safely(name) { block(helper.writableDatabase) }
+                    if (retried) {
+                        retry.run(name) { block(helper.writableDatabase) }
+                    } else {
+                        safely(name) { block(helper.writableDatabase) }
+                    }
                 } finally {
                     done()
                 }
@@ -123,17 +135,29 @@ class SmsStore private constructor(
         updateLocked(db, id) { it.withDispatched(now) }
     }
 
-    override fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord? = call { db ->
+    /** No callback follows a send that threw, so a failed write is queued again rather than left prepared. */
+    override fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord? =
+        try {
+            call { db -> markFailedLocked(db, id, code, message, now) }
+        } catch (e: Exception) {
+            async("fail", retried = true) { db -> markFailedLocked(db, id, code, message, now) }
+            throw e
+        }
+
+    private fun markFailedLocked(db: SQLiteDatabase, id: String, code: String, message: String, now: Long): SmsSendRecord? =
         updateLocked(db, id) { it.withFailure(code, message, now) }?.also(SmsBridgeSendStates::changed)
-    }
 
     /** Applies a sent/delivered result on the store thread; also records the provider row as the Portal's own. */
     internal fun applyCallbackAsync(callback: SmsSendCallback, done: () -> Unit) {
-        async("callback", done) { db ->
-            val before = findLocked(db, callback.recordId) ?: return@async
-            val updated = updateLocked(db, callback.recordId) { SmsSendCallbacks.apply(it, callback, clock()) }
-            SmsSendCallbacks.providerIdFromUri(callback.providerUri)?.let { recordOwnSendLocked(db, it, callback.recordId) }
-            if (updated != null && updated.state != before.state) SmsBridgeSendStates.changed(updated)
+        async("callback", done, retried = true) { db ->
+            // One transaction, so a retry after a failure starts from the unchanged record.
+            val changed = db.inTransaction {
+                val before = findLocked(db, callback.recordId) ?: return@inTransaction null
+                val updated = updateLocked(db, callback.recordId) { SmsSendCallbacks.apply(it, callback, clock()) }
+                SmsSendCallbacks.providerIdFromUri(callback.providerUri)?.let { recordOwnSendLocked(db, it, callback.recordId) }
+                updated?.takeIf { it.state != before.state }
+            }
+            changed?.let(SmsBridgeSendStates::changed)
         }
     }
 
@@ -176,7 +200,7 @@ class SmsStore private constructor(
             done()
             return
         }
-        async("own-send", done) { db -> recordOwnSendLocked(db, providerId, recordId) }
+        async("own-send", done, retried = true) { db -> recordOwnSendLocked(db, providerId, recordId) }
     }
 
     override fun ownSends(): SmsOwnSends = call { db -> ownSendsLocked(db) }
@@ -339,11 +363,11 @@ class SmsStore private constructor(
             when (val decision = SmsSendRecovery.decide(record, now, openedAt, rows, own, appContext.packageName)) {
                 is SmsRecoveryDecision.Wait -> retryAt = minOf(retryAt ?: decision.atMs, decision.atMs)
                 is SmsRecoveryDecision.Resolve -> {
-                    writeLocked(db, decision.record)
-                    decision.providerId?.let {
-                        recordOwnSendLocked(db, it, record.id)
-                        own = own.plus(it, clock())
+                    db.inTransaction {
+                        writeLocked(db, decision.record)
+                        decision.providerId?.let { recordOwnSendLocked(db, it, record.id) }
                     }
+                    decision.providerId?.let { own = own.plus(it, clock()) }
                     if (decision.record.state != record.state) SmsBridgeSendStates.changed(decision.record)
                 }
                 SmsRecoveryDecision.None -> Unit
@@ -351,7 +375,7 @@ class SmsStore private constructor(
         }
         retryAt?.let { at ->
             executor.schedule(
-                Runnable { safely("recover") { recoverInterrupted() } },
+                Runnable { retry.run("recover") { recoverInterrupted() } },
                 (at - now).coerceAtLeast(0L) + 50L,
                 TimeUnit.MILLISECONDS,
             )
