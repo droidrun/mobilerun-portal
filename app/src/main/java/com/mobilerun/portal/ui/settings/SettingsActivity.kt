@@ -32,6 +32,7 @@ import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.service.setReconnectAfterRestart
+import com.mobilerun.portal.sms.SmsBridgeReporter
 import com.mobilerun.portal.sms.SmsCloud
 import com.mobilerun.portal.sms.SmsCloudSims
 import com.mobilerun.portal.sms.SmsSimInfo
@@ -113,6 +114,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         ActivityResultContracts.RequestPermission(),
     ) {
         updatePermissionSwitches()
+        SmsBridgeReporter.onPermissionsChanged()
     }
 
     private val requestSmsCloudPermissionsLauncher = registerForActivityResult(

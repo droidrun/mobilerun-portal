@@ -39,8 +39,9 @@ object SmsBridgeReporter {
             val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "SmsReporter").also { it.isDaemon = true }
             }
+            val scheduler = ExecutorReporterScheduler(executor)
             SmsReporterCore(
-                scheduler = ExecutorReporterScheduler(executor),
+                scheduler = scheduler,
                 store = LazyReporterStore(app),
                 rows = provider,
                 calls = ReverseSmsReportCalls,
@@ -51,7 +52,13 @@ object SmsBridgeReporter {
                 log = { Log.i(TAG, it) },
             ).also { created ->
                 core = created
-                observer = SmsObserverRegistration(register = { registerObserver(app) }, log = { Log.w(TAG, it) })
+                observer = SmsObserverRegistration(
+                    register = { registerObserver(app) },
+                    hasReadSms = { hasReadSms(app) },
+                    scheduler = scheduler,
+                    onReadSms = created::scanSoon,
+                    log = { Log.w(TAG, it) },
+                )
                 this.app = app
                 SmsBridgeSendStates.listener = created::onSendStateChanged
                 config.addListener(SwitchListener())
@@ -84,15 +91,22 @@ object SmsBridgeReporter {
         core?.onSocketClosed()
     }
 
+    /** The Portal's own permission prompt returned; a grant made in system Settings waits for the recheck. */
+    fun onPermissionsChanged() {
+        retryObserver()
+        core?.scanSoon()
+    }
+
     private fun retryObserver() {
         val context = app ?: return
-        observer?.retry(ConfigManager.getInstance(context).smsCloudEnabled, hasReadSms(context))
+        observer?.retry(ConfigManager.getInstance(context).smsCloudEnabled)
     }
 
     private fun registerObserver(context: Context): SmsCancellable {
         val resolver = context.contentResolver
         val created = object : ContentObserver(null) {
             override fun onChange(selfChange: Boolean) {
+                retryObserver()
                 core?.scanSoon()
             }
         }
@@ -117,33 +131,62 @@ object SmsBridgeReporter {
 
 /**
  * The content://sms observer while cloud SMS is on. Registering throws without READ_SMS, and a
- * later grant does not restart the process, so [retry] registers a missing one again.
+ * grant made in system Settings reaches neither the process nor the Portal, so while the observer
+ * or READ_SMS is missing a single recheck runs every [SmsReporterCore.BLOCKED_RETRY_MS].
  */
 internal class SmsObserverRegistration(
     private val register: () -> SmsCancellable,
+    private val hasReadSms: () -> Boolean,
+    private val scheduler: SmsReporterScheduler,
+    /** A recheck found READ_SMS granted: scan for what went unreported meanwhile. */
+    private val onReadSms: () -> Unit,
     private val log: (String) -> Unit = {},
 ) {
+    private var enabled = false
     private var registration: SmsCancellable? = null
+    private var recheck: SmsCancellable? = null
 
     @Synchronized
     fun update(enabled: Boolean) {
+        this.enabled = enabled
         if (!enabled) {
             registration?.let { runCatching { it.cancel() } }
             registration = null
-            return
+        } else if (registration == null) {
+            registration = try {
+                register()
+            } catch (e: Exception) {
+                log("SMS observer not registered (${e.javaClass.simpleName})")
+                null
+            }
         }
-        if (registration != null) return
-        registration = try {
-            register()
-        } catch (e: Exception) {
-            log("SMS observer not registered (${e.javaClass.simpleName})")
-            null
-        }
+        armRecheck()
     }
 
     /** On scan triggers. */
-    fun retry(enabled: Boolean, readSmsGranted: Boolean) {
-        if (enabled && readSmsGranted) update(true)
+    @Synchronized
+    fun retry(enabled: Boolean) {
+        if (enabled && hasReadSms()) update(true) else armRecheck()
+    }
+
+    private fun armRecheck() {
+        if (!enabled || (registration != null && hasReadSms())) {
+            recheck?.cancel()
+            recheck = null
+        } else if (recheck == null) {
+            recheck = scheduler.schedule(SmsReporterCore.BLOCKED_RETRY_MS) { onRecheck() }
+        }
+    }
+
+    @Synchronized
+    private fun onRecheck() {
+        recheck = null
+        if (enabled && hasReadSms()) {
+            update(true)
+            onReadSms()
+        } else {
+            armRecheck()
+        }
     }
 }
 
