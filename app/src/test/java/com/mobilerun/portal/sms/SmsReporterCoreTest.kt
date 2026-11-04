@@ -27,7 +27,7 @@ class SmsReporterCoreTest {
         store.seedScanState(null, coveredFrom = START)
     }
 
-    private fun newCore() = SmsReporterCore(
+    private fun newCore(maxPending: Int = SmsStorePolicy.MAX_PENDING_REPORTS) = SmsReporterCore(
         scheduler = time.scheduler,
         store = store,
         rows = provider,
@@ -37,6 +37,7 @@ class SmsReporterCoreTest {
         hasReadSms = { readSms },
         sims = { sims },
         clock = time.clock,
+        maxPending = maxPending,
     )
 
     /** A new process: the store and the provider survive; tasks, calls and memory do not. */
@@ -453,6 +454,45 @@ class SmsReporterCoreTest {
         assertTrue(store.pending.isEmpty())
         assertTrue(time.now - START >= SmsReportPolicy.GIVE_UP_MS)
         assertTrue(calls.inFlight().isEmpty())
+    }
+
+    @Test
+    fun fullQueue_queuesNothingPastIt_andScansOnAsReportsLeave() {
+        core = newCore(maxPending = 2)
+        val rows = (1..5).map { inbox(time.now + it) }
+        scanned()
+        assertEquals(rows.take(2).map { it.messageId }, store.pending.keys.toList())
+
+        open()
+        // Full, it does not scan again by itself.
+        val queries = provider.queries
+        time.advanceBy(10 * SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(queries, provider.queries)
+
+        while (calls.inFlight().isNotEmpty()) {
+            calls.completeAll(SmsReporterCore.RECEIVED, SmsReportOutcome.Ok)
+            time.advanceBy(SmsReporterCore.DEBOUNCE_MS)
+            assertTrue(store.pending.size <= 2)
+        }
+        assertEquals(rows.map { it.messageId }, calls.receivedIds())
+        assertTrue(store.pending.isEmpty())
+    }
+
+    @Test
+    fun fullQueueOfUndeliverableReports_givesUpAfter24h_andScanningResumes() {
+        core = newCore(maxPending = 2)
+        val stuck = (1..2).map { inbox(time.now + it) }
+        val next = inbox(time.now + 3)
+        open()
+        var rounds = 0
+        while (stuck.any { it.messageId in store.pending } && rounds < 2_000) {
+            calls.completeAll(SmsReporterCore.RECEIVED, SmsReportOutcome.Error("sms: device_side_failure: forward failed"))
+            time.advanceBy(60_000L)
+            rounds += 1
+        }
+
+        assertTrue(time.now - START >= SmsReportPolicy.GIVE_UP_MS)
+        assertEquals((stuck + next).map { it.messageId }, calls.receivedIds().distinct())
     }
 
     @Test

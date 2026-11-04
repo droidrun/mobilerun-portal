@@ -39,6 +39,8 @@ data class SmsScanResult(
     val more: Boolean,
     /** Oldest-seen rechecks dropped over [SmsReportScanner.MAX_RECHECKS]. */
     val evictedRechecks: List<SmsRecheck> = emptyList(),
+    /** A report had no room in the queue: the scan stopped before its row, to go on once the queue drains. */
+    val queueFull: Boolean = false,
 )
 
 /** Provider reads the reporter needs. */
@@ -80,8 +82,10 @@ class SmsReportScanner(
         isReported: (String) -> Boolean,
         subscriptionFilter: Int?,
         now: Long,
+        room: Int = Int.MAX_VALUE,
     ): SmsScanResult {
         val reports = LinkedHashMap<String, SmsReportCandidate>()
+        var queueFull = false
         // A clock set back dates new rows before coveredFrom: rows added since enabling then count
         // from the first scan that finds it. Older _ids keep coveredFrom, so date re-reads never
         // report a row from before enabling.
@@ -94,36 +98,48 @@ class SmsReportScanner(
                 (subscriptionFilter == null || row.subscriptionId == subscriptionFilter) &&
                 (direction == SmsBridgeListParams.DIRECTION_IN || (row.creator != packageName && row !in ownSends))
 
-        fun report(row: SmsProviderRow, direction: String) {
+        /** False when the queue has no room left for it. */
+        fun report(row: SmsProviderRow, direction: String): Boolean {
             val msgId = row.messageId
-            if (msgId in reports || isReported(msgId)) return
+            if (msgId in reports || isReported(msgId)) return true
+            if (reports.size >= room) {
+                queueFull = true
+                return false
+            }
             reports[msgId] = SmsReportCandidate(msgId, row.id, direction)
+            return true
         }
 
-        val inbound = page(state.inbound, state.inboundRecovery, INBOUND_TYPES, MAX_ROWS_PER_SCAN, now)
-        inbound.rows
-            .filter { it.type == SmsProviderRow.TYPE_INBOX && eligible(it, SmsBridgeListParams.DIRECTION_IN) }
-            .forEach { report(it, SmsBridgeListParams.DIRECTION_IN) }
+        val inboundRead = page(state.inbound, state.inboundRecovery, INBOUND_TYPES, MAX_ROWS_PER_SCAN, now)
+        val inbound = taken(inboundRead, state.inbound, state.inboundRecovery) { row ->
+            row.type != SmsProviderRow.TYPE_INBOX || !eligible(row, SmsBridgeListParams.DIRECTION_IN) ||
+                report(row, SmsBridgeListParams.DIRECTION_IN)
+        }
 
-        val out = page(state.out, state.outRecovery, OUT_TYPES, MAX_ROWS_PER_SCAN - inbound.rows.size, now)
+        val outRead = page(state.out, state.outRecovery, OUT_TYPES, MAX_ROWS_PER_SCAN - inboundRead.rows.size, now)
         val recheck = LinkedHashMap<Long, SmsRecheck>()
         val current = rows.rows(state.recheck.map { it.providerId }).associateBy { it.id }
         for (entry in state.recheck) {
             val row = current[entry.providerId]
             when {
                 row == null -> Unit
+                // Without room it stays, to be reported by a later scan.
                 row.type == SmsProviderRow.TYPE_SENT -> {
-                    if (eligible(row, SmsBridgeListParams.DIRECTION_OUT)) report(row, SmsBridgeListParams.DIRECTION_OUT)
+                    if (eligible(row, SmsBridgeListParams.DIRECTION_OUT) && !report(row, SmsBridgeListParams.DIRECTION_OUT)) {
+                        recheck[entry.providerId] = entry
+                    }
                 }
                 row.type in RECHECK_TYPES -> recheck[entry.providerId] = entry
             }
         }
-        for (row in out.rows) {
-            if (!eligible(row, SmsBridgeListParams.DIRECTION_OUT)) continue
-            when (row.type) {
-                SmsProviderRow.TYPE_SENT -> report(row, SmsBridgeListParams.DIRECTION_OUT)
-                in RECHECK_TYPES -> recheck.putIfAbsent(row.id, SmsRecheck(row.id, now))
+        val out = taken(outRead, state.out, state.outRecovery) { row ->
+            if (eligible(row, SmsBridgeListParams.DIRECTION_OUT)) {
+                when (row.type) {
+                    SmsProviderRow.TYPE_SENT -> return@taken report(row, SmsBridgeListParams.DIRECTION_OUT)
+                    in RECHECK_TYPES -> recheck.putIfAbsent(row.id, SmsRecheck(row.id, now))
+                }
             }
+            true
         }
 
         // In first-seen order, so the oldest-seen go first over capacity.
@@ -140,6 +156,7 @@ class SmsReportScanner(
             reports = reports.values.toList(),
             more = inbound.full || out.full,
             evictedRechecks = rechecks.dropLast(MAX_RECHECKS),
+            queueFull = queueFull,
         )
     }
 
@@ -148,7 +165,27 @@ class SmsReportScanner(
         val watermark: SmsWatermark,
         val recovery: SmsRecovery?,
         val full: Boolean,
+        /** The date re-read's [SmsRecovery.top]; null for an _id read. */
+        val top: SmsWatermark? = null,
     )
+
+    /**
+     * [page] up to the first row [take] refuses: the next scan reads on after the last row taken, or
+     * from [start] and [startRecovery] again when none was.
+     */
+    private inline fun taken(
+        page: Page,
+        start: SmsWatermark,
+        startRecovery: SmsRecovery?,
+        take: (SmsProviderRow) -> Boolean,
+    ): Page {
+        val count = page.rows.indexOfFirst { !take(it) }
+        if (count < 0) return page
+        val kept = page.rows.take(count)
+        val last = kept.lastOrNull() ?: return Page(kept, start, startRecovery, full = true)
+        val top = page.top ?: return Page(kept, SmsWatermark(last.id, last.date), null, full = true)
+        return Page(kept, start, SmsRecovery(last.date, last.id, top), full = true, top)
+    }
 
     private fun page(watermark: SmsWatermark, recovery: SmsRecovery?, types: List<Int>, limit: Int, now: Long): Page {
         if (limit <= 0) return Page(emptyList(), watermark, recovery, full = true)
@@ -173,9 +210,9 @@ class SmsReportScanner(
     private fun recovered(watermark: SmsWatermark, top: SmsWatermark, page: List<SmsProviderRow>, limit: Int): Page {
         if (page.size >= limit) {
             val last = page.last()
-            return Page(page, watermark, SmsRecovery(last.date, last.id, top), full = true)
+            return Page(page, watermark, SmsRecovery(last.date, last.id, top), full = true, top)
         }
-        return Page(page, top, null, full = false)
+        return Page(page, top, null, full = false, top)
     }
 
     companion object {

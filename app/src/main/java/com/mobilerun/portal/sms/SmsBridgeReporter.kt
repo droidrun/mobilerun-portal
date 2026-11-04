@@ -234,6 +234,7 @@ private class LazyReporterStore(private val context: Context) : SmsReporterStore
     override fun seedScanState(latest: SmsProviderRow?, coveredFrom: Long) = store.seedScanState(latest, coveredFrom)
     override fun isReported(msgId: String): Boolean = store.isReported(msgId)
     override fun ownSends(): SmsOwnSends = store.ownSends()
+    override fun pendingCount(): Int = store.pendingCount()
     override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) =
         store.commitScan(state, reports, now)
 

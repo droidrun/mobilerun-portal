@@ -9,6 +9,7 @@ object SmsStorePolicy {
     const val UNREPORTED_KEEP_MS = 10L * 60L * 1000L
     const val MAX_OWN_SEND_IDS = 2000
     const val MAX_REPORTED_IDS = 2000
+    /** Queued reports are never dropped over it: scans stop queueing until the queue drains. */
     const val MAX_PENDING_REPORTS = 2000
 
     /**

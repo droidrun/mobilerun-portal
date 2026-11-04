@@ -124,6 +124,8 @@ class FakeReporterStore : SmsReporterStore {
 
     override fun ownSends(): SmsOwnSends = SmsOwnSends(own.toMap())
 
+    override fun pendingCount(): Int = pending.size
+
     override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) {
         this.state = state
         reports.forEach {

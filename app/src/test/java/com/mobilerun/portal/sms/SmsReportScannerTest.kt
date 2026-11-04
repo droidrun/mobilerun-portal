@@ -25,8 +25,8 @@ class SmsReportScannerTest {
         return SmsScanState(mark, mark, coveredFrom, mark.id)
     }
 
-    private fun scan(state: SmsScanState, filter: Int? = null, now: Long = NOW): SmsScanResult =
-        scanner.scan(state, SmsOwnSends(own.toMap()), { it in ring }, filter, now).also { result ->
+    private fun scan(state: SmsScanState, filter: Int? = null, now: Long = NOW, room: Int = Int.MAX_VALUE): SmsScanResult =
+        scanner.scan(state, SmsOwnSends(own.toMap()), { it in ring }, filter, now, room).also { result ->
             ring += result.reports.map { it.msgId }
         }
 
@@ -124,6 +124,62 @@ class SmsReportScannerTest {
         val second = scan(first.state)
         assertEquals(rows.drop(50).map { it.messageId } + sent.messageId, second.ids())
         assertFalse(second.more)
+    }
+
+    // --- queue room ---
+
+    @Test
+    fun fullQueue_stopsBeforeTheFirstRowWithoutRoom_andReadsOnFromThere() {
+        val state = seeded()
+        val a = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val b = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2)
+        val portal = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 3, creator = PORTAL)
+        val sent = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 4)
+
+        val first = scan(state, room = 1)
+        assertEquals(listOf(a.messageId), first.ids())
+        assertTrue(first.queueFull)
+        assertEquals(SmsWatermark(a.id, a.date), first.state.inbound)
+        // A row needing no room is passed.
+        assertEquals(SmsWatermark(portal.id, portal.date), first.state.out)
+
+        val second = scan(first.state)
+        assertEquals(listOf(b.messageId, sent.messageId), second.ids())
+        assertFalse(second.queueFull)
+    }
+
+    @Test
+    fun fullQueue_dateReReadKeepsItsCursorAtTheLastQueuedRow() {
+        val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val state = seeded()
+        val rows = (1..3).map { provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1 + it) }
+        provider.remove(gone.id)
+        val top = SmsWatermark(rows[2].id, rows[2].date)
+
+        val first = scan(state, room = 2)
+        assertEquals(rows.take(2).map { it.messageId }, first.ids())
+        assertEquals(state.inbound, first.state.inbound)
+        assertEquals(SmsRecovery(rows[1].date, rows[1].id, top), first.state.inboundRecovery)
+
+        val second = scan(first.state)
+        assertEquals(listOf(rows[2].messageId), second.ids())
+        assertNull(second.state.inboundRecovery)
+        assertEquals(top, second.state.inbound)
+    }
+
+    @Test
+    fun fullQueue_recheckTurnedSentStaysUntilThereIsRoom() {
+        val state = seeded()
+        val outbox = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1)
+        val first = scan(state)
+        provider.update(outbox.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+
+        val full = scan(first.state, room = 0)
+        assertTrue(full.reports.isEmpty())
+        assertTrue(full.queueFull)
+        assertEquals(first.state.recheck, full.state.recheck)
+
+        assertEquals(listOf(outbox.messageId), scan(full.state, room = 1).ids())
     }
 
     // --- _id reuse ---

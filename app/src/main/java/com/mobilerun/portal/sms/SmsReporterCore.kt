@@ -35,6 +35,8 @@ interface SmsReporterStore {
 
     fun ownSends(): SmsOwnSends
 
+    fun pendingCount(): Int
+
     /** Saves [state], queues [reports] (known ids are ignored) and adds them to the reported-id ring. */
     fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long)
 
@@ -71,6 +73,7 @@ class SmsReporterCore(
     private val sims: () -> SmsReporterSims,
     private val clock: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = {},
+    private val maxPending: Int = SmsStorePolicy.MAX_PENDING_REPORTS,
 ) {
     private val scanner = SmsReportScanner(rows, packageName)
 
@@ -81,6 +84,9 @@ class SmsReporterCore(
     private var stateTask: SmsCancellable? = null
     private var loadTask: SmsCancellable? = null
     private val inFlight = HashSet<String>()
+
+    /** The last scan stopped at a full queue: each report leaving it scans again. */
+    private var queueFull = false
 
     /** Queue writes that failed, tried again on each drain: the report to save, or null to delete it. */
     private val unsaved = HashMap<String, SmsPendingReport?>()
@@ -185,7 +191,8 @@ class SmsReporterCore(
                     store.seedScanState(rows.latest(), now)
                     return@atomically null
                 }
-                val result = scanner.scan(state, store.ownSends(), store::isReported, covered.subscriptionFilter, now)
+                val room = maxPending - store.pendingCount()
+                val result = scanner.scan(state, store.ownSends(), store::isReported, covered.subscriptionFilter, now, room)
                 val queued = result.reports.map {
                     SmsPendingReport(it.msgId, it.providerId, it.direction, nextAttemptAt = now, firstQueuedAt = now)
                 }
@@ -198,10 +205,12 @@ class SmsReporterCore(
             null
         } ?: return
         if (result.reports.isNotEmpty()) log("queued ${result.reports.size} SMS report(s)")
+        if (result.queueFull && !queueFull) log("SMS report queue full: scanning waits for it to drain")
+        queueFull = result.queueFull
         if (result.evictedRechecks.isNotEmpty()) {
             log("dropped ${result.evictedRechecks.size} oldest unsent SMS recheck(s) over ${SmsReportScanner.MAX_RECHECKS}")
         }
-        if (result.more) requestScan(0L)
+        if (result.more && !result.queueFull) requestScan(0L)
         drain()
     }
 
@@ -325,6 +334,7 @@ class SmsReporterCore(
     private fun save(msgId: String, report: SmsPendingReport?): Boolean {
         val written = stored { if (report == null) store.deletePending(msgId) else store.updatePending(report) }
         if (written) unsaved.remove(msgId) else unsaved[msgId] = report
+        if (written && report == null && queueFull) requestScan(DEBOUNCE_MS)
         return written
     }
 

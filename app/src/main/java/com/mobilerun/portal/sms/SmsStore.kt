@@ -285,6 +285,8 @@ class SmsStore private constructor(
         DatabaseUtils.queryNumEntries(db, TABLE_REPORTED_IDS, "msg_id = ?", arrayOf(msgId)) > 0
     }
 
+    override fun pendingCount(): Int = call { db -> DatabaseUtils.queryNumEntries(db, TABLE_PENDING_REPORTS).toInt() }
+
     override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) {
         call { db ->
             db.inTransaction {
@@ -310,10 +312,6 @@ class SmsStore private constructor(
                 db.execSQL(
                     "DELETE FROM $TABLE_REPORTED_IDS WHERE msg_id NOT IN (SELECT msg_id FROM $TABLE_REPORTED_IDS " +
                         "ORDER BY reported_at DESC LIMIT ${SmsStorePolicy.MAX_REPORTED_IDS})",
-                )
-                db.execSQL(
-                    "DELETE FROM $TABLE_PENDING_REPORTS WHERE msg_id NOT IN (SELECT msg_id FROM $TABLE_PENDING_REPORTS " +
-                        "ORDER BY first_queued_at DESC, provider_id DESC LIMIT ${SmsStorePolicy.MAX_PENDING_REPORTS})",
                 )
             }
         }
