@@ -184,6 +184,38 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun uncoveredSims_theSimCoveredNextUploadsNothingFromThePause() {
+        val queued = inbox()
+        scanned()
+        // A second SIM and no cloud SIM chosen: SIM 2's rows arrive uncovered.
+        sims = SmsReporterSims.Uncovered
+        provider.add(SmsProviderRow.TYPE_INBOX, date = time.now, subscriptionId = 2)
+        scanned()
+
+        // SIM 1 is removed: the blocked retry covers SIM 2 as the only active SIM.
+        sims = SmsReporterSims.Covered(2, emptyMap())
+        val next = provider.add(SmsProviderRow.TYPE_INBOX, date = time.now, subscriptionId = 2)
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+
+        assertEquals(listOf(queued.messageId, next.messageId), store.pending.keys.toList())
+    }
+
+    @Test
+    fun uncoveredSims_pausedRowsStayOutOfADateReRead() {
+        sims = SmsReporterSims.Uncovered
+        val paused = provider.add(SmsProviderRow.TYPE_INBOX, date = time.now, subscriptionId = 2)
+        val watermark = provider.add(SmsProviderRow.TYPE_INBOX, date = time.now, subscriptionId = 2)
+        scanned()
+        sims = SmsReporterSims.Covered(2, emptyMap())
+        // The watermark row is deleted: rows from 5 min before it are read again by date.
+        provider.rows.remove(watermark)
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+
+        assertFalse(paused.messageId in store.pending)
+    }
+
+    @Test
     fun switchOn_scansRightAway() {
         val row = inbox()
         open()

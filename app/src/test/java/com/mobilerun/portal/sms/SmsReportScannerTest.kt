@@ -515,11 +515,11 @@ class SmsReportScannerTest {
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a, b)), cloudSubscriptionId = 2),
         )
         assertEquals(
-            SmsReporterSims.Blocked,
+            SmsReporterSims.Uncovered,
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a, b)), cloudSubscriptionId = null),
         )
         assertEquals(
-            SmsReporterSims.Blocked,
+            SmsReporterSims.Uncovered,
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a, b)), cloudSubscriptionId = 9),
         )
         assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.PermissionDenied, 1))
@@ -550,7 +550,7 @@ class SmsReportScannerTest {
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a)), cloudSubscriptionId = 1),
         )
         // Cloud SIM 1 disabled or removed: only the other SIM is active.
-        assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(b)), cloudSubscriptionId = 1))
+        assertEquals(SmsReporterSims.Uncovered, SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(b)), cloudSubscriptionId = 1))
         // Right after boot, before the SIMs load.
         assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(emptyList()), cloudSubscriptionId = 1))
     }

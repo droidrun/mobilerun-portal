@@ -231,13 +231,16 @@ sealed class SmsReporterSims {
     /** The covered SIM always filters rows, whether it was chosen or is the only active SIM. */
     data class Covered(val subscriptionFilter: Int?, val phoneNumbers: Map<Int, String>) : SmsReporterSims()
 
-    /** No SIM to cover (none active, cloud SIM inactive or not chosen) or subscriptions unreadable. */
+    /** No active SIM (right after boot) or subscriptions unreadable: the scan waits and catches up. */
     object Blocked : SmsReporterSims()
+
+    /** SIMs are active but none is covered (cloud SIM inactive or not chosen): their rows are passed over. */
+    object Uncovered : SmsReporterSims()
 
     companion object {
         fun from(result: SmsSubscriptionsResult, cloudSubscriptionId: Int?): SmsReporterSims {
             val sims = (result as? SmsSubscriptionsResult.Available)?.subscriptions ?: return Blocked
-            val sim = SmsCloudSims.pick(sims, cloudSubscriptionId) ?: return Blocked
+            val sim = SmsCloudSims.pick(sims, cloudSubscriptionId) ?: return if (sims.isEmpty()) Blocked else Uncovered
             return Covered(sim.subscriptionId, sim.phoneNumber?.let { mapOf(sim.subscriptionId to it) }.orEmpty())
         }
     }

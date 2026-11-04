@@ -292,6 +292,8 @@ class SmsStore private constructor(
                 putStateLocked(db, SmsReporterStateKeys.INBOUND_WATERMARK_DATE, state.inbound.date.toString())
                 putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_ID, state.out.id.toString())
                 putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_DATE, state.out.date.toString())
+                putStateLocked(db, SmsReporterStateKeys.COVERED_FROM, state.coveredFrom.toString())
+                putStateLocked(db, SmsReporterStateKeys.COVERED_FROM_ID, state.coveredFromId.toString())
                 putStateLocked(db, SmsReporterStateKeys.OUT_RECHECK, SmsRecheckCodec.encode(state.recheck))
                 putStateLocked(db, SmsReporterStateKeys.INBOUND_RECOVERY, SmsRecoveryCodec.encode(state.inboundRecovery))
                 putStateLocked(db, SmsReporterStateKeys.OUT_RECOVERY, SmsRecoveryCodec.encode(state.outRecovery))

@@ -169,8 +169,10 @@ class SmsReporterCore(
 
     private fun scan() {
         if (!active()) return
-        val covered = sims() as? SmsReporterSims.Covered
+        val sims = sims()
+        val covered = sims as? SmsReporterSims.Covered
         if (covered == null) {
+            if (sims == SmsReporterSims.Uncovered) skipUncovered()
             if (scanTask == null) scanTask = scheduler.schedule(BLOCKED_RETRY_MS) { guarded { scanTask = null; scan() } }
             return
         }
@@ -201,6 +203,27 @@ class SmsReporterCore(
         }
         if (result.more) requestScan(0L)
         drain()
+    }
+
+    /**
+     * Restarts coverage at the newest row, like choosing a cloud SIM: the SIM covered next uploads nothing
+     * that arrived while none was. Queued reports stay.
+     */
+    private fun skipUncovered() {
+        val now = clock()
+        try {
+            store.atomically {
+                if (!cloudEnabled()) return@atomically
+                val state = store.scanState() ?: return@atomically
+                val latest = rows.latest()
+                val top = SmsWatermark(latest?.id ?: 0L, latest?.date ?: 0L)
+                val skipped = SmsScanState(top, top, coveredFrom = now, coveredFromId = top.id)
+                // Nothing new since the last skip: no write.
+                if (state != skipped.copy(coveredFrom = state.coveredFrom)) store.commitScan(skipped, emptyList(), now)
+            }
+        } catch (e: Exception) {
+            log("scan failed (${e.javaClass.simpleName})")
+        }
     }
 
     // --- sms/received ---
