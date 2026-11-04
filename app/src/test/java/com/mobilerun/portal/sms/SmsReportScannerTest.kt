@@ -228,6 +228,58 @@ class SmsReportScannerTest {
         assertNull(result.state.inboundRecovery)
     }
 
+    @Test
+    fun watermarkRowGone_rowAddedDuringRecovery_datedBeforeTheCursor_isReported() {
+        val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val state = seeded()
+        val rows = (1..SmsReportScanner.MAX_ROWS_PER_SCAN + 10).map {
+            provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1 + it)
+        }
+        provider.remove(gone.id)
+
+        val first = scan(state)
+        assertTrue(first.more)
+
+        // Between pages: a row dated before the cursor, then a newer one.
+        val delayed = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 10)
+        val newer = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1_000)
+        val second = scan(first.state)
+        assertFalse(second.more)
+        assertNull(second.state.inboundRecovery)
+        // The re-read ends at the newest row when it started, not past the delayed row.
+        assertEquals(SmsWatermark(rows.last().id, rows.last().date), second.state.inbound)
+
+        val third = scan(second.state)
+        assertEquals(listOf(delayed.messageId), third.ids())
+        assertEquals(SmsWatermark(newer.id, newer.date), third.state.inbound)
+        assertEquals(
+            (rows + newer + delayed).map { it.messageId },
+            first.ids() + second.ids() + third.ids(),
+        )
+    }
+
+    @Test
+    fun watermarkRowGone_datedAheadOfNow_rowsDatedNowAreReported() {
+        val state = seeded()
+        // Reported while the clock ran 2 h ahead.
+        val ahead = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2 * 60 * 60_000)
+        val reported = scan(state)
+        assertEquals(listOf(ahead.messageId), reported.ids())
+
+        // The clock is corrected and the owner deletes the thread; new SMS reuse its _id.
+        provider.remove(ahead.id)
+        val reused = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1_000)
+        val next = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2_000)
+        assertEquals(ahead.id, reused.id)
+
+        val result = scan(reported.state, now = NOW + 3_000)
+        assertEquals(listOf(reused.messageId, next.messageId), result.ids())
+        assertEquals(SmsWatermark(next.id, next.date), result.state.inbound)
+
+        val later = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 4_000)
+        assertEquals(listOf(later.messageId), scan(result.state, now = NOW + 5_000).ids())
+    }
+
     // --- out: the owner's own sends from other apps ---
 
     @Test
@@ -399,7 +451,7 @@ class SmsReportScannerTest {
 
     @Test
     fun recoveryCodec_roundTripsAndRejectsGarbage() {
-        val recovery = SmsRecovery(date = 1_000, id = 7, max = SmsWatermark(9, 900))
+        val recovery = SmsRecovery(date = 1_000, id = 7, top = SmsWatermark(9, 900))
 
         assertEquals(recovery, SmsRecoveryCodec.decode(SmsRecoveryCodec.encode(recovery)))
         assertEquals("", SmsRecoveryCodec.encode(null))
