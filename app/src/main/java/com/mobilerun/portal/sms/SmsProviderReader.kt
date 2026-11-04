@@ -58,6 +58,7 @@ class AndroidSmsProviderSource(
         return query(selection, args.toTypedArray(), sortOrder = "date ASC, _id ASC LIMIT $limit")
     }
 
+    /** A null cursor means the provider is unavailable, not "no rows": it throws, so callers retry. */
     private fun query(selection: String?, args: Array<String>?, sortOrder: String?): List<SmsProviderRow> {
         val cursor = context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -65,7 +66,7 @@ class AndroidSmsProviderSource(
             selection,
             args,
             sortOrder,
-        ) ?: return emptyList()
+        ) ?: throw IllegalStateException("content://sms unavailable")
         return cursor.use {
             val rows = ArrayList<SmsProviderRow>(it.count.coerceAtLeast(0))
             while (it.moveToNext()) rows += it.toRow()
