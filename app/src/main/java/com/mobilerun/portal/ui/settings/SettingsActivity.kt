@@ -1190,6 +1190,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         val read = grantLabel(Manifest.permission.READ_SMS)
         val receive = grantLabel(Manifest.permission.RECEIVE_SMS)
         val phoneState = grantLabel(Manifest.permission.READ_PHONE_STATE)
+        val phoneNumbers = grantLabel(Manifest.permission.READ_PHONE_NUMBERS)
         val hasSmsMessaging = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
         } else {
@@ -1202,7 +1203,8 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             "not available"
         }
         binding.textSmsPermissionsStatus.text =
-            "SMS messaging: $telephony\nSEND_SMS: $send\nREAD_SMS: $read\nRECEIVE_SMS: $receive\nREAD_PHONE_STATE: $phoneState"
+            "SMS messaging: $telephony\nSEND_SMS: $send\nREAD_SMS: $read\nRECEIVE_SMS: $receive\nREAD_PHONE_STATE: $phoneState\n" +
+                "READ_PHONE_NUMBERS: $phoneNumbers"
         renderSmsCloud()
     }
 

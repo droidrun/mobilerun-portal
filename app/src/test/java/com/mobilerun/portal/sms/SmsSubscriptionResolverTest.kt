@@ -87,6 +87,7 @@ class SmsSubscriptionResolverTest {
         assertFalse(capabilities.getBoolean("read_sms_granted"))
         assertFalse(capabilities.getBoolean("receive_sms_granted"))
         assertFalse(capabilities.getBoolean("read_phone_state_granted"))
+        assertFalse(capabilities.getBoolean("read_phone_numbers_granted"))
         assertTrue(capabilities.has("active_subscriptions"))
     }
 

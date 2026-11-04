@@ -70,6 +70,7 @@ class SmsSubscriptionResolver(
             .put("read_sms_granted", hasPermission(Manifest.permission.READ_SMS))
             .put("receive_sms_granted", hasPermission(Manifest.permission.RECEIVE_SMS))
             .put("read_phone_state_granted", hasReadPhoneState())
+            .put("read_phone_numbers_granted", hasPermission(Manifest.permission.READ_PHONE_NUMBERS))
             .put("active_subscriptions", activeSubscriptions().subscriptionsToJsonArray())
 
     fun hasTelephony(): Boolean {
