@@ -24,9 +24,6 @@ object SmsBridgeReporter {
     @Volatile
     private var observer: SmsObserverRegistration? = null
 
-    @Volatile
-    private var app: Context? = null
-
     fun install(context: Context) {
         val app = context.applicationContext
         val created = synchronized(this) {
@@ -59,7 +56,6 @@ object SmsBridgeReporter {
                     onReadSms = created::scanSoon,
                     log = { Log.w(TAG, it) },
                 )
-                this.app = app
                 SmsBridgeSendStates.listener = created::onSendStateChanged
                 config.addListener(SwitchListener())
             }
@@ -98,8 +94,7 @@ object SmsBridgeReporter {
     }
 
     private fun retryObserver() {
-        val context = app ?: return
-        observer?.retry(ConfigManager.getInstance(context).smsCloudEnabled)
+        observer?.retry()
     }
 
     private fun registerObserver(context: Context): SmsCancellable {
@@ -163,9 +158,9 @@ internal class SmsObserverRegistration(
         armRecheck()
     }
 
-    /** On scan triggers. */
+    /** On scan triggers; acts on the last [update], not on a switch value read before this lock. */
     @Synchronized
-    fun retry(enabled: Boolean) {
+    fun retry() {
         if (enabled && hasReadSms()) update(true) else armRecheck()
     }
 

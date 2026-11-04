@@ -27,16 +27,16 @@ class SmsObserverRegistrationTest {
     @Test
     fun failedRegistration_isRetriedOnceReadSmsIsGranted() {
         registration.update(enabled = true)
-        registration.retry(enabled = true)
+        registration.retry()
         assertEquals(1, attempts)
 
         granted = true
-        registration.retry(enabled = true)
-        registration.retry(enabled = true)
+        registration.retry()
+        registration.retry()
         assertEquals(2, attempts)
 
         registration.update(enabled = false)
-        registration.retry(enabled = false)
+        registration.retry()
         assertEquals(1, cancelled)
         assertEquals(2, attempts)
     }
@@ -79,7 +79,7 @@ class SmsObserverRegistrationTest {
         granted = true
         registration.update(enabled = true)
         granted = false
-        registration.retry(enabled = true)
+        registration.retry()
 
         granted = true
         recheck()
@@ -89,12 +89,30 @@ class SmsObserverRegistrationTest {
     @Test
     fun recheck_isASingleTask() {
         registration.update(enabled = true)
-        registration.retry(enabled = true)
-        registration.retry(enabled = true)
+        registration.retry()
+        registration.retry()
 
         granted = true
         recheck()
         assertEquals(1, scans)
+    }
+
+    @Test
+    fun retryAfterTurnedOff_neitherRegistersNorRechecks() {
+        granted = true
+        registration.update(enabled = true)
+        // A scan trigger read the switch on before this turned it off.
+        registration.update(enabled = false)
+        registration.retry()
+        assertEquals(1, attempts)
+        assertEquals(1, cancelled)
+
+        granted = false
+        registration.retry()
+        granted = true
+        recheck(times = 3)
+        assertEquals(1, attempts)
+        assertEquals(0, scans)
     }
 
     @Test
