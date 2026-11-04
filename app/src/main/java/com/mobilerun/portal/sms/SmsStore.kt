@@ -144,9 +144,18 @@ class SmsStore private constructor(
         async("discard") { discards.discard(id, callbackToken) }
     }
 
-    override fun markDispatched(id: String, now: Long): SmsSendRecord? = call { db ->
+    /** SmsManager took the send, so a failed write is queued until it lands: a restart would fail it as interrupted. */
+    override fun markDispatched(id: String, now: Long): SmsSendRecord? =
+        try {
+            call { db -> markDispatchedLocked(db, id, now) }
+        } catch (e: Exception) {
+            async("dispatch", retried = true, untilDone = true) { db -> markDispatchedLocked(db, id, now) }
+            throw e
+        }
+
+    /** Prepared records only: a callback that landed first is never set back. */
+    private fun markDispatchedLocked(db: SQLiteDatabase, id: String, now: Long): SmsSendRecord? =
         updateLocked(db, id) { it.withDispatched(now) }
-    }
 
     /** No callback follows a send that threw, so a failed write is queued again rather than left prepared. */
     override fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord? =
