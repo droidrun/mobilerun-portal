@@ -20,7 +20,7 @@ interface SmsSender {
 
 class AndroidSmsSender(
     private val context: Context,
-) : SmsSender {
+) : SmsSender, SmsBridgeSender {
     override fun divideMessage(message: String, subscriptionId: Int?): List<String> {
         val parts = smsManager(subscriptionId).divideMessage(message).orEmpty()
         return parts.ifEmpty { listOf(message) }
@@ -42,7 +42,6 @@ class AndroidSmsSender(
                 messageId = request.messageId,
                 partIndex = index,
                 callbackToken = callbackToken,
-                mutable = false,
             )
             deliveredIntents?.add(
                 resultIntent(
@@ -50,13 +49,49 @@ class AndroidSmsSender(
                     messageId = request.messageId,
                     partIndex = index,
                     callbackToken = callbackToken,
-                    mutable = true,
                 ),
             )
         }
 
         smsManager(resolvedSubscriptionId).sendMultipartTextMessage(
             request.phoneNumber,
+            null,
+            ArrayList(parts),
+            sentIntents,
+            deliveredIntents,
+        )
+    }
+
+    override fun sendBridgeMultipart(
+        recordId: String,
+        to: String,
+        parts: List<String>,
+        subscriptionId: Int?,
+        deliveryReport: Boolean,
+        callbackToken: String,
+    ) {
+        val sentIntents = ArrayList<PendingIntent>(parts.size)
+        val deliveredIntents = if (deliveryReport) ArrayList<PendingIntent>(parts.size) else null
+        parts.indices.forEach { index ->
+            sentIntents += resultIntent(
+                action = SmsSendResultReceiver.ACTION_SMS_SENT,
+                messageId = recordId,
+                partIndex = index,
+                callbackToken = callbackToken,
+                origin = SmsSendRecord.ORIGIN_RELAY,
+            )
+            deliveredIntents?.add(
+                resultIntent(
+                    action = SmsSendResultReceiver.ACTION_SMS_DELIVERED,
+                    messageId = recordId,
+                    partIndex = index,
+                    callbackToken = callbackToken,
+                    origin = SmsSendRecord.ORIGIN_RELAY,
+                ),
+            )
+        }
+        smsManager(subscriptionId).sendMultipartTextMessage(
+            to,
             null,
             ArrayList(parts),
             sentIntents,
@@ -75,28 +110,27 @@ class AndroidSmsSender(
         }
     }
 
+    // Mutable (explicit component) so the framework's 'uri' and 'errorCode' fill-ins arrive on API 31+.
     private fun resultIntent(
         action: String,
         messageId: String,
         partIndex: Int,
         callbackToken: String,
-        mutable: Boolean,
+        origin: String? = null,
     ): PendingIntent {
+        val scheme = if (origin == null) "mobilerun-sms-result" else "mobilerun-sms-$origin-result"
         val intent = Intent(context, SmsSendResultReceiver::class.java)
             .setAction(action)
             .setData(
                 Uri.parse(
-                    "mobilerun-sms-result://${Uri.encode(action)}/${Uri.encode(messageId)}/$partIndex/${Uri.encode(callbackToken)}",
+                    "$scheme://${Uri.encode(action)}/${Uri.encode(messageId)}/$partIndex/${Uri.encode(callbackToken)}",
                 ),
             )
             .putExtra(SmsSendResultReceiver.EXTRA_MESSAGE_ID, messageId)
             .putExtra(SmsSendResultReceiver.EXTRA_PART_INDEX, partIndex)
             .putExtra(SmsSendResultReceiver.EXTRA_CALLBACK_TOKEN, callbackToken)
-        val mutabilityFlag = if (mutable) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-        } else {
-            PendingIntent.FLAG_IMMUTABLE
-        }
+        origin?.let { intent.putExtra(SmsSendResultReceiver.EXTRA_ORIGIN, it) }
+        val mutabilityFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
         return PendingIntent.getBroadcast(
             context,
             RequestCodes.next(),

@@ -2,6 +2,7 @@ package com.mobilerun.portal.service
 
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
+import com.mobilerun.portal.sms.SmsBridgeApi
 import com.mobilerun.portal.triggers.TriggerApi
 import com.mobilerun.portal.triggers.TriggerApiResult
 import org.json.JSONArray
@@ -68,10 +69,11 @@ class ActionDispatcher(
         requestId: Any? = null,
     ): ApiResponse {
         // Normalize action name (handle both "action.tap" and "/action/tap" styles)
-        return when (
-            val method =
-                action.removePrefix("/action/").removePrefix("action.").removePrefix("/")
-        ) {
+        val normalized = action.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+        if (origin == Origin.WEBSOCKET_REVERSE && SmsBridgeApi.isBridgeCall(normalized, params)) {
+            return apiHandler.handleSmsBridge(normalized, params)
+        }
+        return when (val method = normalized) {
             "tap" -> {
                 val x = params.optInt("x", 0)
                 val y = params.optInt("y", 0)

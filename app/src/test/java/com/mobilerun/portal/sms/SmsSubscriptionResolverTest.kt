@@ -89,4 +89,71 @@ class SmsSubscriptionResolverTest {
         assertFalse(capabilities.getBoolean("read_phone_state_granted"))
         assertTrue(capabilities.has("active_subscriptions"))
     }
+
+    @Test
+    fun bridgeSubscriptions_reportsMissingReadPhoneStateInsteadOfEmptyList() {
+        val context = mockk<Context>(relaxed = true)
+        mockkStatic(ContextCompat::class)
+        every {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
+        } returns PackageManager.PERMISSION_DENIED
+
+        val result = SmsSubscriptionResolver(context).bridgeSubscriptions()
+
+        assertEquals(SmsSubscriptionsResult.PermissionDenied, result)
+        assertTrue(SmsSubscriptionResolver(context).activeSubscriptions().isEmpty())
+    }
+
+    @Test
+    fun bridgeSubscriptions_normalizesPhoneNumbersToE164AndOmitsBlank() {
+        val context = mockk<Context>(relaxed = true)
+        val manager = mockk<SubscriptionManager>()
+        val first = subscriptionInfo(subscriptionId = 1, slot = 0, countryIso = "us")
+        val second = subscriptionInfo(subscriptionId = 2, slot = 1, countryIso = "de")
+        mockkStatic(ContextCompat::class)
+        every {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
+        } returns PackageManager.PERMISSION_GRANTED
+        every { context.getSystemService(SubscriptionManager::class.java) } returns manager
+        every { manager.activeSubscriptionInfoList } returns listOf(first, second)
+        val numbers = mapOf(1 to "(555) 521-5554", 2 to "  ")
+        val resolver = SmsSubscriptionResolver(
+            context,
+            phoneNumberReader = { _, info -> numbers[info.subscriptionId] },
+            e164Formatter = { number, iso -> if (iso == "US") "+1" + number.filter(Char::isDigit) else null },
+        )
+
+        val result = resolver.bridgeSubscriptions() as SmsSubscriptionsResult.Available
+
+        assertEquals(
+            listOf(
+                SmsSimInfo(1, 0, phoneNumber = "+15555215554", carrier = "Carrier", displayName = "SIM"),
+                SmsSimInfo(2, 1, phoneNumber = null, carrier = "Carrier", displayName = "SIM"),
+            ),
+            result.subscriptions,
+        )
+        assertFalse(result.subscriptions[1].toBridgeJson().has("phoneNumber"))
+    }
+
+    @Test
+    fun bridgeSubscriptions_securityExceptionIsPermissionDenied() {
+        val context = mockk<Context>(relaxed = true)
+        val manager = mockk<SubscriptionManager>()
+        mockkStatic(ContextCompat::class)
+        every { ContextCompat.checkSelfPermission(context, any()) } returns PackageManager.PERMISSION_GRANTED
+        every { context.getSystemService(SubscriptionManager::class.java) } returns manager
+        every { manager.activeSubscriptionInfoList } throws SecurityException("no")
+
+        assertEquals(SmsSubscriptionsResult.PermissionDenied, SmsSubscriptionResolver(context).bridgeSubscriptions())
+    }
+
+    private fun subscriptionInfo(subscriptionId: Int, slot: Int, countryIso: String): SubscriptionInfo {
+        val info = mockk<SubscriptionInfo>()
+        every { info.subscriptionId } returns subscriptionId
+        every { info.simSlotIndex } returns slot
+        every { info.countryIso } returns countryIso
+        every { info.carrierName } returns "Carrier"
+        every { info.displayName } returns "SIM"
+        return info
+    }
 }

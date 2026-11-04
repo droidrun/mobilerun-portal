@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.SmsMessage
+import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.events.model.PortalEvent
@@ -33,6 +34,12 @@ class SmsSendResultReceiver : BroadcastReceiver() {
         if (partIndex < 0) return
         val callbackToken = intent.getStringExtra(EXTRA_CALLBACK_TOKEN).orEmpty()
         if (callbackToken.isBlank()) return
+        val providerUri = intent.getStringExtra(EXTRA_PROVIDER_URI)
+
+        if (intent.getStringExtra(EXTRA_ORIGIN) == SmsSendRecord.ORIGIN_RELAY) {
+            onRelayResult(context, intent, action, messageId, partIndex, callbackToken, providerUri)
+            return
+        }
 
         val status = when (action) {
             ACTION_SMS_SENT -> {
@@ -67,6 +74,52 @@ class SmsSendResultReceiver : BroadcastReceiver() {
         }
 
         status?.let { emitStatus(it) }
+
+        // Local API sends are the Portal's own too: owner-sent sync must never report them.
+        if (action == ACTION_SMS_SENT && providerUri != null &&
+            ConfigManager.getInstance(context).smsCloudEnabled
+        ) {
+            val pending = goAsync()
+            SmsStore.getInstance(context).recordOwnSendAsync(providerUri, null) { pending.finish() }
+        }
+    }
+
+    private fun onRelayResult(
+        context: Context,
+        intent: Intent,
+        action: String,
+        recordId: String,
+        partIndex: Int,
+        callbackToken: String,
+        providerUri: String?,
+    ) {
+        val callback = when (action) {
+            ACTION_SMS_SENT -> SmsSendCallback(
+                sent = true,
+                recordId = recordId,
+                partIndex = partIndex,
+                callbackToken = callbackToken,
+                resultOk = resultCode == Activity.RESULT_OK,
+                resultCode = resultCode,
+                errorCode = intent.getIntExtra(EXTRA_ERROR_CODE, -1),
+                providerUri = providerUri,
+            )
+            ACTION_SMS_DELIVERED -> {
+                val deliveryStatus = extractDeliveryStatus(intent)
+                SmsSendCallback(
+                    sent = false,
+                    recordId = recordId,
+                    partIndex = partIndex,
+                    callbackToken = callbackToken,
+                    resultOk = true,
+                    deliveryOutcome = smsDeliveryOutcome(deliveryStatus),
+                    deliveryStatus = deliveryStatus,
+                )
+            }
+            else -> return
+        }
+        val pending = goAsync()
+        SmsStore.getInstance(context).applyCallbackAsync(callback) { pending.finish() }
     }
 
     private fun extractDeliveryStatus(intent: Intent): Int? {
@@ -82,6 +135,11 @@ class SmsSendResultReceiver : BroadcastReceiver() {
         const val EXTRA_MESSAGE_ID = "message_id"
         const val EXTRA_PART_INDEX = "part_index"
         const val EXTRA_CALLBACK_TOKEN = "callback_token"
+        const val EXTRA_ORIGIN = "origin"
+
+        // Fill-ins the telephony framework adds to sent intents.
+        const val EXTRA_PROVIDER_URI = "uri"
+        const val EXTRA_ERROR_CODE = "errorCode"
 
         fun emitStatus(status: SmsSendStatus) {
             EventHub.emit(

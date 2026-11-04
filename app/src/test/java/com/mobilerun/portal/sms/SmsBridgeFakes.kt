@@ -1,0 +1,114 @@
+package com.mobilerun.portal.sms
+
+/** In-memory content://sms with the same filter and keyset semantics as the SQL selection. */
+class FakeSmsProvider : SmsProviderSource {
+    val rows = mutableListOf<SmsProviderRow>()
+    var queries = 0
+
+    private var nextId = 1L
+
+    fun add(
+        type: Int,
+        date: Long,
+        address: String = "+15550001111",
+        body: String? = "body-$date",
+        subscriptionId: Int? = 1,
+        threadId: Long? = 7,
+        creator: String? = "com.google.android.apps.messaging",
+        dateSent: Long? = null,
+    ): SmsProviderRow {
+        val row = SmsProviderRow(
+            id = nextId++,
+            type = type,
+            address = address,
+            body = body,
+            date = date,
+            dateSent = dateSent,
+            read = true,
+            threadId = threadId,
+            subscriptionId = subscriptionId,
+            creator = creator,
+        )
+        rows += row
+        return row
+    }
+
+    override fun latest(): SmsProviderRow? = rows.maxByOrNull { it.id }
+
+    override fun query(query: SmsProviderQuery): List<SmsProviderRow> {
+        queries += 1
+        val comparator = compareBy<SmsProviderRow>({ it.date }, { it.id })
+        return rows
+            .filter { it.type in query.types && it.id <= query.ceilingId }
+            .filter { row -> query.since?.let { row.date > it } ?: true }
+            .filter { row -> query.until?.let { row.date <= it } ?: true }
+            .filter { row -> query.storedFrom?.let { row.date >= it } ?: true }
+            .filter { query.address == null || it.address == query.address }
+            .filter { query.threadId == null || it.threadId?.toString() == query.threadId }
+            .filter { query.subscriptionId == null || it.subscriptionId == query.subscriptionId }
+            .filter { row ->
+                val after = query.after ?: return@filter true
+                if (query.ascending) {
+                    row.date > after.date || (row.date == after.date && row.id > after.id)
+                } else {
+                    row.date < after.date || (row.date == after.date && row.id < after.id)
+                }
+            }
+            .sortedWith(if (query.ascending) comparator else comparator.reversed())
+            .take(query.limit)
+    }
+
+    override fun get(providerId: Long): SmsProviderRow? = rows.firstOrNull { it.id == providerId }
+
+    override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> =
+        rows.filter { it.creator == packageName && it.date >= since }
+}
+
+class InMemorySendRecordStore : SmsSendRecordStore {
+    val records = linkedMapOf<String, SmsSendRecord>()
+    val events = mutableListOf<String>()
+    var failInsert = false
+
+    override fun find(id: String): SmsSendRecord? = records[id]
+
+    override fun insert(record: SmsSendRecord): Boolean {
+        if (failInsert) throw IllegalStateException("disk full")
+        if (records.containsKey(record.id)) return false
+        records[record.id] = record
+        events += "insert:${record.id}:${record.phase.wire}"
+        return true
+    }
+
+    override fun markDispatched(id: String, now: Long): SmsSendRecord? =
+        records[id]?.withDispatched(now)?.also {
+            records[id] = it
+            events += "dispatched:$id"
+        }
+
+    override fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord? =
+        records[id]?.withFailure(code, message, now)?.also {
+            records[id] = it
+            events += "failed:$id:$code"
+        }
+}
+
+class FakeBridgeSender(private val events: MutableList<String>) : SmsBridgeSender {
+    var parts: (String) -> List<String> = { listOf(it) }
+    var sendException: Exception? = null
+    val sends = mutableListOf<Triple<String, String, Int?>>()
+
+    override fun divideMessage(message: String, subscriptionId: Int?): List<String> = parts(message)
+
+    override fun sendBridgeMultipart(
+        recordId: String,
+        to: String,
+        parts: List<String>,
+        subscriptionId: Int?,
+        deliveryReport: Boolean,
+        callbackToken: String,
+    ) {
+        events += "send:$recordId"
+        sendException?.let { throw it }
+        sends += Triple(recordId, to, subscriptionId)
+    }
+}

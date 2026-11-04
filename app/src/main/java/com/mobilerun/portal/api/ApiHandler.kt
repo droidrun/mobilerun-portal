@@ -66,7 +66,10 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Locale
 import com.mobilerun.portal.deeplinks.DeepLinkInspector
+import com.mobilerun.portal.sms.SmsBridgeApi
+import com.mobilerun.portal.sms.SmsBridgeResult
 import com.mobilerun.portal.sms.SmsController
+import com.mobilerun.portal.sms.smsBridgeApiFor
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -106,6 +109,7 @@ class ApiHandler(
     private val smsController: SmsController by lazy {
         SmsController(context.applicationContext)
     }
+    private val smsBridge: SmsBridgeApi by lazy { smsBridgeApiFor(context.applicationContext) }
 
     // Bounds a11y reads so a wedged binder can't hang HTTP workers.
     private val a11yReads = A11yReadGate()
@@ -209,6 +213,13 @@ class ApiHandler(
     fun listSmsMessages(params: JSONObject): ApiResponse = smsController.listMessages(params)
 
     fun getSmsMessage(params: JSONObject): ApiResponse = smsController.getMessage(params)
+
+    /** Relay-only SMS bridge calls; never routed from the local HTTP or WebSocket servers. */
+    fun handleSmsBridge(method: String, params: JSONObject): ApiResponse =
+        when (val result = smsBridge.handle(method, params)) {
+            is SmsBridgeResult.Ok -> ApiResponse.RawObject(result.json)
+            is SmsBridgeResult.Failure -> ApiResponse.Error(result.error.wire)
+        }
 
     private fun requireAccessibilityService(): ApiResponse.Error? {
         return if (stateRepo.hasAccessibilityService) {

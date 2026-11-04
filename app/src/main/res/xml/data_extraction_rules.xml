@@ -10,6 +10,9 @@
         <exclude domain="sharedpref" path="mobilerun_secrets.xml"/>
         <exclude domain="sharedpref" path="mobilerun_sms.xml"/>
         <exclude domain="sharedpref" path="mobilerun_audio.xml"/>
+        <exclude domain="database" path="mobilerun_sms.db"/>
+        <exclude domain="database" path="mobilerun_sms.db-wal"/>
+        <exclude domain="database" path="mobilerun_sms.db-shm"/>
     </cloud-backup>
     <device-transfer>
         <!-- Exclude device_id from device transfer to ensure unique IDs -->
@@ -17,5 +20,8 @@
         <exclude domain="sharedpref" path="mobilerun_secrets.xml"/>
         <exclude domain="sharedpref" path="mobilerun_sms.xml"/>
         <exclude domain="sharedpref" path="mobilerun_audio.xml"/>
+        <exclude domain="database" path="mobilerun_sms.db"/>
+        <exclude domain="database" path="mobilerun_sms.db-wal"/>
+        <exclude domain="database" path="mobilerun_sms.db-shm"/>
     </device-transfer>
 </data-extraction-rules>

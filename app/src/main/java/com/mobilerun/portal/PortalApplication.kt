@@ -8,6 +8,7 @@ import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.http402BlockedPresentationState
+import com.mobilerun.portal.sms.SmsStore
 import com.mobilerun.portal.state.AppForegroundTransitionTracker
 import com.mobilerun.portal.state.AppVisibilityTracker
 import com.mobilerun.portal.state.ConnectionStateManager
@@ -23,6 +24,7 @@ class PortalApplication : Application() {
         super.onCreate()
         val configManager = ConfigManager.getInstance(this)
         configManager.onCloudSessionDropped = { token -> DeviceCodeAuthClient().signOut(token) }
+        configManager.onSmsReset = { SmsStore.getInstance(this).resetKeepingRecentAsync() }
         val http402Snapshot = configManager.reverseJoinHttp402Snapshot()
         http402BlockedPresentationState(
             blocked = http402Snapshot.blocked,

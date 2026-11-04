@@ -1,0 +1,95 @@
+package com.mobilerun.portal.sms
+
+import android.content.Context
+import android.database.Cursor
+import android.provider.Telephony
+
+/** content://sms reads for the bridge and send recovery. SMS only: RCS and MMS are never read. */
+class AndroidSmsProviderSource(
+    private val context: Context,
+) : SmsProviderSource {
+    override fun latest(): SmsProviderRow? =
+        query(selection = null, args = null, sortOrder = "_id DESC LIMIT 1").firstOrNull()
+
+    override fun query(query: SmsProviderQuery): List<SmsProviderRow> {
+        val (selection, args) = query.selection()
+        return query(selection, args, query.sortOrder())
+    }
+
+    override fun get(providerId: Long): SmsProviderRow? =
+        query("_id = ?", arrayOf(providerId.toString()), sortOrder = null).firstOrNull()
+
+    override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> {
+        val types = listOf(
+            SmsProviderRow.TYPE_SENT,
+            SmsProviderRow.TYPE_FAILED,
+            SmsProviderRow.TYPE_OUTBOX,
+            SmsProviderRow.TYPE_QUEUED,
+        ).joinToString(",")
+        return query(
+            "creator = ? AND date >= ? AND type IN ($types)",
+            arrayOf(packageName, since.toString()),
+            sortOrder = "date ASC LIMIT $OWN_SENDS_LIMIT",
+        )
+    }
+
+    private fun query(selection: String?, args: Array<String>?, sortOrder: String?): List<SmsProviderRow> {
+        val cursor = context.contentResolver.query(
+            Telephony.Sms.CONTENT_URI,
+            PROJECTION,
+            selection,
+            args,
+            sortOrder,
+        ) ?: return emptyList()
+        return cursor.use {
+            val rows = ArrayList<SmsProviderRow>(it.count.coerceAtLeast(0))
+            while (it.moveToNext()) rows += it.toRow()
+            rows
+        }
+    }
+
+    private fun Cursor.toRow(): SmsProviderRow =
+        SmsProviderRow(
+            id = getLong(getColumnIndexOrThrow(Telephony.Sms._ID)),
+            type = optInt(Telephony.Sms.TYPE) ?: 0,
+            address = optString(Telephony.Sms.ADDRESS),
+            body = optString(Telephony.Sms.BODY),
+            date = optLong(Telephony.Sms.DATE) ?: 0L,
+            dateSent = optLong(Telephony.Sms.DATE_SENT),
+            read = optInt(Telephony.Sms.READ)?.let { it != 0 },
+            threadId = optLong(Telephony.Sms.THREAD_ID),
+            subscriptionId = optInt(Telephony.Sms.SUBSCRIPTION_ID),
+            creator = optString(Telephony.Sms.CREATOR),
+        )
+
+    private fun Cursor.optString(column: String): String? {
+        val index = getColumnIndex(column)
+        return if (index >= 0 && !isNull(index)) getString(index) else null
+    }
+
+    private fun Cursor.optLong(column: String): Long? {
+        val index = getColumnIndex(column)
+        return if (index >= 0 && !isNull(index)) getLong(index) else null
+    }
+
+    private fun Cursor.optInt(column: String): Int? {
+        val index = getColumnIndex(column)
+        return if (index >= 0 && !isNull(index)) getInt(index) else null
+    }
+
+    companion object {
+        private const val OWN_SENDS_LIMIT = 200
+        private val PROJECTION = arrayOf(
+            Telephony.Sms._ID,
+            Telephony.Sms.TYPE,
+            Telephony.Sms.ADDRESS,
+            Telephony.Sms.BODY,
+            Telephony.Sms.DATE,
+            Telephony.Sms.DATE_SENT,
+            Telephony.Sms.READ,
+            Telephony.Sms.THREAD_ID,
+            Telephony.Sms.SUBSCRIPTION_ID,
+            Telephony.Sms.CREATOR,
+        )
+    }
+}
