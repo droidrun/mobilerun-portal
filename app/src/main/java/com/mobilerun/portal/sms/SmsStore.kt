@@ -96,14 +96,20 @@ class SmsStore private constructor(
 
     /**
      * Runs [block] on the store thread, then [done] (for BroadcastReceiver.goAsync). A [retried]
-     * block that fails runs again later, after [done].
+     * block that fails runs again later, after [done], and with [untilDone] never gives up.
      */
-    fun async(name: String, done: () -> Unit = {}, retried: Boolean = false, block: (SQLiteDatabase) -> Unit) {
+    fun async(
+        name: String,
+        done: () -> Unit = {},
+        retried: Boolean = false,
+        untilDone: Boolean = false,
+        block: (SQLiteDatabase) -> Unit,
+    ) {
         try {
             executor.execute {
                 try {
                     if (retried) {
-                        retry.run(name) { block(helper.writableDatabase) }
+                        retry.run(name, untilDone) { block(helper.writableDatabase) }
                     } else {
                         safely(name) { block(helper.writableDatabase) }
                     }
@@ -150,9 +156,12 @@ class SmsStore private constructor(
     private fun markFailedLocked(db: SQLiteDatabase, id: String, code: String, message: String, now: Long): SmsSendRecord? =
         updateLocked(db, id) { it.withFailure(code, message, now) }?.also(SmsBridgeSendStates::changed)
 
-    /** Applies a sent/delivered result on the store thread; also records the provider row as the Portal's own. */
+    /**
+     * Applies a sent/delivered result on the store thread; also records the provider row as the Portal's own.
+     * Nothing else resolves a dispatched record, so a failed write never gives up.
+     */
     internal fun applyCallbackAsync(callback: SmsSendCallback, done: () -> Unit) {
-        async("callback", done, retried = true) { db ->
+        async("callback", done, retried = true, untilDone = true) { db ->
             // One transaction, so a retry after a failure starts from the unchanged record.
             val changed = db.inTransaction {
                 val before = findLocked(db, callback.recordId) ?: return@inTransaction null
