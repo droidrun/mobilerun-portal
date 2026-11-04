@@ -50,7 +50,17 @@ class FakeReportCalls : SmsReportCalls {
     val calls = mutableListOf<Call>()
     private val open = mutableListOf<Call>()
 
+    /** Whether a current socket exists; a call without one completes Closed at once, like ReverseRpcCalls. */
+    var socketOpen = true
+
+    override fun isOpen(): Boolean = socketOpen
+
     override fun call(method: String, params: JSONObject, callback: (SmsReportOutcome) -> Unit) {
+        if (!socketOpen) {
+            calls += Call(method, params, callback)
+            callback(SmsReportOutcome.Closed)
+            return
+        }
         val call = Call(method, params, callback)
         calls += call
         open += call
@@ -75,7 +85,8 @@ class FakeReporterStore : SmsReporterStore {
     var state: SmsScanState? = null
     val pending = linkedMapOf<String, SmsPendingReport>()
     val ring = linkedSetOf<String>()
-    val own = mutableSetOf<Long>()
+    /** provider _id -> recorded at */
+    val own = mutableMapOf<Long, Long>()
     val records = linkedMapOf<String, SmsSendRecord>()
     val reported = mutableListOf<String>()
     var seeded = 0
@@ -94,7 +105,7 @@ class FakeReporterStore : SmsReporterStore {
 
     override fun isReported(msgId: String): Boolean = msgId in ring
 
-    override fun ownSendIds(): Set<Long> = own.toSet()
+    override fun ownSends(): SmsOwnSends = SmsOwnSends(own.toMap())
 
     override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) {
         this.state = state

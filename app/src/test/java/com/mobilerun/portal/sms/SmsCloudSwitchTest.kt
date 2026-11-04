@@ -6,10 +6,15 @@ import org.junit.Test
 class SmsCloudSwitchTest {
     private val events = mutableListOf<String>()
     private var latest: SmsProviderRow? = SmsProviderRow(id = 41, type = SmsProviderRow.TYPE_INBOX, address = "+1", body = "x", date = 900)
+    private var cloudSim: Int? = null
 
     private val switch = SmsCloudSwitch(
         setEnabled = { events += "enabled=$it" },
-        setCloudSubscriptionId = { events += "sim=$it" },
+        cloudSubscriptionId = { cloudSim },
+        setCloudSubscriptionId = {
+            cloudSim = it
+            events += "sim=$it"
+        },
         latestRow = { latest },
         seed = { row, coveredFrom -> events += "seed=${row?.id}@${row?.date} coveredFrom=$coveredFrom" },
         clear = { events += "clear" },
@@ -18,7 +23,8 @@ class SmsCloudSwitchTest {
 
     @Test
     fun enable_seedsWatermarksAtTheNewestRowBeforeTurningOn() {
-        switch.enable(cloudSubscriptionId = 2)
+        switch.prepare(subscriptionId = 2)
+        switch.turnOn()
 
         assertEquals(listOf("sim=2", "seed=41@900 coveredFrom=5000", "enabled=true"), events)
     }
@@ -26,9 +32,9 @@ class SmsCloudSwitchTest {
     @Test
     fun enable_onAnEmptyProviderSeedsZero() {
         latest = null
-        switch.enable(cloudSubscriptionId = null)
+        switch.prepare(subscriptionId = null)
 
-        assertEquals(listOf("sim=null", "seed=null@null coveredFrom=5000", "enabled=true"), events)
+        assertEquals(listOf("sim=null", "seed=null@null coveredFrom=5000"), events)
     }
 
     @Test
@@ -36,5 +42,21 @@ class SmsCloudSwitchTest {
         switch.disable()
 
         assertEquals(listOf("enabled=false", "sim=null", "clear"), events)
+    }
+
+    @Test
+    fun chooseSim_reseedsBeforeSwitchingSoNothingFromThePauseIsUploaded() {
+        cloudSim = 1
+        switch.chooseSim(2)
+
+        assertEquals(listOf("seed=41@900 coveredFrom=5000", "sim=2"), events)
+    }
+
+    @Test
+    fun chooseSim_sameSimKeepsTheWatermarks() {
+        cloudSim = 2
+        switch.chooseSim(2)
+
+        assertEquals(emptyList<String>(), events)
     }
 }

@@ -60,6 +60,9 @@ interface SmsSendRecordStore {
     /** Inserts a new record; false when the id already exists. */
     fun insert(record: SmsSendRecord): Boolean
 
+    /** Removes [id] if it is still a prepared record with [callbackToken]: an insert reported as failed may still land. */
+    fun discardPrepared(id: String, callbackToken: String)
+
     fun markDispatched(id: String, now: Long): SmsSendRecord?
 
     fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord?

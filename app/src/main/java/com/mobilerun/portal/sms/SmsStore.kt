@@ -100,9 +100,21 @@ class SmsStore private constructor(
     override fun find(id: String): SmsSendRecord? = call { db -> findLocked(db, id) }
 
     override fun insert(record: SmsSendRecord): Boolean = call { db ->
-        val row = db.insertWithOnConflict(TABLE_RECORDS, null, record.toValues(), SQLiteDatabase.CONFLICT_IGNORE)
-        if (row != -1L) evictLocked(db)
-        row != -1L
+        db.inTransaction {
+            val row = db.insertWithOnConflict(TABLE_RECORDS, null, record.toValues(), SQLiteDatabase.CONFLICT_IGNORE)
+            if (row != -1L) evictLocked(db)
+            row != -1L
+        }
+    }
+
+    /** Queued behind any insert still pending after a timeout or interrupt, so it always sees it. */
+    override fun discardPrepared(id: String, callbackToken: String) {
+        async("discard") { db ->
+            db.delete(
+                TABLE_RECORDS, "id = ? AND phase = ? AND callback_token = ?",
+                arrayOf(id, SmsSendPhase.PREPARED.wire, callbackToken),
+            )
+        }
     }
 
     override fun markDispatched(id: String, now: Long): SmsSendRecord? = call { db ->
@@ -149,7 +161,7 @@ class SmsStore private constructor(
         async("own-send", done) { db -> recordOwnSendLocked(db, providerId, recordId) }
     }
 
-    override fun ownSendIds(): Set<Long> = call { db -> ownSendIdsLocked(db) }
+    override fun ownSends(): SmsOwnSends = call { db -> ownSendsLocked(db) }
 
     // --- reporter state ---
 
@@ -290,7 +302,7 @@ class SmsStore private constructor(
         if (candidates.isEmpty()) return
 
         val now = clock()
-        val own = ownSendIdsLocked(db).toMutableSet()
+        var own = ownSendsLocked(db)
         val rows = if (hasReadSms()) {
             AndroidSmsProviderSource(appContext).ownSends(appContext.packageName, candidates.minOf { it.createdAt })
         } else {
@@ -304,7 +316,7 @@ class SmsStore private constructor(
                     writeLocked(db, decision.record)
                     decision.providerId?.let {
                         recordOwnSendLocked(db, it, record.id)
-                        own += it
+                        own = own.plus(it, clock())
                     }
                     if (decision.record.state != record.state) SmsBridgeSendStates.changed(decision.record)
                 }
@@ -359,9 +371,9 @@ class SmsStore private constructor(
         )
     }
 
-    private fun ownSendIdsLocked(db: SQLiteDatabase): Set<Long> =
-        db.query(TABLE_OWN_SENDS, arrayOf("provider_id"), null, null, null, null, null).use { cursor ->
-            buildSet { while (cursor.moveToNext()) add(cursor.getLong(0)) }
+    private fun ownSendsLocked(db: SQLiteDatabase): SmsOwnSends =
+        db.query(TABLE_OWN_SENDS, arrayOf("provider_id", "created_at"), null, null, null, null, null).use { cursor ->
+            SmsOwnSends(buildMap { while (cursor.moveToNext()) put(cursor.getLong(0), cursor.getLong(1)) })
         }
 
     private fun evictLocked(db: SQLiteDatabase) {

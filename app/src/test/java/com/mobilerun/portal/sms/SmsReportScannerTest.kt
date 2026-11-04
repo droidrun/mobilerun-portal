@@ -9,7 +9,7 @@ import org.junit.Test
 class SmsReportScannerTest {
     private lateinit var provider: FakeSmsProvider
     private lateinit var scanner: SmsReportScanner
-    private val own = mutableSetOf<Long>()
+    private val own = mutableMapOf<Long, Long>()
     private val ring = mutableSetOf<String>()
 
     @Before
@@ -25,7 +25,7 @@ class SmsReportScannerTest {
     }
 
     private fun scan(state: SmsScanState, filter: Int? = null, now: Long = NOW): SmsScanResult =
-        scanner.scan(state, own, { it in ring }, filter, now).also { result ->
+        scanner.scan(state, SmsOwnSends(own.toMap()), { it in ring }, filter, now).also { result ->
             ring += result.reports.map { it.msgId }
         }
 
@@ -165,7 +165,7 @@ class SmsReportScannerTest {
         val state = seeded()
         provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 1, creator = PORTAL)
         val ownId = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 2, creator = null)
-        own += ownId.id
+        own[ownId.id] = NOW + 2
         val owner = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 3)
 
         val result = scan(state)
@@ -194,7 +194,7 @@ class SmsReportScannerTest {
     }
 
     @Test
-    fun out_recheckDropsFailedGoneAndExpiredRows() {
+    fun out_recheckDropsGoneAndExpiredRows() {
         val state = seeded()
         val failed = provider.add(SmsProviderRow.TYPE_QUEUED, date = NOW + 1)
         val gone = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 2)
@@ -205,11 +205,53 @@ class SmsReportScannerTest {
         provider.update(failed.id) { it.copy(type = SmsProviderRow.TYPE_FAILED) }
         provider.remove(gone.id)
         val second = scan(first.state, now = NOW + 1_000)
-        assertEquals(listOf(stuck.id), second.state.recheck.map { it.providerId })
+        assertEquals(listOf(failed.id, stuck.id), second.state.recheck.map { it.providerId })
 
         val expired = scan(second.state, now = NOW + SmsReportScanner.RECHECK_TTL_MS)
         assertTrue(expired.state.recheck.isEmpty())
         assertTrue(expired.reports.isEmpty())
+    }
+
+    @Test
+    fun out_failedRowRetriedOnTheSameRowIsReportedOnceSent() {
+        val state = seeded()
+        val outbox = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1)
+        val failedFirst = provider.add(SmsProviderRow.TYPE_FAILED, date = NOW + 2)
+        val later = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 3)
+        val first = scan(state)
+        assertEquals(listOf(later.messageId), first.ids())
+        assertEquals(listOf(outbox.id, failedFirst.id), first.state.recheck.map { it.providerId })
+
+        provider.update(outbox.id) { it.copy(type = SmsProviderRow.TYPE_FAILED) }
+        val failed = scan(first.state, now = NOW + 1_000)
+        assertTrue(failed.reports.isEmpty())
+        assertEquals(listOf(outbox.id, failedFirst.id), failed.state.recheck.map { it.providerId })
+
+        provider.update(outbox.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        provider.update(failedFirst.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        val sent = scan(failed.state, now = NOW + 2_000)
+        assertEquals(listOf(outbox.messageId, failedFirst.messageId), sent.ids())
+        assertTrue(sent.state.recheck.isEmpty())
+    }
+
+    @Test
+    fun ownSendIdReusedByANewerRow_isNotSkipped() {
+        val state = seeded()
+        val portalSend = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 1, creator = null)
+        own[portalSend.id] = NOW + 2
+        val first = scan(state)
+        assertTrue(first.reports.isEmpty())
+
+        // The owner deletes the Portal's newest row; the next rows reuse its _id.
+        provider.remove(portalSend.id)
+        val inbound = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 10 * 60_000)
+        assertEquals(portalSend.id, inbound.id)
+        assertEquals(listOf(inbound.messageId), scan(first.state).ids())
+
+        provider.remove(inbound.id)
+        val ownerSent = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 20 * 60_000)
+        assertEquals(portalSend.id, ownerSent.id)
+        assertEquals(listOf(ownerSent.messageId), scan(first.state).ids())
     }
 
     @Test
@@ -258,7 +300,22 @@ class SmsReportScannerTest {
             SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a, b)), cloudSubscriptionId = 9),
         )
         assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.PermissionDenied, 1))
-        assertEquals(SmsReporterSims.Covered(null, emptyMap()), SmsReporterSims.from(SmsSubscriptionsResult.Available(emptyList()), null))
+        assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(emptyList()), null))
+    }
+
+    @Test
+    fun reporterSims_aChosenCloudSimFiltersWhateverTheSimCount() {
+        val a = SmsSimInfo(subscriptionId = 1, simSlot = 0, phoneNumber = "+15550001111")
+        val b = SmsSimInfo(subscriptionId = 2, simSlot = 1)
+
+        assertEquals(
+            SmsReporterSims.Covered(1, mapOf(1 to "+15550001111")),
+            SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(a)), cloudSubscriptionId = 1),
+        )
+        // Cloud SIM 1 disabled or removed: only the other SIM is active.
+        assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(listOf(b)), cloudSubscriptionId = 1))
+        // Right after boot, before the SIMs load.
+        assertEquals(SmsReporterSims.Blocked, SmsReporterSims.from(SmsSubscriptionsResult.Available(emptyList()), cloudSubscriptionId = 1))
     }
 
     @Test

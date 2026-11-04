@@ -20,7 +20,6 @@ data class SmsBridgeError(val code: String, val detail: String? = null) {
         val SEND_SMS_DENIED = SmsBridgeError(PERMISSION_DENIED, "send_sms")
         val READ_PHONE_STATE_DENIED = SmsBridgeError(PERMISSION_DENIED, "read_phone_state")
         val NOT_CLOUD_SIM = SmsBridgeError(PERMISSION_DENIED, "not_cloud_sim")
-        val NO_TELEPHONY = SmsBridgeError(TELEPHONY_UNAVAILABLE, "no_telephony")
         val NO_SUBSCRIPTION = SmsBridgeError(TELEPHONY_UNAVAILABLE, "no_subscription")
         val NO_CLOUD_SIM = SmsBridgeError(TELEPHONY_UNAVAILABLE, "no_cloud_sim")
         val RATE_LIMITED = SmsBridgeError(DEVICE_SIDE_FAILURE, "rate_limited")
@@ -36,6 +35,9 @@ data class SmsBridgeError(val code: String, val detail: String? = null) {
 sealed class SmsBridgeResult {
     data class Ok(val json: JSONObject) : SmsBridgeResult()
     data class Failure(val error: SmsBridgeError) : SmsBridgeResult()
+
+    /** The device does not announce this method's token. */
+    data class UnknownMethod(val method: String) : SmsBridgeResult()
 }
 
 internal fun SmsBridgeError.asResult(): SmsBridgeResult = SmsBridgeResult.Failure(this)

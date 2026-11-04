@@ -33,6 +33,7 @@ import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.service.setReconnectAfterRestart
 import com.mobilerun.portal.sms.SmsCloud
+import com.mobilerun.portal.sms.SmsCloudSims
 import com.mobilerun.portal.sms.SmsSimInfo
 import com.mobilerun.portal.sms.SmsSubscriptionResolver
 import com.mobilerun.portal.sms.SmsSubscriptionsResult
@@ -549,8 +550,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         }
         binding.buttonSmsCloudSim.setOnClickListener {
             chooseCloudSim(activeSims()) { subscriptionId ->
-                configManager.cloudSubscriptionId = subscriptionId
-                renderSmsCloud()
+                SmsCloud.chooseSimAsync(this, subscriptionId) { ok ->
+                    if (!ok) {
+                        android.widget.Toast.makeText(this, R.string.sms_cloud_sim_failed, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    if (!isDestroyed) renderSmsCloud()
+                }
             }
         }
         binding.buttonRequestPhoneNumbers.setOnClickListener {
@@ -559,6 +564,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     }
 
     private fun confirmSmsCloud() {
+        if (!SmsSubscriptionResolver(this).hasTelephony()) {
+            android.widget.Toast.makeText(this, R.string.sms_cloud_no_telephony, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.sms_cloud_confirm_title)
             .setMessage(R.string.sms_cloud_details)
@@ -625,6 +634,18 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             ?.subscriptions
             .orEmpty()
 
+    /** The cloud SIM line: shown on multi-SIM devices and whenever cloud SMS is paused for lack of a SIM. */
+    private fun cloudSimStatus(sims: List<SmsSimInfo>): String? {
+        val cloudId = configManager.cloudSubscriptionId
+        val cloud = SmsCloudSims.pick(sims, cloudId)
+        return when {
+            cloud != null -> if (sims.size > 1) getString(R.string.sms_cloud_sim_status, simLabel(cloud)) else null
+            sims.isEmpty() -> getString(R.string.sms_cloud_no_sim)
+            cloudId != null -> getString(R.string.sms_cloud_sim_inactive)
+            else -> getString(R.string.sms_cloud_sim_missing)
+        }
+    }
+
     private fun setSmsCloudSwitch(checked: Boolean) {
         suppressSmsCloudSwitchCallback = true
         binding.switchSmsCloud.isChecked = checked
@@ -635,7 +656,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         val enabled = configManager.smsCloudEnabled
         setSmsCloudSwitch(enabled)
         binding.switchSmsCloud.isEnabled = !smsCloudEnabling
-        val sims = if (enabled) activeSims() else emptyList()
+        val subscriptions = if (enabled) SmsSubscriptionResolver(this).bridgeSubscriptions() else null
+        val sims = (subscriptions as? SmsSubscriptionsResult.Available)?.subscriptions.orEmpty()
+        val simStatus = if (subscriptions is SmsSubscriptionsResult.Available) cloudSimStatus(sims) else null
         val lines = mutableListOf<String>()
         if (enabled) {
             val missing = SMS_CLOUD_REQUIRED_PERMISSIONS.filterNot(::isPermissionGranted)
@@ -645,18 +668,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     missing.joinToString { it.substringAfterLast('.') },
                 )
             }
-            if (sims.size > 1) {
-                val cloud = sims.firstOrNull { it.subscriptionId == configManager.cloudSubscriptionId }
-                lines += if (cloud != null) {
-                    getString(R.string.sms_cloud_sim_status, simLabel(cloud))
-                } else {
-                    getString(R.string.sms_cloud_sim_missing)
-                }
-            }
+            simStatus?.let { lines += it }
         }
         binding.textSmsCloudStatus.text = lines.joinToString("\n")
         binding.textSmsCloudStatus.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
-        binding.buttonSmsCloudSim.visibility = if (enabled && sims.size > 1) View.VISIBLE else View.GONE
+        binding.buttonSmsCloudSim.visibility = if (simStatus != null && sims.isNotEmpty()) View.VISIBLE else View.GONE
         binding.buttonRequestPhoneNumbers.visibility =
             if (isPermissionGranted(Manifest.permission.READ_PHONE_NUMBERS)) View.GONE else View.VISIBLE
     }

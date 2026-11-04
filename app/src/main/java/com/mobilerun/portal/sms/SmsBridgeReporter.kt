@@ -31,6 +31,8 @@ object SmsBridgeReporter {
             val config = ConfigManager.getInstance(app)
             val provider = AndroidSmsProviderSource(app)
             val resolver = SmsSubscriptionResolver(app)
+            // Without telephony the SMS tokens are not announced, so nothing is reported.
+            val telephony = resolver.hasTelephony()
             val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "SmsReporter").also { it.isDaemon = true }
             }
@@ -40,7 +42,7 @@ object SmsBridgeReporter {
                 rows = provider,
                 calls = ReverseSmsReportCalls,
                 packageName = app.packageName,
-                cloudEnabled = { config.smsCloudEnabled },
+                cloudEnabled = { telephony && config.smsCloudEnabled },
                 hasReadSms = {
                     ContextCompat.checkSelfPermission(app, Manifest.permission.READ_SMS) ==
                         PackageManager.PERMISSION_GRANTED
@@ -64,6 +66,10 @@ object SmsBridgeReporter {
     /** SMS_RECEIVED: scan now and again at +1, +5 and +15 s. */
     fun scanBurst() {
         core?.scanBurst()
+    }
+
+    fun onCloudSimChanged() {
+        core?.onCloudSimChanged()
     }
 
     fun onSocketOpen() {
@@ -129,13 +135,15 @@ internal class ExecutorReporterScheduler(
 
 /** Calls over the relay socket; Closed when the reverse connection is not open. */
 internal object ReverseSmsReportCalls : SmsReportCalls {
+    override fun isOpen(): Boolean = ReverseConnectionService.getInstance()?.rpcCalls?.isOpen() == true
+
     override fun call(method: String, params: JSONObject, callback: (SmsReportOutcome) -> Unit) {
         val calls = ReverseConnectionService.getInstance()?.rpcCalls
         if (calls == null) {
             callback(SmsReportOutcome.Closed)
             return
         }
-        calls.call(method, params) { callback(it.toReportOutcome()) }
+        calls.call(method, params, SmsReporterCore.CALL_TIMEOUT_MS) { callback(it.toReportOutcome()) }
     }
 }
 
@@ -154,7 +162,7 @@ private class LazyReporterStore(private val context: Context) : SmsReporterStore
     override fun scanState(): SmsScanState? = store.scanState()
     override fun seedScanState(latest: SmsProviderRow?, coveredFrom: Long) = store.seedScanState(latest, coveredFrom)
     override fun isReported(msgId: String): Boolean = store.isReported(msgId)
-    override fun ownSendIds(): Set<Long> = store.ownSendIds()
+    override fun ownSends(): SmsOwnSends = store.ownSends()
     override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) =
         store.commitScan(state, reports, now)
 

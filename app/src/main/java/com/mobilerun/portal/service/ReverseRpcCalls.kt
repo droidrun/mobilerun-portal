@@ -109,6 +109,9 @@ internal class ReverseRpcCalls(
 
     fun pendingCount(): Int = pending.size
 
+    /** True while a current socket is there to call over. */
+    fun isOpen(): Boolean = transport() != null
+
     private fun complete(call: Pending, result: ReverseRpcResult) {
         try {
             call.callback(result)

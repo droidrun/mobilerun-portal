@@ -18,7 +18,8 @@ interface SmsBridgeSender {
 }
 
 /**
- * Relay -> device SMS bridge calls (wrtc-stream-bridge contract). Every call answers
+ * Relay -> device SMS bridge calls (wrtc-stream-bridge contract). Without telephony the SMS tokens
+ * are not announced, so every call answers "Unknown method"; with it, every call answers
  * "sms: permission_denied: cloud_sms_disabled" while the Mobilerun cloud SMS switch is off.
  */
 class SmsBridgeApi(
@@ -37,6 +38,7 @@ class SmsBridgeApi(
     private val newToken: () -> String = { UUID.randomUUID().toString() },
 ) {
     fun handle(method: String, params: JSONObject): SmsBridgeResult {
+        if (!hasTelephony()) return SmsBridgeResult.UnknownMethod(method)
         if (!cloudEnabled()) return SmsBridgeError.CLOUD_SMS_DISABLED.asResult()
         return try {
             when (method) {
@@ -109,9 +111,7 @@ class SmsBridgeApi(
     }
 
     private fun listSubscriptions(): SmsBridgeResult {
-        if (!hasTelephony()) refuse(SmsBridgeError.NO_TELEPHONY)
         val scope = simScope()
-        if (scope.visible.isEmpty()) refuse(SmsBridgeError.NO_SUBSCRIPTION)
         return SmsBridgeResult.Ok(JSONObject().put("subscriptions", scope.visible.toBridgeJsonArray()))
     }
 
@@ -121,7 +121,6 @@ class SmsBridgeApi(
         val fingerprint = SmsHashes.fingerprint(p.to, p.body)
         records.find(id)?.let { return storedStatus(it, fingerprint) }
 
-        if (!hasTelephony()) refuse(SmsBridgeError.NO_TELEPHONY)
         if (!hasSendSms()) refuse(SmsBridgeError.SEND_SMS_DENIED)
         val sim = resolveSender(p)
         val parts = try {
@@ -154,6 +153,8 @@ class SmsBridgeApi(
             records.insert(record)
         } catch (e: Exception) {
             limiter.refund(parts.size)
+            // A timed-out or interrupted insert may still land; drop it so a retry of this id sends.
+            runCatching { records.discardPrepared(id, record.callbackToken) }
             refuse(SmsBridgeError(SmsBridgeError.DEVICE_SIDE_FAILURE, "store unavailable"))
         }
         if (!inserted) {
@@ -199,8 +200,7 @@ class SmsBridgeApi(
                 sims.firstOrNull { it.simSlot.toLong() == p.simSlot } ?: refuse(SmsBridgeError.NO_SUBSCRIPTION)
             else -> null
         }
-        if (sims.size == 1) return requested ?: sims.single()
-        val cloud = cloudSim(sims)
+        val cloud = SmsCloudSims.pick(sims, cloudSubscriptionId())
         if (requested != null) {
             if (cloud == null || requested.subscriptionId != cloud.subscriptionId) refuse(SmsBridgeError.NOT_CLOUD_SIM)
             return requested
@@ -216,17 +216,13 @@ class SmsBridgeApi(
             visible.mapNotNull { sim -> sim.phoneNumber?.let { sim.subscriptionId to it } }.toMap()
     }
 
-    /** Multi-SIM devices expose only the owner's cloud SIM: its rows, its subscription. */
+    /** Only the covered SIM is exposed; a chosen cloud SIM always filters rows, whatever the SIM count. */
     private fun simScope(): SimScope {
         val sims = activeSims()
-        if (sims.size <= 1) return SimScope(filterSubscriptionId = null, visible = sims)
-        val cloud = cloudSim(sims) ?: refuse(SmsBridgeError.NO_CLOUD_SIM)
-        return SimScope(filterSubscriptionId = cloud.subscriptionId, visible = listOf(cloud))
-    }
-
-    private fun cloudSim(sims: List<SmsSimInfo>): SmsSimInfo? {
-        val cloudId = cloudSubscriptionId() ?: return null
-        return sims.firstOrNull { it.subscriptionId == cloudId }
+        val cloudId = cloudSubscriptionId()
+        val sim = SmsCloudSims.pick(sims, cloudId)
+            ?: refuse(if (cloudId == null && sims.isEmpty()) SmsBridgeError.NO_SUBSCRIPTION else SmsBridgeError.NO_CLOUD_SIM)
+        return SimScope(filterSubscriptionId = cloudId, visible = listOf(sim))
     }
 
     private fun activeSims(): List<SmsSimInfo> = when (val result = subscriptions()) {

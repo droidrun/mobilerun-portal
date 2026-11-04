@@ -194,6 +194,13 @@ class ReverseRpcCallsTest {
     }
 
     @Test
+    fun isOpen_followsTheCurrentTransport() {
+        assertTrue(calls.isOpen())
+        transport = null
+        assertFalse(calls.isOpen())
+    }
+
+    @Test
     fun call_withoutSocketClosesAtOnceWithoutUsingAnId() {
         transport = null
 

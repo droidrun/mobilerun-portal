@@ -9,17 +9,27 @@ import com.mobilerun.portal.config.ConfigManager
 /** Turns Mobilerun cloud SMS on and off. Enabling never backfills: watermarks start at the newest row. */
 class SmsCloudSwitch(
     private val setEnabled: (Boolean) -> Unit,
+    private val cloudSubscriptionId: () -> Int?,
     private val setCloudSubscriptionId: (Int?) -> Unit,
     private val latestRow: () -> SmsProviderRow?,
     private val seed: (latest: SmsProviderRow?, coveredFrom: Long) -> Unit,
     private val clear: () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    /** Watermarks are written before the switch flips, so the reporter never runs without them. */
-    fun enable(cloudSubscriptionId: Int?) {
-        setCloudSubscriptionId(cloudSubscriptionId)
+    /** Store thread. Seeds the watermarks; [turnOn] follows, so the reporter never runs without them. */
+    fun prepare(subscriptionId: Int?) {
+        setCloudSubscriptionId(subscriptionId)
         seed(latestRow(), clock())
-        setEnabled(true)
+    }
+
+    /** Main thread: config listeners are not thread-safe. */
+    fun turnOn() = setEnabled(true)
+
+    /** Store thread. A new cloud SIM also starts at the newest row: nothing from before, or from a pause, is uploaded. */
+    fun chooseSim(subscriptionId: Int) {
+        if (cloudSubscriptionId() == subscriptionId) return
+        seed(latestRow(), clock())
+        setCloudSubscriptionId(subscriptionId)
     }
 
     fun disable() {
@@ -38,6 +48,7 @@ object SmsCloud {
         val store = SmsStore.getInstance(appContext)
         return SmsCloudSwitch(
             setEnabled = { config.smsCloudEnabled = it },
+            cloudSubscriptionId = { config.cloudSubscriptionId },
             setCloudSubscriptionId = { config.cloudSubscriptionId = it },
             latestRow = { AndroidSmsProviderSource(appContext).latest() },
             seed = store::seedReporterState,
@@ -45,9 +56,17 @@ object SmsCloud {
         )
     }
 
-    /** Runs on the store thread and reports success on the main thread. */
+    /** Seeds on the store thread, then turns on and reports success on the main thread. */
     fun enableAsync(context: Context, cloudSubscriptionId: Int?, onDone: (Boolean) -> Unit) {
-        runAsync(context, "enable", onDone) { switchFor(context).enable(cloudSubscriptionId) }
+        val switch = switchFor(context)
+        runAsync(context, "enable", onDone, onMain = switch::turnOn) { switch.prepare(cloudSubscriptionId) }
+    }
+
+    fun chooseSimAsync(context: Context, subscriptionId: Int, onDone: (Boolean) -> Unit) {
+        val switch = switchFor(context)
+        runAsync(context, "choose SIM", onDone, onMain = SmsBridgeReporter::onCloudSimChanged) {
+            switch.chooseSim(subscriptionId)
+        }
     }
 
     /** The switch turns off at once; the reporter state is cleared on the store thread. */
@@ -55,19 +74,28 @@ object SmsCloud {
         switchFor(context).disable()
     }
 
-    private fun runAsync(context: Context, name: String, onDone: (Boolean) -> Unit, block: () -> Unit) {
+    private fun runAsync(
+        context: Context,
+        name: String,
+        onDone: (Boolean) -> Unit,
+        onMain: () -> Unit,
+        block: () -> Unit,
+    ) {
         val main = Handler(Looper.getMainLooper())
         SmsStore.getInstance(context).executor.execute {
-            val ok = try {
-                block()
-                true
-            } catch (e: Exception) {
-                Log.w(TAG, "$name failed (${e.javaClass.simpleName})")
-                false
-            }
-            main.post { onDone(ok) }
+            val ok = attempt(name, block)
+            main.post { onDone(ok && attempt(name, onMain)) }
         }
     }
+
+    private inline fun attempt(name: String, block: () -> Unit): Boolean =
+        try {
+            block()
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "$name failed (${e.javaClass.simpleName})")
+            false
+        }
 }
 
 /** The relay SMS bridge handlers wired to the device. */

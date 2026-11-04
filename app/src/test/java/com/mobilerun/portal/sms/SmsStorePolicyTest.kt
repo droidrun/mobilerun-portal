@@ -1,6 +1,7 @@
 package com.mobilerun.portal.sms
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,9 +33,9 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         assertEquals(
             SmsRecoveryDecision.None,
-            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.DISPATCHED), 1_000_000, 500_000, emptyList(), emptySet(), pkg),
+            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.DISPATCHED), 1_000_000, 500_000, emptyList(), SmsOwnSends(), pkg),
         )
-        assertEquals(SmsRecoveryDecision.None, SmsSendRecovery.decide(record, 1_000_000, 500, emptyList(), emptySet(), pkg))
+        assertEquals(SmsRecoveryDecision.None, SmsSendRecovery.decide(record, 1_000_000, 500, emptyList(), SmsOwnSends(), pkg))
     }
 
     @Test
@@ -42,7 +43,7 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         assertEquals(
             SmsRecoveryDecision.Wait(61_000),
-            SmsSendRecovery.decide(record, 30_000, 20_000, emptyList(), emptySet(), pkg),
+            SmsSendRecovery.decide(record, 30_000, 20_000, emptyList(), SmsOwnSends(), pkg),
         )
     }
 
@@ -57,7 +58,7 @@ class SmsStorePolicyTest {
             row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, address = "+1 (555) 000-1111"),
         )
 
-        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, emptySet(), pkg) as SmsRecoveryDecision.Resolve
+        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
 
         assertEquals(9L, decision.providerId)
         assertEquals(SmsSendState.SENT, decision.record.state)
@@ -70,7 +71,8 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         val rows = listOf(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000))
 
-        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, setOf(9L), pkg) as SmsRecoveryDecision.Resolve
+        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, SmsOwnSends(mapOf(9L to 2_000L)), pkg)
+            as SmsRecoveryDecision.Resolve
 
         assertEquals(null, decision.providerId)
         assertEquals(SmsSendState.FAILED, decision.record.state)
@@ -78,17 +80,28 @@ class SmsStorePolicyTest {
     }
 
     @Test
+    fun ownSends_aReusedIdNewerThanTheRecordIsNotOwn() {
+        val own = SmsOwnSends(mapOf(9L to 2_000L))
+
+        assertTrue(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 1_900) in own)
+        assertTrue(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000 + SmsOwnSends.CLOCK_SLACK_MS) in own)
+        assertFalse(row(id = 9, type = SmsProviderRow.TYPE_INBOX, date = 2_001 + SmsOwnSends.CLOCK_SLACK_MS) in own)
+        assertFalse(row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_900) in own)
+        assertTrue(row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_900) in own.plus(8L, 1_950L))
+    }
+
+    @Test
     fun recovery_outboxRowMeansDispatchedAndFailedRowMeansFailed() {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         val outbox = SmsSendRecovery.decide(
-            record, 100_000, 50_000, listOf(row(id = 3, type = SmsProviderRow.TYPE_QUEUED, date = 2_000)), emptySet(), pkg,
+            record, 100_000, 50_000, listOf(row(id = 3, type = SmsProviderRow.TYPE_QUEUED, date = 2_000)), SmsOwnSends(), pkg,
         ) as SmsRecoveryDecision.Resolve
         assertEquals(SmsSendPhase.DISPATCHED, outbox.record.phase)
         assertEquals(SmsSendState.PENDING, outbox.record.state)
         assertEquals(3L, outbox.providerId)
 
         val failed = SmsSendRecovery.decide(
-            record, 100_000, 50_000, listOf(row(id = 4, type = SmsProviderRow.TYPE_FAILED, date = 2_000)), emptySet(), pkg,
+            record, 100_000, 50_000, listOf(row(id = 4, type = SmsProviderRow.TYPE_FAILED, date = 2_000)), SmsOwnSends(), pkg,
         ) as SmsRecoveryDecision.Resolve
         assertEquals(SmsSendState.FAILED, failed.record.state)
         assertTrue(failed.record.isTerminal)

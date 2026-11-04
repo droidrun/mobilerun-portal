@@ -219,6 +219,7 @@ class ApiHandler(
         when (val result = smsBridge.handle(method, params)) {
             is SmsBridgeResult.Ok -> ApiResponse.RawObject(result.json)
             is SmsBridgeResult.Failure -> ApiResponse.Error(result.error.wire)
+            is SmsBridgeResult.UnknownMethod -> ApiResponse.Error("Unknown method: ${result.method}")
         }
 
     private fun requireAccessibilityService(): ApiResponse.Error? {

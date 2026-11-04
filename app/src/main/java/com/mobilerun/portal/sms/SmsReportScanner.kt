@@ -3,7 +3,7 @@ package com.mobilerun.portal.sms
 /** The last provider row a direction's scan has looked at. id 0 means "from the start of the table". */
 data class SmsWatermark(val id: Long, val date: Long)
 
-/** An outbox or queued row the owner sent, checked again until it reaches the sent box. */
+/** An outbox, queued or failed row the owner sent, checked again until it reaches the sent box. */
 data class SmsRecheck(val providerId: Long, val firstSeenAt: Long)
 
 data class SmsScanState(
@@ -52,7 +52,7 @@ class SmsReportScanner(
 ) {
     fun scan(
         state: SmsScanState,
-        ownSendIds: Set<Long>,
+        ownSends: SmsOwnSends,
         isReported: (String) -> Boolean,
         subscriptionFilter: Int?,
         now: Long,
@@ -63,8 +63,7 @@ class SmsReportScanner(
         fun eligible(row: SmsProviderRow, direction: String): Boolean =
             row.date >= floor &&
                 (subscriptionFilter == null || row.subscriptionId == subscriptionFilter) &&
-                row.id !in ownSendIds &&
-                (direction == SmsBridgeListParams.DIRECTION_IN || row.creator != packageName)
+                (direction == SmsBridgeListParams.DIRECTION_IN || (row.creator != packageName && row !in ownSends))
 
         fun report(row: SmsProviderRow, direction: String) {
             val msgId = row.messageId
@@ -86,7 +85,7 @@ class SmsReportScanner(
                 row.type == SmsProviderRow.TYPE_SENT -> {
                     if (eligible(row, SmsBridgeListParams.DIRECTION_OUT)) report(row, SmsBridgeListParams.DIRECTION_OUT)
                 }
-                row.type in PENDING_OUT_TYPES && now - entry.firstSeenAt < RECHECK_TTL_MS ->
+                row.type in RECHECK_TYPES && now - entry.firstSeenAt < RECHECK_TTL_MS ->
                     recheck[entry.providerId] = entry
             }
         }
@@ -94,7 +93,7 @@ class SmsReportScanner(
             if (!eligible(row, SmsBridgeListParams.DIRECTION_OUT)) continue
             when (row.type) {
                 SmsProviderRow.TYPE_SENT -> report(row, SmsBridgeListParams.DIRECTION_OUT)
-                in PENDING_OUT_TYPES -> recheck.putIfAbsent(row.id, SmsRecheck(row.id, now))
+                in RECHECK_TYPES -> recheck.putIfAbsent(row.id, SmsRecheck(row.id, now))
             }
         }
 
@@ -131,8 +130,9 @@ class SmsReportScanner(
         const val MAX_RECHECKS = 200
 
         val INBOUND_TYPES = listOf(SmsProviderRow.TYPE_INBOX)
-        val PENDING_OUT_TYPES = setOf(SmsProviderRow.TYPE_OUTBOX, SmsProviderRow.TYPE_QUEUED)
-        val OUT_TYPES = listOf(SmsProviderRow.TYPE_SENT, SmsProviderRow.TYPE_OUTBOX, SmsProviderRow.TYPE_QUEUED)
+        /** A failed row stays too: SMS apps retry on the same row. */
+        val RECHECK_TYPES = setOf(SmsProviderRow.TYPE_OUTBOX, SmsProviderRow.TYPE_QUEUED, SmsProviderRow.TYPE_FAILED)
+        val OUT_TYPES = listOf(SmsProviderRow.TYPE_SENT) + RECHECK_TYPES
     }
 }
 
@@ -150,23 +150,29 @@ object SmsRecheckCodec {
         }
 }
 
+object SmsCloudSims {
+    /** The SIM cloud SMS covers: the owner's cloud SIM if one was chosen, else the only active SIM. */
+    fun pick(active: List<SmsSimInfo>, cloudSubscriptionId: Int?): SmsSimInfo? =
+        if (cloudSubscriptionId != null) {
+            active.firstOrNull { it.subscriptionId == cloudSubscriptionId }
+        } else {
+            active.singleOrNull()
+        }
+}
+
 /** Which SIM the reporter covers, from the active subscriptions and the owner's cloud SIM. */
 sealed class SmsReporterSims {
+    /** A chosen cloud SIM always filters rows, whatever the SIM count. */
     data class Covered(val subscriptionFilter: Int?, val phoneNumbers: Map<Int, String>) : SmsReporterSims()
 
-    /** Multi-SIM without a cloud SIM, or subscriptions unreadable: report nothing for now. */
+    /** No SIM to cover (none active, cloud SIM inactive or not chosen) or subscriptions unreadable. */
     object Blocked : SmsReporterSims()
 
     companion object {
         fun from(result: SmsSubscriptionsResult, cloudSubscriptionId: Int?): SmsReporterSims {
             val sims = (result as? SmsSubscriptionsResult.Available)?.subscriptions ?: return Blocked
-            val visible = if (sims.size <= 1) {
-                sims
-            } else {
-                listOf(sims.firstOrNull { it.subscriptionId == cloudSubscriptionId } ?: return Blocked)
-            }
-            val filter = if (sims.size > 1) visible.single().subscriptionId else null
-            return Covered(filter, visible.mapNotNull { sim -> sim.phoneNumber?.let { sim.subscriptionId to it } }.toMap())
+            val sim = SmsCloudSims.pick(sims, cloudSubscriptionId) ?: return Blocked
+            return Covered(cloudSubscriptionId, sim.phoneNumber?.let { mapOf(sim.subscriptionId to it) }.orEmpty())
         }
     }
 }

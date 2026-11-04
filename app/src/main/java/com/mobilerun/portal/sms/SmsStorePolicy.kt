@@ -28,6 +28,24 @@ object SmsStorePolicy {
     }
 }
 
+/**
+ * The Portal's own sends: provider _id -> when it was recorded. The sms table reuses _id after
+ * deletes, so a row matches only when it is not newer than the record.
+ */
+class SmsOwnSends(private val recordedAt: Map<Long, Long> = emptyMap()) {
+    operator fun contains(row: SmsProviderRow): Boolean {
+        val at = recordedAt[row.id] ?: return false
+        return row.date <= at + CLOCK_SLACK_MS
+    }
+
+    fun plus(providerId: Long, at: Long): SmsOwnSends = SmsOwnSends(recordedAt + (providerId to at))
+
+    companion object {
+        /** Clock adjustments between the send and its callback. */
+        const val CLOCK_SLACK_MS = 60_000L
+    }
+}
+
 sealed class SmsRecoveryDecision {
     object None : SmsRecoveryDecision()
     data class Wait(val atMs: Long) : SmsRecoveryDecision()
@@ -51,7 +69,7 @@ object SmsSendRecovery {
         now: Long,
         processStartedAt: Long,
         rows: List<SmsProviderRow>,
-        ownProviderIds: Set<Long>,
+        ownSends: SmsOwnSends,
         packageName: String,
     ): SmsRecoveryDecision {
         if (!isCandidate(record, processStartedAt)) return SmsRecoveryDecision.None
@@ -62,7 +80,7 @@ object SmsSendRecovery {
         val match = rows
             .filter {
                 it.creator == packageName &&
-                    it.id !in ownProviderIds &&
+                    it !in ownSends &&
                     it.date >= record.createdAt &&
                     it.body != null &&
                     SmsPhoneNumbers.compactAddress(it.address) == target &&

@@ -105,6 +105,12 @@ class SmsReportPolicyTest {
     }
 
     @Test
+    fun callTimeout_outlastsTheRelayForwardBudget() {
+        // devices-api answers "forward failed" only after its 30 s smsForwardTimeout.
+        assertTrue(SmsReporterCore.CALL_TIMEOUT_MS > 30_000L)
+    }
+
+    @Test
     fun needsSendStateReport() {
         assertFalse(relayRecord("a", SmsSendState.PENDING).needsSendStateReport())
         assertTrue(relayRecord("a", SmsSendState.SENT).needsSendStateReport())

@@ -71,6 +71,28 @@ class SmsBridgeApiTest {
     }
 
     @Test
+    fun withoutTelephony_everyMethodIsUnknown_likeAnUnannouncedToken() {
+        telephony = false
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 10)
+
+        listOf(true, false).forEach { enabled ->
+            cloudEnabled = enabled
+            listOf(
+                "sms/list" to JSONObject(),
+                "sms/get" to JSONObject().put("id", "1-10"),
+                "sms/subscriptions" to JSONObject(),
+                "sms/send" to sendParams(id = "a"),
+                "sms/sendStatus" to JSONObject().put("id", "a"),
+            ).forEach { (method, params) ->
+                assertEquals(SmsBridgeResult.UnknownMethod(method), api.handle(method, params))
+            }
+        }
+        assertTrue(sender.sends.isEmpty())
+        assertTrue(store.records.isEmpty())
+        assertEquals(0, provider.queries)
+    }
+
+    @Test
     fun isBridgeCall_takesSendOnlyWithBody() {
         assertTrue(SmsBridgeApi.isBridgeCall("sms/send", JSONObject().put("body", "x")))
         assertFalse(SmsBridgeApi.isBridgeCall("sms/send", JSONObject().put("message", "x").put("to", "+1")))
@@ -216,6 +238,40 @@ class SmsBridgeApiTest {
     }
 
     @Test
+    fun chosenCloudSimInactive_blocksEvenWithOneActiveSim() {
+        // The owner picked SIM A; it was then removed, leaving only SIM B active.
+        cloudSubscriptionId = 1
+        subscriptions = SmsSubscriptionsResult.Available(listOf(SIM_B))
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 100, subscriptionId = 2)
+
+        assertEquals("sms: telephony_unavailable: no_cloud_sim", error(api.handle("sms/list", JSONObject())))
+        assertEquals("sms: telephony_unavailable: no_cloud_sim", error(api.handle("sms/get", JSONObject().put("id", "1-100"))))
+        assertEquals("sms: telephony_unavailable: no_cloud_sim", error(api.handle("sms/subscriptions", JSONObject())))
+        assertEquals("sms: telephony_unavailable: no_cloud_sim", error(api.handle("sms/send", sendParams(id = "a"))))
+        assertEquals(
+            "sms: permission_denied: not_cloud_sim",
+            error(api.handle("sms/send", sendParams(id = "b").put("subscriptionId", 2))),
+        )
+        assertTrue(sender.sends.isEmpty())
+
+        subscriptions = SmsSubscriptionsResult.Available(listOf(SIM_A))
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 200, subscriptionId = 1)
+        assertEquals(listOf("2-200"), ids(api.handle("sms/list", JSONObject())))
+    }
+
+    @Test
+    fun noActiveSim_blocksListAndGet() {
+        subscriptions = SmsSubscriptionsResult.Available(emptyList())
+        provider.add(SmsProviderRow.TYPE_INBOX, date = 100, subscriptionId = 1)
+
+        assertEquals("sms: telephony_unavailable: no_subscription", error(api.handle("sms/list", JSONObject())))
+        assertEquals("sms: telephony_unavailable: no_subscription", error(api.handle("sms/get", JSONObject().put("id", "1-100"))))
+        cloudSubscriptionId = 1
+        assertEquals("sms: telephony_unavailable: no_cloud_sim", error(api.handle("sms/list", JSONObject())))
+        assertEquals(0, provider.queries)
+    }
+
+    @Test
     fun list_invalidParamsNeverQueryTheProvider() {
         provider.add(SmsProviderRow.TYPE_INBOX, date = 100)
         assertEquals("sms: unsupported_param: \"services\"", error(api.handle("sms/list", JSONObject().put("services", JSONArray()))))
@@ -250,9 +306,6 @@ class SmsBridgeApiTest {
 
     @Test
     fun subscriptions_typedFailures() {
-        telephony = false
-        assertEquals("sms: telephony_unavailable: no_telephony", error(api.handle("sms/subscriptions", JSONObject())))
-        telephony = true
         subscriptions = SmsSubscriptionsResult.PermissionDenied
         assertEquals("sms: permission_denied: read_phone_state", error(api.handle("sms/subscriptions", JSONObject())))
         subscriptions = SmsSubscriptionsResult.Available(emptyList())
@@ -373,9 +426,6 @@ class SmsBridgeApiTest {
 
     @Test
     fun send_permissionAndTelephonyFailuresPersistNothing() {
-        telephony = false
-        assertEquals("sms: telephony_unavailable: no_telephony", error(api.handle("sms/send", sendParams(id = "a"))))
-        telephony = true
         sendSms = false
         assertEquals("sms: permission_denied: send_sms", error(api.handle("sms/send", sendParams(id = "a"))))
         sendSms = true
@@ -415,6 +465,19 @@ class SmsBridgeApiTest {
         assertEquals("sms: device_side_failure: store unavailable", error(api.handle("sms/send", sendParams(id = "a"))))
         assertTrue(sender.sends.isEmpty())
         assertEquals(0, limiter.used())
+    }
+
+    @Test
+    fun send_insertThatLandsAfterAReportedFailure_isDiscarded_soARetrySends() {
+        store.insertLandsThenFails = true
+        assertEquals("sms: device_side_failure: store unavailable", error(api.handle("sms/send", sendParams(id = "a"))))
+        assertNull(store.records["a"])
+        assertEquals(0, limiter.used())
+
+        store.insertLandsThenFails = false
+        assertEquals("pending", ok(api.handle("sms/send", sendParams(id = "a"))).getString("state"))
+        assertEquals(listOf("a"), sender.sends.map { it.first })
+        assertEquals(SmsSendPhase.DISPATCHED, store.records["a"]!!.phase)
     }
 
     @Test

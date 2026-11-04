@@ -243,6 +243,10 @@
     <string name="sms_cloud_sim_label">SIM %1$d · %2$s</string>
     <string name="sms_cloud_sim_status">Cloud SIM: %1$s. SMS on other SIMs are not uploaded or sent.</string>
     <string name="sms_cloud_sim_missing">No cloud SIM chosen. Mobilerun cloud SMS is paused until you choose one.</string>
+    <string name="sms_cloud_sim_inactive">The cloud SIM is not active. Mobilerun cloud SMS is paused until you choose a SIM.</string>
+    <string name="sms_cloud_no_sim">No active SIM. Mobilerun cloud SMS is paused.</string>
+    <string name="sms_cloud_sim_failed">Could not change the cloud SIM</string>
+    <string name="sms_cloud_no_telephony">This device cannot send or receive SMS</string>
     <string name="sms_cloud_missing_permissions">Missing permissions: %1$s</string>
     <string name="sms_permission_phone_numbers">Phone numbers</string>
 

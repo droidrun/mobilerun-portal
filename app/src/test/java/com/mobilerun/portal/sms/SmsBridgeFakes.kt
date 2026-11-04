@@ -94,6 +94,9 @@ class InMemorySendRecordStore : SmsSendRecordStore {
     val events = mutableListOf<String>()
     var failInsert = false
 
+    /** The insert lands but the caller sees a failure, like a store-thread timeout or interrupt. */
+    var insertLandsThenFails = false
+
     override fun find(id: String): SmsSendRecord? = records[id]
 
     override fun insert(record: SmsSendRecord): Boolean {
@@ -101,7 +104,15 @@ class InMemorySendRecordStore : SmsSendRecordStore {
         if (records.containsKey(record.id)) return false
         records[record.id] = record
         events += "insert:${record.id}:${record.phase.wire}"
+        if (insertLandsThenFails) throw java.util.concurrent.TimeoutException()
         return true
+    }
+
+    override fun discardPrepared(id: String, callbackToken: String) {
+        val record = records[id] ?: return
+        if (record.phase != SmsSendPhase.PREPARED || record.callbackToken != callbackToken) return
+        records.remove(id)
+        events += "discard:$id"
     }
 
     override fun markDispatched(id: String, now: Long): SmsSendRecord? =

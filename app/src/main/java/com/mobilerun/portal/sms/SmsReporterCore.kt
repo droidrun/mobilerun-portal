@@ -15,6 +15,9 @@ interface SmsReporterScheduler {
 
 /** Device -> relay calls; the callback may run on any thread. */
 interface SmsReportCalls {
+    /** False while no current relay socket is open, whatever socket events said. */
+    fun isOpen(): Boolean
+
     fun call(method: String, params: JSONObject, callback: (SmsReportOutcome) -> Unit)
 }
 
@@ -30,7 +33,7 @@ interface SmsReporterStore {
 
     fun isReported(msgId: String): Boolean
 
-    fun ownSendIds(): Set<Long>
+    fun ownSends(): SmsOwnSends
 
     /** Saves [state], queues [reports] (known ids are ignored) and adds them to the reported-id ring. */
     fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long)
@@ -104,6 +107,9 @@ class SmsReporterCore(
         drainStates()
     }
 
+    /** The cloud SIM changed: rescan now instead of after the blocked-retry delay. */
+    fun onCloudSimChanged() = post { requestScan(0L) }
+
     fun onSocketClosed() = post {
         connected = false
         drainTask?.cancel()
@@ -165,7 +171,7 @@ class SmsReporterCore(
                     store.seedScanState(rows.latest(), now)
                     return@atomically null
                 }
-                val result = scanner.scan(state, store.ownSendIds(), store::isReported, covered.subscriptionFilter, now)
+                val result = scanner.scan(state, store.ownSends(), store::isReported, covered.subscriptionFilter, now)
                 val queued = result.reports.map {
                     SmsPendingReport(it.msgId, it.providerId, it.direction, nextAttemptAt = now, firstQueuedAt = now)
                 }
@@ -183,8 +189,11 @@ class SmsReporterCore(
 
     // --- sms/received ---
 
+    /** A stale open event must not start a 1 s requeue loop against a closed socket. */
+    private fun online(): Boolean = connected && calls.isOpen()
+
     private fun drain() {
-        if (!connected || !active()) return
+        if (!online() || !active()) return
         val free = MAX_IN_FLIGHT - inFlight.size
         if (free <= 0) return
         val now = clock()
@@ -243,7 +252,7 @@ class SmsReporterCore(
                 ),
             )
             SmsReportDecision.Requeue -> {
-                if (connected) scheduleDrain(now + REQUEUE_DELAY_MS)
+                if (online()) scheduleDrain(now + REQUEUE_DELAY_MS)
                 return
             }
             else -> {
@@ -265,7 +274,7 @@ class SmsReporterCore(
     }
 
     private fun scheduleDrain(at: Long) {
-        if (!connected) return
+        if (!online()) return
         if (drainTask != null && drainAt <= at) return
         drainTask?.cancel()
         drainAt = at
@@ -304,7 +313,7 @@ class SmsReporterCore(
     private fun drainStates() {
         stateTask?.cancel()
         stateTask = null
-        if (!connected) return
+        if (!online()) return
         val now = clock()
         var free = MAX_STATE_IN_FLIGHT - statesInFlight.size
         for (item in states.values.sortedBy { it.record.updatedAt }) {
@@ -378,6 +387,9 @@ class SmsReporterCore(
     companion object {
         const val RECEIVED = "sms/received"
         const val SEND_STATE = "sms/sendState"
+
+        /** Longer than devices-api's 30 s forward budget, so its "forward failed" reply arrives in time. */
+        const val CALL_TIMEOUT_MS = 35_000L
         const val DEBOUNCE_MS = 500L
         const val MAX_IN_FLIGHT = 8
         const val MAX_STATE_IN_FLIGHT = 4

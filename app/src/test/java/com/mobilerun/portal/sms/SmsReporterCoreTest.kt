@@ -227,7 +227,7 @@ class SmsReporterCoreTest {
     fun portalSends_areNeverReported() {
         provider.add(SmsProviderRow.TYPE_SENT, date = time.now, creator = PORTAL)
         val local = provider.add(SmsProviderRow.TYPE_SENT, date = time.now, creator = null)
-        store.own += local.id
+        store.own[local.id] = local.date
         val owner = provider.add(SmsProviderRow.TYPE_SENT, date = time.now)
 
         open()
@@ -349,6 +349,41 @@ class SmsReporterCoreTest {
 
         time.advanceBy(SmsReporterCore.REQUEUE_DELAY_MS)
         assertEquals(2, calls.calls.size)
+    }
+
+    @Test
+    fun staleOpenAfterClose_doesNotLoopAgainstAClosedSocket() {
+        val row = inbox()
+        core.onSendStateChanged(relayRecord("s", SmsSendState.SENT))
+        scanned()
+
+        // Disconnect raced the handshake: the open event lands after the close and no socket is current.
+        calls.socketOpen = false
+        core.onSocketClosed()
+        open()
+        time.advanceBy(60_000L)
+
+        assertTrue(calls.calls.isEmpty())
+        assertEquals(0, store.pending[row.messageId]!!.attempts)
+
+        calls.socketOpen = true
+        open()
+        assertEquals(listOf(SmsReporterCore.RECEIVED, SmsReporterCore.SEND_STATE), calls.calls.map { it.method })
+        assertEquals(listOf(row.messageId), calls.receivedIds())
+    }
+
+    @Test
+    fun cloudSimChanged_rescansWithoutWaitingForTheBlockedRetry() {
+        sims = SmsReporterSims.Blocked
+        open()
+        scanned()
+
+        sims = SmsReporterSims.Covered(null, emptyMap())
+        val row = inbox()
+        core.onCloudSimChanged()
+        time.runDue()
+
+        assertEquals(listOf(row.messageId), calls.receivedIds())
     }
 
     // --- sms/sendState ---
