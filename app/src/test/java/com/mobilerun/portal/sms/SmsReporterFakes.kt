@@ -117,7 +117,7 @@ class FakeReporterStore : SmsReporterStore {
         pending.clear()
         ring.clear()
         val mark = SmsWatermark(latest?.id ?: 0L, latest?.date ?: 0L)
-        state = SmsScanState(mark, mark, coveredFrom)
+        state = SmsScanState(mark, mark, coveredFrom, mark.id)
     }
 
     override fun isReported(msgId: String): Boolean = msgId in ring

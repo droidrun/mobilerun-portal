@@ -38,6 +38,8 @@ object SmsReporterStateKeys {
     const val OUT_WATERMARK_ID = "out_watermark_id"
     const val OUT_WATERMARK_DATE = "out_watermark_date"
     const val COVERED_FROM = "covered_from"
+    const val COVERED_FROM_ID = "covered_from_id"
+    const val NEW_ROWS_FROM = "new_rows_from"
     const val OUT_RECHECK = "out_recheck"
     const val INBOUND_RECOVERY = "inbound_recovery"
     const val OUT_RECOVERY = "out_recovery"
@@ -233,6 +235,7 @@ class SmsStore private constructor(
                 putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_ID, id)
                 putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_DATE, date)
                 putStateLocked(db, SmsReporterStateKeys.COVERED_FROM, coveredFrom.toString())
+                putStateLocked(db, SmsReporterStateKeys.COVERED_FROM_ID, id)
             }
         }
     }
@@ -268,9 +271,11 @@ class SmsStore private constructor(
                 long(SmsReporterStateKeys.OUT_WATERMARK_DATE) ?: return null,
             ),
             coveredFrom = long(SmsReporterStateKeys.COVERED_FROM) ?: return null,
+            coveredFromId = long(SmsReporterStateKeys.COVERED_FROM_ID) ?: return null,
             recheck = SmsRecheckCodec.decode(state[SmsReporterStateKeys.OUT_RECHECK]),
             inboundRecovery = SmsRecoveryCodec.decode(state[SmsReporterStateKeys.INBOUND_RECOVERY]),
             outRecovery = SmsRecoveryCodec.decode(state[SmsReporterStateKeys.OUT_RECOVERY]),
+            newRowsFrom = long(SmsReporterStateKeys.NEW_ROWS_FROM),
         )
     }
 
@@ -290,6 +295,7 @@ class SmsStore private constructor(
                 putStateLocked(db, SmsReporterStateKeys.OUT_RECHECK, SmsRecheckCodec.encode(state.recheck))
                 putStateLocked(db, SmsReporterStateKeys.INBOUND_RECOVERY, SmsRecoveryCodec.encode(state.inboundRecovery))
                 putStateLocked(db, SmsReporterStateKeys.OUT_RECOVERY, SmsRecoveryCodec.encode(state.outRecovery))
+                putStateLocked(db, SmsReporterStateKeys.NEW_ROWS_FROM, state.newRowsFrom?.toString().orEmpty())
                 if (reports.isEmpty()) return@inTransaction
                 reports.forEach { report ->
                     db.insertWithOnConflict(TABLE_PENDING_REPORTS, null, report.toValues(), SQLiteDatabase.CONFLICT_IGNORE)

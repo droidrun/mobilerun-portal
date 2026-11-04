@@ -17,9 +17,13 @@ data class SmsScanState(
     val inbound: SmsWatermark,
     val out: SmsWatermark,
     val coveredFrom: Long,
+    /** The newest provider _id when coverage started: rows above it were all added since. */
+    val coveredFromId: Long,
     val recheck: List<SmsRecheck> = emptyList(),
     val inboundRecovery: SmsRecovery? = null,
     val outRecovery: SmsRecovery? = null,
+    /** Set once a scan finds the clock before coveredFrom: rows above coveredFromId count from here. */
+    val newRowsFrom: Long? = null,
 )
 
 data class SmsReportCandidate(
@@ -60,7 +64,8 @@ interface SmsReportRowSource {
  * watermark row is gone or its date changed (_id reuse), rows dated from
  * min(watermarkDate, now) - 5 min are read in (date, _id) order instead, page by page, then _id
  * reads resume from the newest row when that re-read started. Already reported ids are skipped.
- * Rows dated before coveredFrom (the moment cloud SMS was turned on) are never reported.
+ * Rows dated before coveredFrom (the moment cloud SMS was turned on) are never reported, except
+ * rows added since once the clock was set back before it.
  */
 class SmsReportScanner(
     private val rows: SmsReportRowSource,
@@ -74,9 +79,15 @@ class SmsReportScanner(
         now: Long,
     ): SmsScanResult {
         val reports = LinkedHashMap<String, SmsReportCandidate>()
+        // A clock set back dates new rows before coveredFrom: rows added since enabling then count
+        // from the first scan that finds it. Older _ids keep coveredFrom, so date re-reads never
+        // report a row from before enabling.
+        val newRowsFrom =
+            if (now < state.coveredFrom) minOf(state.newRowsFrom ?: Long.MAX_VALUE, now - SLACK_MS) else state.newRowsFrom
+        val newFrom = minOf(state.coveredFrom, newRowsFrom ?: Long.MAX_VALUE)
 
         fun eligible(row: SmsProviderRow, direction: String): Boolean =
-            row.date >= state.coveredFrom &&
+            row.date >= (if (row.id > state.coveredFromId) newFrom else state.coveredFrom) &&
                 (subscriptionFilter == null || row.subscriptionId == subscriptionFilter) &&
                 (direction == SmsBridgeListParams.DIRECTION_IN || (row.creator != packageName && row !in ownSends))
 
@@ -120,6 +131,7 @@ class SmsReportScanner(
                 recheck = rechecks.takeLast(MAX_RECHECKS),
                 inboundRecovery = inbound.recovery,
                 outRecovery = out.recovery,
+                newRowsFrom = newRowsFrom,
             ),
             reports = reports.values.toList(),
             more = inbound.full || out.full,

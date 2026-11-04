@@ -22,7 +22,7 @@ class SmsReportScannerTest {
     private fun seeded(coveredFrom: Long = NOW): SmsScanState {
         val latest = provider.latest()
         val mark = SmsWatermark(latest?.id ?: 0L, latest?.date ?: 0L)
-        return SmsScanState(mark, mark, coveredFrom)
+        return SmsScanState(mark, mark, coveredFrom, mark.id)
     }
 
     private fun scan(state: SmsScanState, filter: Int? = null, now: Long = NOW): SmsScanResult =
@@ -305,6 +305,45 @@ class SmsReportScannerTest {
         assertEquals(listOf(later.messageId), scan(result.state, now = NOW + 5_000).ids())
     }
 
+    @Test
+    fun clockSetBackBeforeCoveredFrom_newRowsAreStillReported() {
+        // Turned on while the clock ran 2 h fast; the clock is then corrected.
+        val state = seeded(coveredFrom = NOW)
+        val back = NOW - 2 * HOUR
+        val inbox = provider.add(SmsProviderRow.TYPE_INBOX, date = back + 1_000)
+        val sent = provider.add(SmsProviderRow.TYPE_SENT, date = back + 2_000)
+        val outbox = provider.add(SmsProviderRow.TYPE_OUTBOX, date = back + 3_000)
+
+        val first = scan(state, now = back + 4_000)
+        assertEquals(listOf(inbox.messageId, sent.messageId), first.ids())
+        assertEquals(listOf(outbox.id), first.state.recheck.map { it.providerId })
+
+        // A later scan, long after the row arrived, still counts from the first one.
+        val later = provider.add(SmsProviderRow.TYPE_INBOX, date = back + 5_000)
+        provider.update(outbox.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        val second = scan(first.state, now = back + HOUR)
+        assertEquals(listOf(later.messageId, outbox.messageId), second.ids())
+    }
+
+    @Test
+    fun clockSetBack_dateReReadStillSkipsRowsFromBeforeEnabling() {
+        // Received in the hour before enabling, while the clock ran 2 h fast.
+        val before = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW - HOUR)
+        val state = seeded(coveredFrom = NOW)
+        val back = NOW - 2 * HOUR
+        val arrived = provider.add(SmsProviderRow.TYPE_INBOX, date = back + 1_000)
+        val first = scan(state, now = back + 2_000)
+        assertEquals(listOf(arrived.messageId), first.ids())
+
+        // The owner deletes the newest row; the next SMS reuses its _id, so the date re-read also
+        // reaches the row from before enabling.
+        provider.remove(arrived.id)
+        val next = provider.add(SmsProviderRow.TYPE_INBOX, date = back + 3_000)
+        assertEquals(arrived.id, next.id)
+        assertEquals(listOf(next.messageId), scan(first.state, now = back + 4_000).ids())
+        assertTrue(before.messageId !in ring)
+    }
+
     // --- out: the owner's own sends from other apps ---
 
     @Test
@@ -512,6 +551,7 @@ class SmsReportScannerTest {
     companion object {
         private const val PORTAL = "com.mobilerun.portal"
         private const val NOW = 1_700_000_000_000L
-        private const val DAY = 24L * 60L * 60L * 1000L
+        private const val HOUR = 60L * 60L * 1000L
+        private const val DAY = 24 * HOUR
     }
 }
