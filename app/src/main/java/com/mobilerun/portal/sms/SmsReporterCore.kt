@@ -196,6 +196,9 @@ class SmsReporterCore(
             null
         } ?: return
         if (result.reports.isNotEmpty()) log("queued ${result.reports.size} SMS report(s)")
+        if (result.evictedRechecks.isNotEmpty()) {
+            log("dropped ${result.evictedRechecks.size} oldest unsent SMS recheck(s) over ${SmsReportScanner.MAX_RECHECKS}")
+        }
         if (result.more) requestScan(0L)
         drain()
     }

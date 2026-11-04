@@ -341,7 +341,7 @@ class SmsReportScannerTest {
     }
 
     @Test
-    fun out_recheckDropsGoneAndExpiredRows() {
+    fun out_recheckDropsGoneRows() {
         val state = seeded()
         val failed = provider.add(SmsProviderRow.TYPE_QUEUED, date = NOW + 1)
         val gone = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 2)
@@ -353,10 +353,34 @@ class SmsReportScannerTest {
         provider.remove(gone.id)
         val second = scan(first.state, now = NOW + 1_000)
         assertEquals(listOf(failed.id, stuck.id), second.state.recheck.map { it.providerId })
+        assertTrue(second.evictedRechecks.isEmpty())
+    }
 
-        val expired = scan(second.state, now = NOW + SmsReportScanner.RECHECK_TTL_MS)
-        assertTrue(expired.state.recheck.isEmpty())
-        assertTrue(expired.reports.isEmpty())
+    @Test
+    fun out_rowStuckInTheOutboxForDays_isReportedOnceSent() {
+        val state = seeded()
+        val stuck = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1)
+        val first = scan(state)
+
+        val days = scan(first.state, now = NOW + 3 * DAY)
+        assertEquals(listOf(stuck.id), days.state.recheck.map { it.providerId })
+
+        provider.update(stuck.id) { it.copy(type = SmsProviderRow.TYPE_SENT) }
+        val sent = scan(days.state, now = NOW + 4 * DAY)
+        assertEquals(listOf(stuck.messageId), sent.ids())
+        assertTrue(sent.state.recheck.isEmpty())
+    }
+
+    @Test
+    fun out_recheckOverCapacity_evictsTheOldestSeen() {
+        val held = (0 until SmsReportScanner.MAX_RECHECKS).map { provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + it) }
+        val state = seeded().copy(recheck = held.mapIndexed { i, row -> SmsRecheck(row.id, NOW + i) })
+        val newest = provider.add(SmsProviderRow.TYPE_OUTBOX, date = NOW + 1_000)
+
+        val result = scan(state, now = NOW + 2_000)
+
+        assertEquals(listOf(SmsRecheck(held.first().id, NOW)), result.evictedRechecks)
+        assertEquals(held.drop(1).map { it.id } + newest.id, result.state.recheck.map { it.providerId })
     }
 
     @Test
@@ -488,5 +512,6 @@ class SmsReportScannerTest {
     companion object {
         private const val PORTAL = "com.mobilerun.portal"
         private const val NOW = 1_700_000_000_000L
+        private const val DAY = 24L * 60L * 60L * 1000L
     }
 }

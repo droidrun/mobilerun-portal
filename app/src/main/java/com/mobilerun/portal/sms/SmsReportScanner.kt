@@ -3,7 +3,7 @@ package com.mobilerun.portal.sms
 /** The last provider row a direction's scan has looked at. id 0 means "from the start of the table". */
 data class SmsWatermark(val id: Long, val date: Long)
 
-/** An outbox, queued or failed row the owner sent, checked again until it reaches the sent box. */
+/** An outbox, queued or failed row the owner sent, checked again until it reaches the sent box or is gone. */
 data class SmsRecheck(val providerId: Long, val firstSeenAt: Long)
 
 /**
@@ -33,6 +33,8 @@ data class SmsScanResult(
     val reports: List<SmsReportCandidate>,
     /** A page was full: scan again soon. */
     val more: Boolean,
+    /** Oldest-seen rechecks dropped over [SmsReportScanner.MAX_RECHECKS]. */
+    val evictedRechecks: List<SmsRecheck> = emptyList(),
 )
 
 /** Provider reads the reporter needs. */
@@ -98,8 +100,7 @@ class SmsReportScanner(
                 row.type == SmsProviderRow.TYPE_SENT -> {
                     if (eligible(row, SmsBridgeListParams.DIRECTION_OUT)) report(row, SmsBridgeListParams.DIRECTION_OUT)
                 }
-                row.type in RECHECK_TYPES && now - entry.firstSeenAt < RECHECK_TTL_MS ->
-                    recheck[entry.providerId] = entry
+                row.type in RECHECK_TYPES -> recheck[entry.providerId] = entry
             }
         }
         for (row in out.rows) {
@@ -110,17 +111,19 @@ class SmsReportScanner(
             }
         }
 
-        val keptRechecks = recheck.values.sortedBy { it.firstSeenAt }.takeLast(MAX_RECHECKS)
+        // In first-seen order, so the oldest-seen go first over capacity.
+        val rechecks = recheck.values.toList()
         return SmsScanResult(
             state = state.copy(
                 inbound = inbound.watermark,
                 out = out.watermark,
-                recheck = keptRechecks,
+                recheck = rechecks.takeLast(MAX_RECHECKS),
                 inboundRecovery = inbound.recovery,
                 outRecovery = out.recovery,
             ),
             reports = reports.values.toList(),
             more = inbound.full || out.full,
+            evictedRechecks = rechecks.dropLast(MAX_RECHECKS),
         )
     }
 
@@ -162,7 +165,6 @@ class SmsReportScanner(
     companion object {
         const val MAX_ROWS_PER_SCAN = 50
         const val SLACK_MS = 5L * 60L * 1000L
-        const val RECHECK_TTL_MS = 24L * 60L * 60L * 1000L
         const val MAX_RECHECKS = 200
 
         val INBOUND_TYPES = listOf(SmsProviderRow.TYPE_INBOX)
