@@ -540,9 +540,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchSmsCloud.setOnCheckedChangeListener { _, isChecked ->
             if (suppressSmsCloudSwitchCallback) return@setOnCheckedChangeListener
             if (isChecked) {
-                // Stays off until the owner confirms, grants the permissions and the watermarks are seeded.
+                // Stays off until the permissions are granted and the watermarks are seeded.
                 setSmsCloudSwitch(false)
-                confirmSmsCloud()
+                startSmsCloudEnable()
             } else {
                 SmsCloud.disable(this)
                 renderSmsCloud()
@@ -563,20 +563,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         }
     }
 
-    private fun confirmSmsCloud() {
+    private fun startSmsCloudEnable() {
         if (!SmsSubscriptionResolver(this).hasTelephony()) {
             android.widget.Toast.makeText(this, R.string.sms_cloud_no_telephony, android.widget.Toast.LENGTH_LONG).show()
             return
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.sms_cloud_confirm_title)
-            .setMessage(R.string.sms_cloud_details)
-            .setPositiveButton(R.string.sms_cloud_confirm_positive) { _, _ -> requestSmsCloudPermissions() }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
-    private fun requestSmsCloudPermissions() {
         if (SMS_CLOUD_REQUIRED_PERMISSIONS.all(::isPermissionGranted)) {
             continueSmsCloudEnable()
             return

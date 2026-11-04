@@ -234,8 +234,6 @@
     <string name="sms_cloud_label">Mobilerun cloud SMS</string>
     <string name="sms_cloud_description">Sync this phone\'s SMS with Mobilerun cloud and let it send SMS from this phone</string>
     <string name="sms_cloud_details">• Mobilerun cloud can read the SMS on this phone, and new incoming and sent SMS, including one-time codes, are uploaded to it.\n• Mobilerun cloud can send SMS from this phone, charged to your mobile plan.\n• SMS only: RCS and MMS are never read or sent.\n• SMS trigger events are separate and stay controlled by the event toggles.</string>
-    <string name="sms_cloud_confirm_title">Turn on Mobilerun cloud SMS?</string>
-    <string name="sms_cloud_confirm_positive">Turn on</string>
     <string name="sms_cloud_permissions_denied">Mobilerun cloud SMS needs the SMS and phone state permissions</string>
     <string name="sms_cloud_enable_failed">Could not turn on Mobilerun cloud SMS</string>
     <string name="sms_cloud_choose_sim">Choose cloud SIM</string>
