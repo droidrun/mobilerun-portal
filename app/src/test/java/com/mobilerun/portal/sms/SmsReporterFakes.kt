@@ -92,6 +92,18 @@ class FakeReporterStore : SmsReporterStore {
     val reported = mutableListOf<String>()
     var seeded = 0
 
+    /** The next N calls of each kind throw, like a transient store failure. */
+    var failNextPendingAt = 0
+    var failUnreportedReads = 0
+    var failPendingWrites = 0
+
+    private fun failIf(count: Int, decrement: () -> Unit) {
+        if (count > 0) {
+            decrement()
+            throw IllegalStateException("store unavailable")
+        }
+    }
+
     override fun <T> atomically(block: () -> T): T = block()
 
     override fun scanState(): SmsScanState? = state
@@ -122,21 +134,27 @@ class FakeReporterStore : SmsReporterStore {
             .sortedWith(compareBy<SmsPendingReport>({ it.firstQueuedAt }, { it.providerId }))
             .take(limit)
 
-    override fun nextPendingAt(exclude: Set<String>): Long? =
-        pending.values.filter { it.msgId !in exclude }.minOfOrNull { it.nextAttemptAt }
+    override fun nextPendingAt(exclude: Set<String>): Long? {
+        failIf(failNextPendingAt) { failNextPendingAt -= 1 }
+        return pending.values.filter { it.msgId !in exclude }.minOfOrNull { it.nextAttemptAt }
+    }
 
     override fun updatePending(report: SmsPendingReport) {
+        failIf(failPendingWrites) { failPendingWrites -= 1 }
         if (pending.containsKey(report.msgId)) pending[report.msgId] = report
     }
 
     override fun deletePending(msgId: String) {
+        failIf(failPendingWrites) { failPendingWrites -= 1 }
         pending.remove(msgId)
     }
 
-    override fun unreportedRelayRecords(): List<SmsUnreportedSend> =
-        records.values
+    override fun unreportedRelayRecords(): List<SmsUnreportedSend> {
+        failIf(failUnreportedReads) { failUnreportedReads -= 1 }
+        return records.values
             .filter { it.origin == SmsSendRecord.ORIGIN_RELAY && it.lastReportedState != it.state.wire }
             .map { SmsUnreportedSend(it, retries[it.id]) }
+    }
 
     override fun saveSendStateRetry(id: String, retry: SmsSendStateRetry) {
         if (records.containsKey(id)) retries[id] = retry

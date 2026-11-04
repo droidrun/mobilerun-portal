@@ -273,8 +273,9 @@ class SmsReporterCore(
         if (inFlight.size >= MAX_IN_FLIGHT) return
         val next = try {
             store.nextPendingAt(inFlight.toSet())
-        } catch (_: Exception) {
-            null
+        } catch (e: Exception) {
+            log("pending read failed (${e.javaClass.simpleName})")
+            clock() + BLOCKED_RETRY_MS
         } ?: return
         scheduleDrain(next)
     }

@@ -310,6 +310,20 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun nextDeadlineReadFailure_stillRetriesTheReport() {
+        inbox()
+        open()
+
+        store.failNextPendingAt = 1
+        calls.completeAll(SmsReporterCore.RECEIVED, SmsReportOutcome.Error("sms: device_side_failure: forward failed"))
+        time.runDue()
+        assertEquals(1, calls.calls.size)
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(2, calls.calls.size)
+    }
+
+    @Test
     fun errors_giveUpAfter24h() {
         inbox()
         open()
