@@ -166,11 +166,13 @@ class SmsStore private constructor(
      */
     internal fun applyCallbackAsync(callback: SmsSendCallback, done: () -> Unit) {
         async("callback", done, retried = true, untilDone = true) { db ->
+            val providerId = SmsSendCallbacks.providerIdFromUri(callback.providerUri)
+            val rowDate = providerId?.let(::providerRowDate)
             // One transaction, so a retry after a failure starts from the unchanged record.
             val changed = db.inTransaction {
                 val before = findLocked(db, callback.recordId) ?: return@inTransaction null
                 val updated = updateLocked(db, callback.recordId) { SmsSendCallbacks.apply(it, callback, clock()) }
-                SmsSendCallbacks.providerIdFromUri(callback.providerUri)?.let { recordOwnSendLocked(db, it, callback.recordId) }
+                providerId?.let { recordOwnSendLocked(db, it, callback.recordId, rowDate) }
                 updated?.takeIf { it.state != before.state }
             }
             changed?.let(SmsBridgeSendStates::changed)
@@ -216,7 +218,9 @@ class SmsStore private constructor(
             done()
             return
         }
-        async("own-send", done, retried = true) { db -> recordOwnSendLocked(db, providerId, recordId) }
+        async("own-send", done, retried = true) { db ->
+            recordOwnSendLocked(db, providerId, recordId, providerRowDate(providerId))
+        }
     }
 
     override fun ownSends(): SmsOwnSends = call { db -> ownSendsLocked(db) }
@@ -388,11 +392,12 @@ class SmsStore private constructor(
             when (decision) {
                 is SmsRecoveryDecision.Wait -> retryAt = minOf(retryAt ?: decision.atMs, decision.atMs)
                 is SmsRecoveryDecision.Resolve -> {
+                    val rowDate = rows?.firstOrNull { it.id == decision.providerId }?.date
                     db.inTransaction {
                         writeLocked(db, decision.record)
-                        decision.providerId?.let { recordOwnSendLocked(db, it, record.id) }
+                        decision.providerId?.let { recordOwnSendLocked(db, it, record.id, rowDate) }
                     }
-                    decision.providerId?.let { own = own.plus(it, clock()) }
+                    decision.providerId?.let { own = own.plus(it, clock(), rowDate) }
                     if (decision.record.state != record.state) SmsBridgeSendStates.changed(decision.record)
                     decision.recheckAt?.let { at -> retryAt = minOf(retryAt ?: at, at) }
                 }
@@ -409,6 +414,10 @@ class SmsStore private constructor(
     }
 
     private fun hasReadSms(): Boolean = isGranted(appContext, Manifest.permission.READ_SMS)
+
+    /** The date of a send's row, binding its own-send marker to that row; null when it cannot be read. */
+    private fun providerRowDate(providerId: Long): Long? =
+        runCatching { if (hasReadSms()) AndroidSmsProviderSource(appContext).get(providerId)?.date else null }.getOrNull()
 
     // --- locked helpers (store thread only) ---
 
@@ -432,11 +441,12 @@ class SmsStore private constructor(
         db.update(TABLE_RECORDS, record.toValues(), "id = ?", arrayOf(record.id))
     }
 
-    private fun recordOwnSendLocked(db: SQLiteDatabase, providerId: Long, recordId: String?) {
+    private fun recordOwnSendLocked(db: SQLiteDatabase, providerId: Long, recordId: String?, rowDate: Long?) {
         val values = ContentValues().apply {
             put("provider_id", providerId)
             put("record_id", recordId)
             put("created_at", clock())
+            put("row_date", rowDate)
         }
         db.insertWithOnConflict(TABLE_OWN_SENDS, null, values, SQLiteDatabase.CONFLICT_REPLACE)
         db.execSQL(
@@ -447,8 +457,14 @@ class SmsStore private constructor(
     }
 
     private fun ownSendsLocked(db: SQLiteDatabase): SmsOwnSends =
-        db.query(TABLE_OWN_SENDS, arrayOf("provider_id", "created_at"), null, null, null, null, null).use { cursor ->
-            SmsOwnSends(buildMap { while (cursor.moveToNext()) put(cursor.getLong(0), cursor.getLong(1)) })
+        db.query(TABLE_OWN_SENDS, arrayOf("provider_id", "created_at", "row_date"), null, null, null, null, null).use { cursor ->
+            val recordedAt = HashMap<Long, Long>()
+            val rowDates = HashMap<Long, Long>()
+            while (cursor.moveToNext()) {
+                recordedAt[cursor.getLong(0)] = cursor.getLong(1)
+                if (!cursor.isNull(2)) rowDates[cursor.getLong(0)] = cursor.getLong(2)
+            }
+            SmsOwnSends(recordedAt, rowDates)
         }
 
     private fun evictLocked(db: SQLiteDatabase) {
@@ -547,7 +563,7 @@ class SmsStore private constructor(
             db.execSQL("CREATE INDEX send_records_created_at ON $TABLE_RECORDS(created_at)")
             db.execSQL(
                 "CREATE TABLE $TABLE_OWN_SENDS (provider_id INTEGER PRIMARY KEY NOT NULL, record_id TEXT, " +
-                    "created_at INTEGER NOT NULL)",
+                    "created_at INTEGER NOT NULL, $OWN_ROW_DATE_COLUMN)",
             )
             db.execSQL("CREATE TABLE $TABLE_REPORTED_IDS (msg_id TEXT PRIMARY KEY NOT NULL, reported_at INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE $TABLE_REPORTER_STATE (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
@@ -573,13 +589,14 @@ class SmsStore private constructor(
             }
             if (oldVersion < 3) db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $INSTANCE_ID_COLUMN")
             if (oldVersion < 4) db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $CREATED_ELAPSED_COLUMN")
+            if (oldVersion < 5) db.execSQL("ALTER TABLE $TABLE_OWN_SENDS ADD COLUMN $OWN_ROW_DATE_COLUMN")
         }
     }
 
     companion object {
         private const val TAG = "SmsStore"
         const val DB_NAME = "mobilerun_sms.db"
-        private const val DB_VERSION = 4
+        private const val DB_VERSION = 5
         private const val CALL_TIMEOUT_SECONDS = 10L
 
         const val TABLE_RECORDS = "send_records"
@@ -602,6 +619,9 @@ class SmsStore private constructor(
 
         /** Added in version 4; existing rows get 0 and so fall back to the wall clock. */
         private const val CREATED_ELAPSED_COLUMN = "created_elapsed INTEGER NOT NULL DEFAULT 0"
+
+        /** own_send_ids column added in version 5; existing markers get NULL and so match by when they were recorded. */
+        private const val OWN_ROW_DATE_COLUMN = "row_date INTEGER"
 
         @Volatile
         private var instance: SmsStore? = null

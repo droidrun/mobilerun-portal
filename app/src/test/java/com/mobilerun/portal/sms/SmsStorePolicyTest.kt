@@ -321,6 +321,22 @@ class SmsStorePolicyTest {
     }
 
     @Test
+    fun ownSends_aMarkerWithItsRowDateMatchesThatRowOnly() {
+        val own = SmsOwnSends(mapOf(9L to 2_000L), mapOf(9L to 1_500L))
+
+        assertTrue(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 1_500) in own)
+        // The _id reused by an imported row, or one added after the clock was set back.
+        assertFalse(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 1_400) in own)
+        assertFalse(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 1_600) in own)
+
+        val plus = own.plus(8L, 1_950L, rowDate = 1_900L)
+        assertTrue(row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_900) in plus)
+        assertFalse(row(id = 8, type = SmsProviderRow.TYPE_SENT, date = 1_800) in plus)
+        // Recorded again without a row date: the recorded time decides.
+        assertTrue(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 1_400) in own.plus(9L, 2_000L))
+    }
+
+    @Test
     fun recovery_outboxRowMeansDispatchedAndFailedRowMeansFailed() {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         val outbox = SmsSendRecovery.decide(

@@ -113,16 +113,24 @@ class SmsPreparedDiscards(
 }
 
 /**
- * The Portal's own sends: provider _id -> when it was recorded. The sms table reuses _id after
- * deletes, so a row matches only when it is not newer than the record.
+ * The Portal's own sends: provider _id -> when it was recorded, and the date its row had then. The
+ * sms table reuses _id after deletes, so a row matches only with that date; a marker without one
+ * (unread or from before row dates) matches when the row is not newer than the record.
  */
-class SmsOwnSends(private val recordedAt: Map<Long, Long> = emptyMap()) {
+class SmsOwnSends(
+    private val recordedAt: Map<Long, Long> = emptyMap(),
+    private val rowDates: Map<Long, Long> = emptyMap(),
+) {
     operator fun contains(row: SmsProviderRow): Boolean {
+        rowDates[row.id]?.let { return row.date == it }
         val at = recordedAt[row.id] ?: return false
         return row.date <= at + CLOCK_SLACK_MS
     }
 
-    fun plus(providerId: Long, at: Long): SmsOwnSends = SmsOwnSends(recordedAt + (providerId to at))
+    fun plus(providerId: Long, at: Long, rowDate: Long? = null): SmsOwnSends = SmsOwnSends(
+        recordedAt + (providerId to at),
+        if (rowDate != null) rowDates + (providerId to rowDate) else rowDates - providerId,
+    )
 
     companion object {
         /** Clock adjustments between the send and its callback. */

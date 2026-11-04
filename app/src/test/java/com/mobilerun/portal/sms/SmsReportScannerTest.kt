@@ -11,6 +11,7 @@ class SmsReportScannerTest {
     private lateinit var provider: FakeSmsProvider
     private lateinit var scanner: SmsReportScanner
     private val own = mutableMapOf<Long, Long>()
+    private val ownDates = mutableMapOf<Long, Long>()
     private val ring = mutableSetOf<String>()
 
     @Before
@@ -26,7 +27,7 @@ class SmsReportScannerTest {
     }
 
     private fun scan(state: SmsScanState, filter: Int? = null, now: Long = NOW, room: Int = Int.MAX_VALUE): SmsScanResult =
-        scanner.scan(state, SmsOwnSends(own.toMap()), { it in ring }, filter, now, room).also { result ->
+        scanner.scan(state, SmsOwnSends(own.toMap(), ownDates.toMap()), { it in ring }, filter, now, room).also { result ->
             ring += result.reports.map { it.msgId }
         }
 
@@ -566,6 +567,22 @@ class SmsReportScannerTest {
 
         provider.remove(inbound.id)
         val ownerSent = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 20 * 60_000)
+        assertEquals(portalSend.id, ownerSent.id)
+        assertEquals(listOf(ownerSent.messageId), scan(first.state).ids())
+    }
+
+    @Test
+    fun ownSendIdReusedByAnOlderRow_isNotSkipped() {
+        val state = seeded()
+        val portalSend = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 60_000, creator = null)
+        own[portalSend.id] = NOW + 61_000
+        ownDates[portalSend.id] = portalSend.date
+        val first = scan(state)
+        assertTrue(first.reports.isEmpty())
+
+        // Deleted; an imported row dated before it, or one added after the clock was set back, reuses its _id.
+        provider.remove(portalSend.id)
+        val ownerSent = provider.add(SmsProviderRow.TYPE_SENT, date = NOW + 1_000)
         assertEquals(portalSend.id, ownerSent.id)
         assertEquals(listOf(ownerSent.messageId), scan(first.state).ids())
     }
