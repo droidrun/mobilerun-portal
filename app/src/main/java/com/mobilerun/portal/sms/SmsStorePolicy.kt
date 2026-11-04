@@ -151,16 +151,25 @@ object SmsSendRecovery {
         }
     }
 
+    /** Uptime since the insert, or null when that was in an earlier boot or predates createdElapsed. */
+    private fun sinceInsertMs(record: SmsSendRecord, elapsedNow: Long): Long? =
+        if (record.createdElapsed in 1..elapsedNow) elapsedNow - record.createdElapsed else null
+
+    /** The earliest date the record's row can carry: the insert by either clock, if it was set back since. */
+    fun evidenceFrom(record: SmsSendRecord, now: Long, elapsedNow: Long): Long =
+        sinceInsertMs(record, elapsedNow)?.let { minOf(record.createdAt, now - it) } ?: record.createdAt
+
     /**
      * A prepared record from an earlier process is checked against the provider once it is a minute
-     * old, by the clock or, when that was set back, by [sinceOpenMs]: a Portal-created row to the
-     * same address, dated at or after the record, with the same body hash, resolves it; no such row
-     * fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing) prove nothing, so it is
-     * checked again later. Dispatched records never time out.
+     * old, by uptime when inserted this boot, else by the clock, and at least [sinceOpenMs]: a
+     * Portal-created row to the same address, dated from [evidenceFrom] on, with the same body hash,
+     * resolves it; no such row fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing) prove
+     * nothing, so it is checked again later. Dispatched records never time out.
      */
     fun decide(
         record: SmsSendRecord,
         now: Long,
+        elapsedNow: Long,
         instanceId: String,
         sinceOpenMs: Long,
         rows: List<SmsProviderRow>?,
@@ -169,17 +178,18 @@ object SmsSendRecovery {
     ): SmsRecoveryDecision {
         if (!isCandidate(record, instanceId)) return SmsRecoveryDecision.None
         // Written before this process started, so at least sinceOpenMs old.
-        val age = maxOf(now - record.createdAt, sinceOpenMs)
+        val age = maxOf(sinceInsertMs(record, elapsedNow) ?: (now - record.createdAt), sinceOpenMs)
         if (age < SmsStorePolicy.RECOVERY_GRACE_MS) {
             return SmsRecoveryDecision.Wait(now + SmsStorePolicy.RECOVERY_GRACE_MS - age)
         }
         if (rows == null) return SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
         val target = SmsPhoneNumbers.compactAddress(record.to)
+        val from = evidenceFrom(record, now, elapsedNow)
         val match = rows
             .filter {
                 it.creator == packageName &&
                     it !in ownSends &&
-                    it.date >= record.createdAt &&
+                    it.date >= from &&
                     it.body != null &&
                     SmsPhoneNumbers.compactAddress(it.address) == target &&
                     SmsHashes.bodyHash(it.body) == record.bodyHash

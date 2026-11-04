@@ -132,7 +132,7 @@ class SmsStore private constructor(
 
     override fun insert(record: SmsSendRecord): Boolean = call { db ->
         db.inTransaction {
-            val values = record.copy(instanceId = instanceId).toValues()
+            val values = record.copy(instanceId = instanceId, createdElapsed = SystemClock.elapsedRealtime()).toValues()
             val row = db.insertWithOnConflict(TABLE_RECORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
             if (row != -1L) evictLocked(db)
             row != -1L
@@ -368,11 +368,12 @@ class SmsStore private constructor(
         if (candidates.isEmpty()) return
 
         val now = clock()
-        val sinceOpenMs = SystemClock.elapsedRealtime() - openedElapsed
+        val elapsedNow = SystemClock.elapsedRealtime()
+        val sinceOpenMs = elapsedNow - openedElapsed
         var own = ownSendsLocked(db)
         val rows = if (hasReadSms()) {
             val source = AndroidSmsProviderSource(appContext)
-            val since = candidates.minOf { it.createdAt }
+            val since = candidates.minOf { SmsSendRecovery.evidenceFrom(it, now, elapsedNow) }
             SmsSendRecovery.evidence(candidates) { after, limit ->
                 source.ownSends(appContext.packageName, since, after, limit)
             }
@@ -381,7 +382,8 @@ class SmsStore private constructor(
         }
         var retryAt: Long? = null
         candidates.forEach { record ->
-            val decision = SmsSendRecovery.decide(record, now, instanceId, sinceOpenMs, rows, own, appContext.packageName)
+            val decision =
+                SmsSendRecovery.decide(record, now, elapsedNow, instanceId, sinceOpenMs, rows, own, appContext.packageName)
             when (decision) {
                 is SmsRecoveryDecision.Wait -> retryAt = minOf(retryAt ?: decision.atMs, decision.atMs)
                 is SmsRecoveryDecision.Resolve -> {
@@ -527,6 +529,7 @@ class SmsStore private constructor(
                     last_reported_state TEXT,
                     ${SEND_STATE_RETRY_COLUMNS.joinToString(", ")},
                     $INSTANCE_ID_COLUMN,
+                    $CREATED_ELAPSED_COLUMN,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 )
@@ -560,13 +563,14 @@ class SmsStore private constructor(
                 SEND_STATE_RETRY_COLUMNS.forEach { db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $it") }
             }
             if (oldVersion < 3) db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $INSTANCE_ID_COLUMN")
+            if (oldVersion < 4) db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $CREATED_ELAPSED_COLUMN")
         }
     }
 
     companion object {
         private const val TAG = "SmsStore"
         const val DB_NAME = "mobilerun_sms.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
         private const val CALL_TIMEOUT_SECONDS = 10L
 
         const val TABLE_RECORDS = "send_records"
@@ -586,6 +590,9 @@ class SmsStore private constructor(
 
         /** Added in version 3; existing rows get '' and so count as an earlier process's. */
         private const val INSTANCE_ID_COLUMN = "instance_id TEXT NOT NULL DEFAULT ''"
+
+        /** Added in version 4; existing rows get 0 and so fall back to the wall clock. */
+        private const val CREATED_ELAPSED_COLUMN = "created_elapsed INTEGER NOT NULL DEFAULT 0"
 
         @Volatile
         private var instance: SmsStore? = null
@@ -626,6 +633,7 @@ class SmsStore private constructor(
             put("created_at", createdAt)
             put("updated_at", updatedAt)
             put("instance_id", instanceId)
+            put("created_elapsed", createdElapsed)
         }
 
         private fun SmsPendingReport.toValues(): ContentValues = ContentValues().apply {
@@ -685,6 +693,7 @@ class SmsStore private constructor(
                 createdAt = long("created_at") ?: 0L,
                 updatedAt = long("updated_at") ?: 0L,
                 instanceId = string("instance_id").orEmpty(),
+                createdElapsed = long("created_elapsed") ?: 0L,
             )
 
         private fun Cursor.string(column: String): String? {
