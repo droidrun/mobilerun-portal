@@ -91,6 +91,8 @@ class SmsReporterCore(
         val unconfirmed: Int = 0,
         val nextAttemptAt: Long,
         val firstQueuedAt: Long,
+        /** Reporting is over; only its markReported write is left, tried again at [nextAttemptAt]. */
+        val finished: Boolean = false,
     ) {
         fun retry() = SmsSendStateRetry(record.state, attempts, unconfirmed, nextAttemptAt, firstQueuedAt)
     }
@@ -377,10 +379,11 @@ class SmsReporterCore(
         stateTask = null
         if (!online()) return
         val now = clock()
+        states.values.filter { it.finished && it.nextAttemptAt <= now }.forEach { finish(it, now) }
         var free = MAX_STATE_IN_FLIGHT - statesInFlight.size
         for (item in states.values.sortedBy { it.record.updatedAt }) {
             if (free <= 0) break
-            if (item.record.id in statesInFlight || item.nextAttemptAt > now) continue
+            if (item.finished || item.record.id in statesInFlight || item.nextAttemptAt > now) continue
             free -= 1
             val sent = item.record
             statesInFlight[sent.id] = sent.state
@@ -419,16 +422,23 @@ class SmsReporterCore(
             }
             SmsReportDecision.Requeue -> states[sent.id] = item.copy(nextAttemptAt = now + REQUEUE_DELAY_MS)
             else -> {
-                states.remove(sent.id)
-                try {
-                    store.markReported(sent.id, sent.state)
-                } catch (e: Exception) {
-                    log("send state save failed (${e.javaClass.simpleName})")
-                }
                 describe(decision)?.let { log("SMS send state ${sent.id} ${sent.state.wire} $it") }
+                finish(item, now)
             }
         }
         drainStates()
+    }
+
+    /** Drops [item] once markReported lands; until then it stays, so it is neither sent nor decided again. */
+    private fun finish(item: StateItem, now: Long) {
+        val id = item.record.id
+        try {
+            store.markReported(id, item.record.state)
+            states.remove(id)
+        } catch (e: Exception) {
+            log("send state save failed (${e.javaClass.simpleName})")
+            states[id] = item.copy(finished = true, nextAttemptAt = now + BLOCKED_RETRY_MS)
+        }
     }
 
     // --- helpers ---

@@ -679,6 +679,25 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun sendState_failedMarkReported_isWrittenAgainWithoutResending() {
+        store.records["m"] = relayRecord("m", SmsSendState.SENT)
+        open()
+        store.failMarkReported = 1
+        calls.completeAll(SmsReporterCore.SEND_STATE, SmsReportOutcome.Ok)
+        time.runDue()
+        assertTrue(store.reported.isEmpty())
+
+        // A reconnect finds the record still unreported but does not send it again.
+        core.onSocketClosed()
+        open()
+        assertEquals(1, calls.calls.size)
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(listOf("m:sent"), store.reported)
+        assertEquals(1, calls.calls.size)
+    }
+
+    @Test
     fun sendState_ignoresLocalRecordsAndInitialPending() {
         open()
         core.onSendStateChanged(relayRecord("l", SmsSendState.SENT, origin = "local"))

@@ -96,6 +96,7 @@ class FakeReporterStore : SmsReporterStore {
     var failNextPendingAt = 0
     var failUnreportedReads = 0
     var failPendingWrites = 0
+    var failMarkReported = 0
 
     /** Queue writes of these msg ids throw until removed. */
     val failWritesFor = mutableSetOf<String>()
@@ -166,6 +167,7 @@ class FakeReporterStore : SmsReporterStore {
     }
 
     override fun markReported(id: String, state: SmsSendState) {
+        failIf(failMarkReported) { failMarkReported -= 1 }
         reported += "$id:${state.wire}"
         records[id]?.let { records[id] = it.copy(lastReportedState = state.wire) }
     }
