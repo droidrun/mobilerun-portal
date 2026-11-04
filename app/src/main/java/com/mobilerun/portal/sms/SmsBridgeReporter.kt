@@ -22,7 +22,12 @@ object SmsBridgeReporter {
 
     @Volatile
     private var core: SmsReporterCore? = null
-    private var observer: ContentObserver? = null
+
+    @Volatile
+    private var observer: SmsObserverRegistration? = null
+
+    @Volatile
+    private var app: Context? = null
 
     fun install(context: Context) {
         val app = context.applicationContext
@@ -43,19 +48,18 @@ object SmsBridgeReporter {
                 calls = ReverseSmsReportCalls,
                 packageName = app.packageName,
                 cloudEnabled = { telephony && config.smsCloudEnabled },
-                hasReadSms = {
-                    ContextCompat.checkSelfPermission(app, Manifest.permission.READ_SMS) ==
-                        PackageManager.PERMISSION_GRANTED
-                },
+                hasReadSms = { hasReadSms(app) },
                 sims = { SmsReporterSims.from(resolver.bridgeSubscriptions(), config.cloudSubscriptionId) },
                 log = { Log.i(TAG, it) },
             ).also { created ->
                 core = created
+                observer = SmsObserverRegistration(register = { registerObserver(app) }, log = { Log.w(TAG, it) })
+                this.app = app
                 SmsBridgeSendStates.listener = created::onSendStateChanged
-                config.addListener(SwitchListener(app))
+                config.addListener(SwitchListener())
             }
         }
-        updateObserver(app, ConfigManager.getInstance(app).smsCloudEnabled)
+        observer?.update(ConfigManager.getInstance(app).smsCloudEnabled)
         created.start()
     }
 
@@ -65,6 +69,7 @@ object SmsBridgeReporter {
 
     /** SMS_RECEIVED: scan now and again at +1, +5 and +15 s. */
     fun scanBurst() {
+        retryObserver()
         core?.scanBurst()
     }
 
@@ -73,6 +78,7 @@ object SmsBridgeReporter {
     }
 
     fun onSocketOpen() {
+        retryObserver()
         core?.onSocketOpen()
     }
 
@@ -80,30 +86,28 @@ object SmsBridgeReporter {
         core?.onSocketClosed()
     }
 
-    private fun updateObserver(context: Context, enabled: Boolean): Unit = synchronized(this) {
-        val resolver = context.contentResolver
-        if (enabled) {
-            if (observer != null) return
-            val created = object : ContentObserver(null) {
-                override fun onChange(selfChange: Boolean) {
-                    core?.scanSoon()
-                }
-            }
-            try {
-                resolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, created)
-                observer = created
-            } catch (e: Exception) {
-                Log.w(TAG, "SMS observer not registered (${e.javaClass.simpleName})")
-            }
-        } else {
-            observer?.let { runCatching { resolver.unregisterContentObserver(it) } }
-            observer = null
-        }
+    private fun retryObserver() {
+        val context = app ?: return
+        observer?.retry(ConfigManager.getInstance(context).smsCloudEnabled, hasReadSms(context))
     }
 
-    private class SwitchListener(private val context: Context) : ConfigManager.ConfigChangeListener {
+    private fun registerObserver(context: Context): SmsCancellable {
+        val resolver = context.contentResolver
+        val created = object : ContentObserver(null) {
+            override fun onChange(selfChange: Boolean) {
+                core?.scanSoon()
+            }
+        }
+        resolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, created)
+        return SmsCancellable { resolver.unregisterContentObserver(created) }
+    }
+
+    private fun hasReadSms(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+
+    private class SwitchListener : ConfigManager.ConfigChangeListener {
         override fun onSmsCloudEnabledChanged(enabled: Boolean) {
-            updateObserver(context, enabled)
+            observer?.update(enabled)
             core?.onCloudSwitchChanged(enabled)
         }
 
@@ -111,6 +115,38 @@ object SmsBridgeReporter {
         override fun onOverlayOffsetChanged(offset: Int) = Unit
         override fun onSocketServerEnabledChanged(enabled: Boolean) = Unit
         override fun onSocketServerPortChanged(port: Int) = Unit
+    }
+}
+
+/**
+ * The content://sms observer while cloud SMS is on. Registering throws without READ_SMS, and a
+ * later grant does not restart the process, so [retry] registers a missing one again.
+ */
+internal class SmsObserverRegistration(
+    private val register: () -> SmsCancellable,
+    private val log: (String) -> Unit = {},
+) {
+    private var registration: SmsCancellable? = null
+
+    @Synchronized
+    fun update(enabled: Boolean) {
+        if (!enabled) {
+            registration?.let { runCatching { it.cancel() } }
+            registration = null
+            return
+        }
+        if (registration != null) return
+        registration = try {
+            register()
+        } catch (e: Exception) {
+            log("SMS observer not registered (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
+    /** On scan triggers. */
+    fun retry(enabled: Boolean, readSmsGranted: Boolean) {
+        if (enabled && readSmsGranted) update(true)
     }
 }
 
