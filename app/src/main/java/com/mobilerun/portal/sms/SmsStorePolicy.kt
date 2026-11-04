@@ -5,13 +5,15 @@ object SmsStorePolicy {
     const val RECORD_TTL_MS = 7L * 24L * 60L * 60L * 1000L
     const val RESET_KEEP_MS = 24L * 60L * 60L * 1000L
     const val RECOVERY_GRACE_MS = 60_000L
+    /** How long the cap keeps a record whose current state is unreported; past it the relay is stalling. */
+    const val UNREPORTED_KEEP_MS = 10L * 60L * 1000L
     const val MAX_OWN_SEND_IDS = 2000
     const val MAX_REPORTED_IDS = 2000
     const val MAX_PENDING_REPORTS = 2000
 
     /**
      * [awaitingDelivery]: every part sent, only delivery reports outstanding. [unreported]: its
-     * current state still has to be reported.
+     * current state, reached at [updatedAt], still has to be reported.
      */
     data class EvictionCandidate(
         val id: String,
@@ -19,12 +21,13 @@ object SmsStorePolicy {
         val createdAt: Long,
         val awaitingDelivery: Boolean = false,
         val unreported: Boolean = false,
+        val updatedAt: Long = createdAt,
     )
 
     /**
      * Records older than the TTL, then the oldest records over the cap: terminal ones, then sends
-     * only awaiting delivery reports. Other sends and unreported records are never evicted over the
-     * cap: null when they alone exceed it.
+     * only awaiting delivery reports, reported ones first. Other sends and records unreported for less
+     * than [UNREPORTED_KEEP_MS] are never evicted over the cap: null when they alone exceed it.
      */
     fun evictions(
         records: List<EvictionCandidate>,
@@ -36,8 +39,8 @@ object SmsStorePolicy {
         val excess = kept.size - maxRecords
         if (excess <= 0) return expired.map { it.id }
         val overCap = kept
-            .filter { (it.terminal || it.awaitingDelivery) && !it.unreported }
-            .sortedWith(compareBy<EvictionCandidate>({ !it.terminal }, { it.createdAt }))
+            .filter { (it.terminal || it.awaitingDelivery) && !(it.unreported && now - it.updatedAt < UNREPORTED_KEEP_MS) }
+            .sortedWith(compareBy<EvictionCandidate>({ it.unreported }, { !it.terminal }, { it.createdAt }))
             .take(excess)
         if (overCap.size < excess) return null
         return expired.map { it.id } + overCap.map { it.id }

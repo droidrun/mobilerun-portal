@@ -54,12 +54,13 @@ class SmsStorePolicyTest {
     }
 
     @Test
-    fun evictions_overTheCapNeverTakeUnreportedRecords() {
+    fun evictions_overTheCapNeverTakeRecentlyUnreportedRecords() {
         val now = 30 * day
         val records = listOf(
-            SmsStorePolicy.EvictionCandidate("old-unreported", terminal = true, createdAt = now - 3 * day, unreported = true),
+            SmsStorePolicy.EvictionCandidate("old-unreported", terminal = true, createdAt = now - 3 * day, unreported = true, updatedAt = now),
             SmsStorePolicy.EvictionCandidate(
                 "old-awaiting-unreported", terminal = false, createdAt = now - 2 * day, awaitingDelivery = true, unreported = true,
+                updatedAt = now - SmsStorePolicy.UNREPORTED_KEEP_MS + 1,
             ),
             SmsStorePolicy.EvictionCandidate("reported", terminal = true, createdAt = now - 1 * day),
             SmsStorePolicy.EvictionCandidate("new-pending", terminal = false, createdAt = now),
@@ -68,6 +69,26 @@ class SmsStorePolicyTest {
         assertEquals(listOf("reported"), SmsStorePolicy.evictions(records, now, maxRecords = 3))
         // Its sms/sendState and request id would be lost: the insert is refused instead.
         assertNull(SmsStorePolicy.evictions(records, now, maxRecords = 2))
+    }
+
+    @Test
+    fun evictions_overTheCapTakeRecordsUnreportedTooLongAfterReportedOnes() {
+        // The relay stalls on sms/sendState: keeping these would refuse every send.
+        val now = 30 * day
+        val stale = now - SmsStorePolicy.UNREPORTED_KEEP_MS
+        val records = listOf(
+            SmsStorePolicy.EvictionCandidate("old-stale", terminal = true, createdAt = now - 3 * day, unreported = true, updatedAt = stale),
+            SmsStorePolicy.EvictionCandidate(
+                "awaiting-stale", terminal = false, createdAt = now - 2 * day, awaitingDelivery = true, unreported = true, updatedAt = stale,
+            ),
+            SmsStorePolicy.EvictionCandidate("recent", terminal = true, createdAt = now - 2 * day, unreported = true, updatedAt = stale + 1),
+            SmsStorePolicy.EvictionCandidate("reported", terminal = true, createdAt = now - 1 * day),
+            SmsStorePolicy.EvictionCandidate("new-pending", terminal = false, createdAt = now),
+        )
+
+        assertEquals(listOf("reported", "old-stale"), SmsStorePolicy.evictions(records, now, maxRecords = 3))
+        assertEquals(listOf("reported", "old-stale", "awaiting-stale"), SmsStorePolicy.evictions(records, now, maxRecords = 2))
+        assertNull(SmsStorePolicy.evictions(records, now, maxRecords = 1))
     }
 
     @Test

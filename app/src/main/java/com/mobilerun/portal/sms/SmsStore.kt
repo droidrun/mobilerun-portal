@@ -454,7 +454,7 @@ class SmsStore private constructor(
         }
 
     private fun evictLocked(db: SQLiteDatabase) {
-        val columns = arrayOf("id", "phase", "state", "created_at", "origin", "last_reported_state")
+        val columns = arrayOf("id", "phase", "state", "created_at", "origin", "last_reported_state", "updated_at")
         val candidates = db.query(TABLE_RECORDS, columns, null, null, null, null, null)
             .use { cursor ->
                 buildList {
@@ -467,12 +467,13 @@ class SmsStore private constructor(
                                 awaitingDelivery = cursor.getString(2) == SmsSendState.SENT.wire,
                                 unreported = cursor.getString(4) == SmsSendRecord.ORIGIN_RELAY &&
                                     cursor.getString(5) != cursor.getString(2),
+                                updatedAt = cursor.getLong(6),
                             ),
                         )
                     }
                 }
             }
-        // Rolls the insert back rather than drop an outstanding send or an unreported state.
+        // Rolls the insert back rather than drop an outstanding send or a recent unreported state.
         val evicted = SmsStorePolicy.evictions(candidates, clock()) ?: throw SmsStoreFullException()
         evicted.forEach { db.delete(TABLE_RECORDS, "id = ?", arrayOf(it)) }
     }
