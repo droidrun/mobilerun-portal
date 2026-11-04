@@ -115,7 +115,19 @@ fun smsBridgeApiFor(context: Context): SmsBridgeApi {
         hasSendSms = { granted(android.Manifest.permission.SEND_SMS) },
         subscriptions = resolver::bridgeSubscriptions,
         provider = AndroidSmsProviderSource(appContext),
-        records = SmsStore.getInstance(appContext),
+        records = LazySendRecordStore(appContext),
         sender = AndroidSmsSender(appContext),
     )
+}
+
+/** Opens mobilerun_sms.db on first use, so bridge calls refused while cloud SMS is off create none. */
+private class LazySendRecordStore(private val context: Context) : SmsSendRecordStore {
+    private val store: SmsStore get() = SmsStore.getInstance(context)
+
+    override fun find(id: String): SmsSendRecord? = store.find(id)
+    override fun insert(record: SmsSendRecord): Boolean = store.insert(record)
+    override fun discardPrepared(id: String, callbackToken: String) = store.discardPrepared(id, callbackToken)
+    override fun markDispatched(id: String, now: Long): SmsSendRecord? = store.markDispatched(id, now)
+    override fun markFailed(id: String, code: String, message: String, now: Long): SmsSendRecord? =
+        store.markFailed(id, code, message, now)
 }
