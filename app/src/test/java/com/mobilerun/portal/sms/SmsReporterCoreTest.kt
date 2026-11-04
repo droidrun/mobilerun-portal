@@ -324,6 +324,36 @@ class SmsReporterCoreTest {
     }
 
     @Test
+    fun queueWriteFailureWhileDraining_sendsTheRestAndRetries() {
+        val gone = inbox()
+        val kept = inbox()
+        scanned()
+        provider.remove(gone.id)
+        store.failPendingWrites = 2
+
+        open()
+        assertEquals(listOf(kept.messageId), calls.receivedIds())
+        assertTrue(gone.messageId in store.pending)
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertFalse(gone.messageId in store.pending)
+    }
+
+    @Test
+    fun queueWriteFailureAfterAnOutcome_retriesTheReport() {
+        inbox()
+        open()
+
+        store.failPendingWrites = 1
+        calls.completeAll(SmsReporterCore.RECEIVED, SmsReportOutcome.Error("sms: device_side_failure: forward failed"))
+        time.runDue()
+        assertEquals(1, calls.calls.size)
+
+        time.advanceBy(SmsReporterCore.BLOCKED_RETRY_MS)
+        assertEquals(2, calls.calls.size)
+    }
+
+    @Test
     fun errors_giveUpAfter24h() {
         inbox()
         open()

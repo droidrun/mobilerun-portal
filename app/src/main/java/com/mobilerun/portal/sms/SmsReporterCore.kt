@@ -219,18 +219,24 @@ class SmsReporterCore(
                 scheduleDrain(now + BLOCKED_RETRY_MS)
                 return
             }
-            due.forEach { send(it, covered, now) }
+            var written = true
+            due.forEach { if (!send(it, covered, now)) written = false }
+            // A report whose queue write failed is still due: retry later, not at once.
+            if (!written) {
+                scheduleDrain(now + BLOCKED_RETRY_MS)
+                return
+            }
         }
         scheduleNextDrain()
     }
 
-    private fun send(report: SmsPendingReport, covered: SmsReporterSims.Covered, now: Long) {
+    /** False when the queue write failed. */
+    private fun send(report: SmsPendingReport, covered: SmsReporterSims.Covered, now: Long): Boolean {
         val row = try {
             rows.row(report.providerId)
         } catch (e: Exception) {
             log("row read failed (${e.javaClass.simpleName})")
-            store.updatePending(report.copy(nextAttemptAt = now + BLOCKED_RETRY_MS))
-            return
+            return stored { store.updatePending(report.copy(nextAttemptAt = now + BLOCKED_RETRY_MS)) }
         }
         val message = row
             ?.takeIf { it.messageId == report.msgId }
@@ -238,38 +244,41 @@ class SmsReporterCore(
             ?.toBridgeMessage(covered.phoneNumbers)
             ?.takeIf { it.optString("direction") == report.direction }
         if (message == null) {
-            store.deletePending(report.msgId)
+            if (!stored { store.deletePending(report.msgId) }) return false
             log("dropped SMS report ${report.msgId}: row gone")
-            return
+            return true
         }
         inFlight += report.msgId
         calls.call(RECEIVED, JSONObject().put("message", message)) { outcome ->
             post { onReceivedOutcome(report, outcome) }
         }
+        return true
     }
 
     private fun onReceivedOutcome(report: SmsPendingReport, outcome: SmsReportOutcome) {
         inFlight -= report.msgId
         val now = clock()
-        when (val decision = SmsReportPolicy.apply(report, outcome, now)) {
-            is SmsReportDecision.Retry -> store.updatePending(
-                report.copy(
-                    attempts = decision.attempts,
-                    unconfirmed = decision.unconfirmed,
-                    nextAttemptAt = decision.nextAttemptAt,
-                    lastError = decision.lastError,
-                ),
-            )
+        val written = when (val decision = SmsReportPolicy.apply(report, outcome, now)) {
+            is SmsReportDecision.Retry -> stored {
+                store.updatePending(
+                    report.copy(
+                        attempts = decision.attempts,
+                        unconfirmed = decision.unconfirmed,
+                        nextAttemptAt = decision.nextAttemptAt,
+                        lastError = decision.lastError,
+                    ),
+                )
+            }
             SmsReportDecision.Requeue -> {
                 if (online()) scheduleDrain(now + REQUEUE_DELAY_MS)
                 return
             }
             else -> {
-                store.deletePending(report.msgId)
                 describe(decision)?.let { log("SMS report ${report.msgId} $it") }
+                stored { store.deletePending(report.msgId) }
             }
         }
-        drain()
+        if (written) drain() else scheduleDrain(now + BLOCKED_RETRY_MS)
     }
 
     private fun scheduleNextDrain() {
@@ -414,6 +423,16 @@ class SmsReporterCore(
         SmsReportDecision.DoneUnconfirmed -> "unconfirmed: no reply after retries"
         else -> null
     }
+
+    /** A pending-queue write; false when the store failed. */
+    private inline fun stored(write: () -> Unit): Boolean =
+        try {
+            write()
+            true
+        } catch (e: Exception) {
+            log("pending write failed (${e.javaClass.simpleName})")
+            false
+        }
 
     private fun post(task: () -> Unit) = scheduler.execute { guarded(task) }
 
