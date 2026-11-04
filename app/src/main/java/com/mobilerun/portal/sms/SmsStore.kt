@@ -7,7 +7,9 @@ import android.database.Cursor
 import android.database.DatabaseUtils
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.os.SystemClock
 import android.util.Log
+import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -74,8 +76,9 @@ class SmsStore private constructor(
         )
     }
 
-    /** Records created before this instant were written by an earlier process. */
-    val openedAt: Long = clock()
+    /** Stamped on inserted records: prepared records of any other instance are an earlier process's. */
+    private val instanceId: String = UUID.randomUUID().toString()
+    private val openedElapsed: Long = SystemClock.elapsedRealtime()
 
     // Nothing else resolves an earlier process's prepared records, so recovery never gives up.
     init {
@@ -127,7 +130,8 @@ class SmsStore private constructor(
 
     override fun insert(record: SmsSendRecord): Boolean = call { db ->
         db.inTransaction {
-            val row = db.insertWithOnConflict(TABLE_RECORDS, null, record.toValues(), SQLiteDatabase.CONFLICT_IGNORE)
+            val values = record.copy(instanceId = instanceId).toValues()
+            val row = db.insertWithOnConflict(TABLE_RECORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
             if (row != -1L) evictLocked(db)
             row != -1L
         }
@@ -352,12 +356,13 @@ class SmsStore private constructor(
     private fun recoverInterrupted() {
         val db = helper.writableDatabase
         val candidates = db.query(
-            TABLE_RECORDS, null, "phase = ? AND created_at < ?",
-            arrayOf(SmsSendPhase.PREPARED.wire, openedAt.toString()), null, null, "created_at ASC",
+            TABLE_RECORDS, null, "phase = ? AND instance_id != ?",
+            arrayOf(SmsSendPhase.PREPARED.wire, instanceId), null, null, "created_at ASC",
         ).use { cursor -> generateSequence { if (cursor.moveToNext()) cursor.toRecord() else null }.toList() }
         if (candidates.isEmpty()) return
 
         val now = clock()
+        val sinceOpenMs = SystemClock.elapsedRealtime() - openedElapsed
         var own = ownSendsLocked(db)
         val rows = if (hasReadSms()) {
             val source = AndroidSmsProviderSource(appContext)
@@ -370,7 +375,8 @@ class SmsStore private constructor(
         }
         var retryAt: Long? = null
         candidates.forEach { record ->
-            when (val decision = SmsSendRecovery.decide(record, now, openedAt, rows, own, appContext.packageName)) {
+            val decision = SmsSendRecovery.decide(record, now, instanceId, sinceOpenMs, rows, own, appContext.packageName)
+            when (decision) {
                 is SmsRecoveryDecision.Wait -> retryAt = minOf(retryAt ?: decision.atMs, decision.atMs)
                 is SmsRecoveryDecision.Resolve -> {
                     db.inTransaction {
@@ -514,6 +520,7 @@ class SmsStore private constructor(
                     error_message TEXT,
                     last_reported_state TEXT,
                     ${SEND_STATE_RETRY_COLUMNS.joinToString(", ")},
+                    $INSTANCE_ID_COLUMN,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 )
@@ -546,13 +553,14 @@ class SmsStore private constructor(
             if (oldVersion < 2) {
                 SEND_STATE_RETRY_COLUMNS.forEach { db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $it") }
             }
+            if (oldVersion < 3) db.execSQL("ALTER TABLE $TABLE_RECORDS ADD COLUMN $INSTANCE_ID_COLUMN")
         }
     }
 
     companion object {
         private const val TAG = "SmsStore"
         const val DB_NAME = "mobilerun_sms.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         private const val CALL_TIMEOUT_SECONDS = 10L
 
         const val TABLE_RECORDS = "send_records"
@@ -569,6 +577,9 @@ class SmsStore private constructor(
             "report_next_attempt_at INTEGER",
             "report_first_queued_at INTEGER",
         )
+
+        /** Added in version 3; existing rows get '' and so count as an earlier process's. */
+        private const val INSTANCE_ID_COLUMN = "instance_id TEXT NOT NULL DEFAULT ''"
 
         @Volatile
         private var instance: SmsStore? = null
@@ -608,6 +619,7 @@ class SmsStore private constructor(
             put("last_reported_state", lastReportedState)
             put("created_at", createdAt)
             put("updated_at", updatedAt)
+            put("instance_id", instanceId)
         }
 
         private fun SmsPendingReport.toValues(): ContentValues = ContentValues().apply {
@@ -666,6 +678,7 @@ class SmsStore private constructor(
                 lastReportedState = string("last_reported_state"),
                 createdAt = long("created_at") ?: 0L,
                 updatedAt = long("updated_at") ?: 0L,
+                instanceId = string("instance_id").orEmpty(),
             )
 
         private fun Cursor.string(column: String): String? {

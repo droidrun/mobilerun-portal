@@ -10,6 +10,10 @@ class SmsStorePolicyTest {
     private val day = 24L * 60L * 60L * 1000L
     private val pkg = "com.mobilerun.portal"
 
+    private companion object {
+        const val CURRENT = "current-instance"
+    }
+
     @Test
     fun evictions_dropExpiredThenOldestTerminalFirst() {
         val now = 30 * day
@@ -34,9 +38,12 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         assertEquals(
             SmsRecoveryDecision.None,
-            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.DISPATCHED), 1_000_000, 500_000, emptyList(), SmsOwnSends(), pkg),
+            SmsSendRecovery.decide(record.copy(phase = SmsSendPhase.DISPATCHED), 1_000_000, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
         )
-        assertEquals(SmsRecoveryDecision.None, SmsSendRecovery.decide(record, 1_000_000, 500, emptyList(), SmsOwnSends(), pkg))
+        assertEquals(
+            SmsRecoveryDecision.None,
+            SmsSendRecovery.decide(record.copy(instanceId = CURRENT), 1_000_000, CURRENT, 500_000, emptyList(), SmsOwnSends(), pkg),
+        )
     }
 
     @Test
@@ -44,8 +51,24 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         assertEquals(
             SmsRecoveryDecision.Wait(61_000),
-            SmsSendRecovery.decide(record, 30_000, 20_000, emptyList(), SmsOwnSends(), pkg),
+            SmsSendRecovery.decide(record, 30_000, CURRENT, 10_000, emptyList(), SmsOwnSends(), pkg),
         )
+    }
+
+    @Test
+    fun recovery_clockSetBackSinceThePrepare_stillRecoversAfterAMinuteOfThisProcess() {
+        // Prepared by an earlier process; the clock was then set back 10 minutes.
+        val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000_000)
+        val opened = 400_000L
+
+        assertEquals(
+            SmsRecoveryDecision.Wait(opened + 60_000),
+            SmsSendRecovery.decide(record, opened + 10_000, CURRENT, 10_000, emptyList(), SmsOwnSends(), pkg),
+        )
+        val decision = SmsSendRecovery.decide(record, opened + 60_000, CURRENT, 60_000, emptyList(), SmsOwnSends(), pkg)
+            as SmsRecoveryDecision.Resolve
+        assertEquals(SmsSendState.FAILED, decision.record.state)
+        assertEquals("RESULT_INTERRUPTED", decision.record.errorCode)
     }
 
     @Test
@@ -59,7 +82,7 @@ class SmsStorePolicyTest {
             row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000, address = "+1 (555) 000-1111"),
         )
 
-        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
+        val decision = SmsSendRecovery.decide(record, 100_000, CURRENT, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
 
         assertEquals(9L, decision.providerId)
         assertEquals(SmsSendState.SENT, decision.record.state)
@@ -72,7 +95,7 @@ class SmsStorePolicyTest {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         val rows = listOf(row(id = 9, type = SmsProviderRow.TYPE_SENT, date = 2_000))
 
-        val decision = SmsSendRecovery.decide(record, 100_000, 50_000, rows, SmsOwnSends(mapOf(9L to 2_000L)), pkg)
+        val decision = SmsSendRecovery.decide(record, 100_000, CURRENT, 50_000, rows, SmsOwnSends(mapOf(9L to 2_000L)), pkg)
             as SmsRecoveryDecision.Resolve
 
         assertEquals(null, decision.providerId)
@@ -86,7 +109,7 @@ class SmsStorePolicyTest {
 
         assertEquals(
             SmsRecoveryDecision.Wait(100_000 + SmsStoreRetry.SLOW_RETRY_DELAY_MS),
-            SmsSendRecovery.decide(record, 100_000, 50_000, null, SmsOwnSends(), pkg),
+            SmsSendRecovery.decide(record, 100_000, CURRENT, 50_000, null, SmsOwnSends(), pkg),
         )
     }
 
@@ -105,14 +128,14 @@ class SmsStorePolicyTest {
     fun recovery_outboxRowMeansDispatchedAndFailedRowMeansFailed() {
         val record = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
         val outbox = SmsSendRecovery.decide(
-            record, 100_000, 50_000, listOf(row(id = 3, type = SmsProviderRow.TYPE_QUEUED, date = 2_000)), SmsOwnSends(), pkg,
+            record, 100_000, CURRENT, 50_000, listOf(row(id = 3, type = SmsProviderRow.TYPE_QUEUED, date = 2_000)), SmsOwnSends(), pkg,
         ) as SmsRecoveryDecision.Resolve
         assertEquals(SmsSendPhase.DISPATCHED, outbox.record.phase)
         assertEquals(SmsSendState.PENDING, outbox.record.state)
         assertEquals(3L, outbox.providerId)
 
         val failed = SmsSendRecovery.decide(
-            record, 100_000, 50_000, listOf(row(id = 4, type = SmsProviderRow.TYPE_FAILED, date = 2_000)), SmsOwnSends(), pkg,
+            record, 100_000, CURRENT, 50_000, listOf(row(id = 4, type = SmsProviderRow.TYPE_FAILED, date = 2_000)), SmsOwnSends(), pkg,
         ) as SmsRecoveryDecision.Resolve
         assertEquals(SmsSendState.FAILED, failed.record.state)
         assertTrue(failed.record.isTerminal)
@@ -135,7 +158,7 @@ class SmsStorePolicyTest {
         }
 
         assertEquals(listOf(first.id, match.id), rows.map { it.id })
-        val decision = SmsSendRecovery.decide(newer, 100_000, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
+        val decision = SmsSendRecovery.decide(newer, 100_000, CURRENT, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
         assertEquals(match.id, decision.providerId)
         assertEquals(SmsSendState.SENT, decision.record.state)
     }

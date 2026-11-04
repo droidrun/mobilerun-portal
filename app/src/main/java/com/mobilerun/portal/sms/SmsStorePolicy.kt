@@ -121,8 +121,9 @@ object SmsSendRecovery {
     private const val GENERIC_FAILURE = "RESULT_ERROR_GENERIC_FAILURE"
     const val PAGE_SIZE = 200
 
-    fun isCandidate(record: SmsSendRecord, processStartedAt: Long): Boolean =
-        record.phase == SmsSendPhase.PREPARED && record.createdAt < processStartedAt
+    /** Prepared by an earlier process: no wall-clock comparison, which a clock set back would defeat. */
+    fun isCandidate(record: SmsSendRecord, instanceId: String): Boolean =
+        record.phase == SmsSendPhase.PREPARED && record.instanceId != instanceId
 
     /**
      * Portal-created rows with the address and body hash of one of [candidates], read page by page
@@ -152,21 +153,25 @@ object SmsSendRecovery {
 
     /**
      * A prepared record from an earlier process is checked against the provider once it is a minute
-     * old: a Portal-created row to the same address, dated at or after the record, with the same body
-     * hash, resolves it; no such row fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing)
-     * prove nothing, so it is checked again later. Dispatched records never time out.
+     * old, by the clock or, when that was set back, by [sinceOpenMs]: a Portal-created row to the
+     * same address, dated at or after the record, with the same body hash, resolves it; no such row
+     * fails it with RESULT_INTERRUPTED. Null [rows] (READ_SMS missing) prove nothing, so it is
+     * checked again later. Dispatched records never time out.
      */
     fun decide(
         record: SmsSendRecord,
         now: Long,
-        processStartedAt: Long,
+        instanceId: String,
+        sinceOpenMs: Long,
         rows: List<SmsProviderRow>?,
         ownSends: SmsOwnSends,
         packageName: String,
     ): SmsRecoveryDecision {
-        if (!isCandidate(record, processStartedAt)) return SmsRecoveryDecision.None
-        if (now - record.createdAt < SmsStorePolicy.RECOVERY_GRACE_MS) {
-            return SmsRecoveryDecision.Wait(record.createdAt + SmsStorePolicy.RECOVERY_GRACE_MS)
+        if (!isCandidate(record, instanceId)) return SmsRecoveryDecision.None
+        // Written before this process started, so at least sinceOpenMs old.
+        val age = maxOf(now - record.createdAt, sinceOpenMs)
+        if (age < SmsStorePolicy.RECOVERY_GRACE_MS) {
+            return SmsRecoveryDecision.Wait(now + SmsStorePolicy.RECOVERY_GRACE_MS - age)
         }
         if (rows == null) return SmsRecoveryDecision.Wait(now + SmsStoreRetry.SLOW_RETRY_DELAY_MS)
         val target = SmsPhoneNumbers.compactAddress(record.to)

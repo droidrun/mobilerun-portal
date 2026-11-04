@@ -40,6 +40,8 @@ data class SmsSendRecord(
     val lastReportedState: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** The store instance (one per process) that inserted it; empty for records from before instance ids. */
+    val instanceId: String = "",
 ) {
     val isTerminal: Boolean get() = phase == SmsSendPhase.TERMINAL
 
