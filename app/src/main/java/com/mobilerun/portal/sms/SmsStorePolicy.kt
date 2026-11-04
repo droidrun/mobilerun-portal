@@ -55,9 +55,36 @@ sealed class SmsRecoveryDecision {
 /** Restart rules for relay sends that were persisted as prepared but never marked dispatched. */
 object SmsSendRecovery {
     private const val GENERIC_FAILURE = "RESULT_ERROR_GENERIC_FAILURE"
+    const val PAGE_SIZE = 200
 
     fun isCandidate(record: SmsSendRecord, processStartedAt: Long): Boolean =
         record.phase == SmsSendPhase.PREPARED && record.createdAt < processStartedAt
+
+    /**
+     * Portal-created rows with the address and body hash of one of [candidates], read page by page
+     * from the oldest candidate on until the rows run out.
+     */
+    fun evidence(
+        candidates: List<SmsSendRecord>,
+        pageSize: Int = PAGE_SIZE,
+        page: (after: SmsWatermark?, limit: Int) -> List<SmsProviderRow>,
+    ): List<SmsProviderRow> {
+        val wanted = candidates.mapTo(HashSet()) { SmsPhoneNumbers.compactAddress(it.to) to it.bodyHash }
+        val addresses = wanted.mapTo(HashSet()) { it.first }
+        val found = ArrayList<SmsProviderRow>()
+        var after: SmsWatermark? = null
+        while (true) {
+            val rows = page(after, pageSize)
+            rows.filterTo(found) { row ->
+                val body = row.body ?: return@filterTo false
+                val address = SmsPhoneNumbers.compactAddress(row.address)
+                address in addresses && (address to SmsHashes.bodyHash(body)) in wanted
+            }
+            val last = rows.lastOrNull()
+            if (last == null || rows.size < pageSize) return found
+            after = SmsWatermark(last.id, last.date)
+        }
+    }
 
     /**
      * A prepared record from an earlier process is checked against the provider once it is a minute

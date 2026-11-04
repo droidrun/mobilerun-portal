@@ -107,6 +107,28 @@ class SmsStorePolicyTest {
         assertTrue(failed.record.isTerminal)
     }
 
+    @Test
+    fun recoveryEvidence_readsPastAFullPageOfPortalSends() {
+        val provider = FakeSmsProvider()
+        val older = SmsSendRecordTest.record(parts = 1, createdAt = 1_000)
+            .copy(id = "older", to = "+15550002222", bodyHash = SmsHashes.bodyHash("first"))
+        val first = provider.add(SmsProviderRow.TYPE_SENT, date = 1_500, address = "+15550002222", body = "first", creator = pkg)
+        repeat(SmsSendRecovery.PAGE_SIZE + 50) {
+            provider.add(SmsProviderRow.TYPE_SENT, date = 2_000L + it, address = "+15550003333", body = "other", creator = pkg)
+        }
+        val newer = SmsSendRecordTest.record(parts = 1, createdAt = 3_000)
+        val match = provider.add(SmsProviderRow.TYPE_SENT, date = 3_500, body = "hello", creator = pkg)
+
+        val rows = SmsSendRecovery.evidence(listOf(older, newer)) { after, limit ->
+            provider.ownSends(pkg, older.createdAt, after, limit)
+        }
+
+        assertEquals(listOf(first.id, match.id), rows.map { it.id })
+        val decision = SmsSendRecovery.decide(newer, 100_000, 50_000, rows, SmsOwnSends(), pkg) as SmsRecoveryDecision.Resolve
+        assertEquals(match.id, decision.providerId)
+        assertEquals(SmsSendState.SENT, decision.record.state)
+    }
+
     private fun row(
         id: Long,
         type: Int,

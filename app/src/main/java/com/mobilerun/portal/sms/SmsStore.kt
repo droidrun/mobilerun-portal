@@ -326,7 +326,11 @@ class SmsStore private constructor(
         val now = clock()
         var own = ownSendsLocked(db)
         val rows = if (hasReadSms()) {
-            AndroidSmsProviderSource(appContext).ownSends(appContext.packageName, candidates.minOf { it.createdAt })
+            val source = AndroidSmsProviderSource(appContext)
+            val since = candidates.minOf { it.createdAt }
+            SmsSendRecovery.evidence(candidates) { after, limit ->
+                source.ownSends(appContext.packageName, since, after, limit)
+            }
         } else {
             emptyList()
         }

@@ -49,8 +49,11 @@ interface SmsProviderSource {
 
     fun get(providerId: Long): SmsProviderRow?
 
-    /** Rows this package created at or after [since], in the sent, failed, outbox or queued boxes. */
-    fun ownSends(packageName: String, since: Long): List<SmsProviderRow>
+    /**
+     * Rows this package created at or after [since], in the sent, failed, outbox or queued boxes,
+     * strictly after [after] by (date, _id) ascending.
+     */
+    fun ownSends(packageName: String, since: Long, after: SmsWatermark?, limit: Int): List<SmsProviderRow>
 }
 
 /** Persistence used by relay sends. */

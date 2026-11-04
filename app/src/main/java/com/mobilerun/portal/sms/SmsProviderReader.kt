@@ -42,18 +42,20 @@ class AndroidSmsProviderSource(
             sortOrder = "date ASC, _id ASC LIMIT $limit",
         )
 
-    override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> {
+    override fun ownSends(packageName: String, since: Long, after: SmsWatermark?, limit: Int): List<SmsProviderRow> {
         val types = listOf(
             SmsProviderRow.TYPE_SENT,
             SmsProviderRow.TYPE_FAILED,
             SmsProviderRow.TYPE_OUTBOX,
             SmsProviderRow.TYPE_QUEUED,
         ).joinToString(",")
-        return query(
-            "creator = ? AND date >= ? AND type IN ($types)",
-            arrayOf(packageName, since.toString()),
-            sortOrder = "date ASC LIMIT $OWN_SENDS_LIMIT",
-        )
+        var selection = "creator = ? AND date >= ? AND type IN ($types)"
+        val args = mutableListOf(packageName, since.toString())
+        if (after != null) {
+            selection += " AND (date > ? OR (date = ? AND _id > ?))"
+            args += listOf(after.date.toString(), after.date.toString(), after.id.toString())
+        }
+        return query(selection, args.toTypedArray(), sortOrder = "date ASC, _id ASC LIMIT $limit")
     }
 
     private fun query(selection: String?, args: Array<String>?, sortOrder: String?): List<SmsProviderRow> {
@@ -101,7 +103,6 @@ class AndroidSmsProviderSource(
     }
 
     companion object {
-        private const val OWN_SENDS_LIMIT = 200
         private val PROJECTION = arrayOf(
             Telephony.Sms._ID,
             Telephony.Sms.TYPE,

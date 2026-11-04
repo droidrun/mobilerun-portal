@@ -99,8 +99,15 @@ class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
         rows[index] = transform(rows[index])
     }
 
-    override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> =
-        rows.filter { it.creator == packageName && it.date >= since }
+    override fun ownSends(packageName: String, since: Long, after: SmsWatermark?, limit: Int): List<SmsProviderRow> {
+        queries += 1
+        val types = setOf(SmsProviderRow.TYPE_SENT, SmsProviderRow.TYPE_FAILED, SmsProviderRow.TYPE_OUTBOX, SmsProviderRow.TYPE_QUEUED)
+        return rows
+            .filter { it.creator == packageName && it.date >= since && it.type in types }
+            .filter { row -> after == null || row.date > after.date || (row.date == after.date && row.id > after.id) }
+            .sortedWith(compareBy<SmsProviderRow>({ it.date }, { it.id }))
+            .take(limit)
+    }
 }
 
 class InMemorySendRecordStore : SmsSendRecordStore {
