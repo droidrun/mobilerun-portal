@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.database.DatabaseUtils
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
@@ -37,6 +38,7 @@ object SmsReporterStateKeys {
     const val OUT_WATERMARK_ID = "out_watermark_id"
     const val OUT_WATERMARK_DATE = "out_watermark_date"
     const val COVERED_FROM = "covered_from"
+    const val OUT_RECHECK = "out_recheck"
 }
 
 /**
@@ -46,7 +48,7 @@ object SmsReporterStateKeys {
 class SmsStore private constructor(
     context: Context,
     private val clock: () -> Long = System::currentTimeMillis,
-) : SmsSendRecordStore {
+) : SmsSendRecordStore, SmsReporterStore {
     private val appContext = context.applicationContext
     private val helper = Helper(appContext)
 
@@ -122,7 +124,7 @@ class SmsStore private constructor(
     }
 
     /** Relay records whose current state was not reported yet. */
-    fun unreportedRelayRecords(): List<SmsSendRecord> = call { db ->
+    override fun unreportedRelayRecords(): List<SmsSendRecord> = call { db ->
         db.query(
             TABLE_RECORDS, null,
             "origin = ? AND (last_reported_state IS NULL OR last_reported_state != state)",
@@ -130,7 +132,7 @@ class SmsStore private constructor(
         ).use { cursor -> generateSequence { if (cursor.moveToNext()) cursor.toRecord() else null }.toList() }
     }
 
-    fun markReported(id: String, state: SmsSendState) {
+    override fun markReported(id: String, state: SmsSendState) {
         call { db ->
             db.update(TABLE_RECORDS, ContentValues().apply { put("last_reported_state", state.wire) }, "id = ?", arrayOf(id))
         }
@@ -147,7 +149,7 @@ class SmsStore private constructor(
         async("own-send", done) { db -> recordOwnSendLocked(db, providerId, recordId) }
     }
 
-    fun ownSendIds(): Set<Long> = call { db -> ownSendIdsLocked(db) }
+    override fun ownSendIds(): Set<Long> = call { db -> ownSendIdsLocked(db) }
 
     // --- reporter state ---
 
@@ -179,6 +181,90 @@ class SmsStore private constructor(
 
     fun putReporterState(values: Map<String, String>) {
         call { db -> db.inTransaction { values.forEach { (key, value) -> putStateLocked(db, key, value) } } }
+    }
+
+    // --- reporter (SmsReporterStore) ---
+
+    override fun <T> atomically(block: () -> T): T = call { db -> db.inTransaction { block() } }
+
+    override fun scanState(): SmsScanState? {
+        val state = reporterState()
+        val long = { key: String -> state[key]?.toLongOrNull() }
+        return SmsScanState(
+            inbound = SmsWatermark(
+                long(SmsReporterStateKeys.INBOUND_WATERMARK_ID) ?: return null,
+                long(SmsReporterStateKeys.INBOUND_WATERMARK_DATE) ?: return null,
+            ),
+            out = SmsWatermark(
+                long(SmsReporterStateKeys.OUT_WATERMARK_ID) ?: return null,
+                long(SmsReporterStateKeys.OUT_WATERMARK_DATE) ?: return null,
+            ),
+            coveredFrom = long(SmsReporterStateKeys.COVERED_FROM) ?: return null,
+            recheck = SmsRecheckCodec.decode(state[SmsReporterStateKeys.OUT_RECHECK]),
+        )
+    }
+
+    override fun seedScanState(latest: SmsProviderRow?, coveredFrom: Long) = seedReporterState(latest, coveredFrom)
+
+    override fun isReported(msgId: String): Boolean = call { db ->
+        DatabaseUtils.queryNumEntries(db, TABLE_REPORTED_IDS, "msg_id = ?", arrayOf(msgId)) > 0
+    }
+
+    override fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long) {
+        call { db ->
+            db.inTransaction {
+                putStateLocked(db, SmsReporterStateKeys.INBOUND_WATERMARK_ID, state.inbound.id.toString())
+                putStateLocked(db, SmsReporterStateKeys.INBOUND_WATERMARK_DATE, state.inbound.date.toString())
+                putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_ID, state.out.id.toString())
+                putStateLocked(db, SmsReporterStateKeys.OUT_WATERMARK_DATE, state.out.date.toString())
+                putStateLocked(db, SmsReporterStateKeys.OUT_RECHECK, SmsRecheckCodec.encode(state.recheck))
+                if (reports.isEmpty()) return@inTransaction
+                reports.forEach { report ->
+                    db.insertWithOnConflict(TABLE_PENDING_REPORTS, null, report.toValues(), SQLiteDatabase.CONFLICT_IGNORE)
+                    val ring = ContentValues().apply {
+                        put("msg_id", report.msgId)
+                        put("reported_at", now)
+                    }
+                    db.insertWithOnConflict(TABLE_REPORTED_IDS, null, ring, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+                db.execSQL(
+                    "DELETE FROM $TABLE_REPORTED_IDS WHERE msg_id NOT IN (SELECT msg_id FROM $TABLE_REPORTED_IDS " +
+                        "ORDER BY reported_at DESC LIMIT ${SmsStorePolicy.MAX_REPORTED_IDS})",
+                )
+                db.execSQL(
+                    "DELETE FROM $TABLE_PENDING_REPORTS WHERE msg_id NOT IN (SELECT msg_id FROM $TABLE_PENDING_REPORTS " +
+                        "ORDER BY first_queued_at DESC, provider_id DESC LIMIT ${SmsStorePolicy.MAX_PENDING_REPORTS})",
+                )
+            }
+        }
+    }
+
+    override fun duePending(now: Long, limit: Int, exclude: Set<String>): List<SmsPendingReport> = call { db ->
+        db.query(
+            TABLE_PENDING_REPORTS, null, "next_attempt_at <= ?", arrayOf(now.toString()),
+            null, null, "first_queued_at ASC, provider_id ASC", (limit + exclude.size).toString(),
+        ).use { cursor -> generateSequence { if (cursor.moveToNext()) cursor.toPending() else null }.toList() }
+            .filter { it.msgId !in exclude }
+            .take(limit)
+    }
+
+    override fun nextPendingAt(exclude: Set<String>): Long? = call { db ->
+        db.query(
+            TABLE_PENDING_REPORTS, arrayOf("msg_id", "next_attempt_at"), null, null,
+            null, null, "next_attempt_at ASC", (exclude.size + 1).toString(),
+        ).use { cursor ->
+            generateSequence { if (cursor.moveToNext()) cursor.getString(0) to cursor.getLong(1) else null }
+                .firstOrNull { it.first !in exclude }
+                ?.second
+        }
+    }
+
+    override fun updatePending(report: SmsPendingReport) {
+        call { db -> db.update(TABLE_PENDING_REPORTS, report.toValues(), "msg_id = ?", arrayOf(report.msgId)) }
+    }
+
+    override fun deletePending(msgId: String) {
+        call { db -> db.delete(TABLE_PENDING_REPORTS, "msg_id = ?", arrayOf(msgId)) }
     }
 
     // --- reset and recovery ---
@@ -407,6 +493,10 @@ class SmsStore private constructor(
                 instance ?: SmsStore(context.applicationContext).also { instance = it }
             }
 
+        /** The store, without creating a database that was never used. */
+        fun existing(context: Context): SmsStore? =
+            instance ?: if (context.getDatabasePath(DB_NAME).exists()) getInstance(context) else null
+
         internal fun encodeParts(parts: Set<Int>): String = parts.sorted().joinToString(",")
 
         internal fun decodeParts(raw: String?): Set<Int> =
@@ -434,6 +524,29 @@ class SmsStore private constructor(
             put("created_at", createdAt)
             put("updated_at", updatedAt)
         }
+
+        private fun SmsPendingReport.toValues(): ContentValues = ContentValues().apply {
+            put("msg_id", msgId)
+            put("provider_id", providerId)
+            put("direction", direction)
+            put("attempts", attempts)
+            put("unconfirmed", unconfirmed)
+            put("next_attempt_at", nextAttemptAt)
+            put("first_queued_at", firstQueuedAt)
+            put("last_error", lastError)
+        }
+
+        private fun Cursor.toPending(): SmsPendingReport =
+            SmsPendingReport(
+                msgId = string("msg_id")!!,
+                providerId = long("provider_id") ?: 0L,
+                direction = string("direction")!!,
+                attempts = int("attempts") ?: 0,
+                unconfirmed = int("unconfirmed") ?: 0,
+                nextAttemptAt = long("next_attempt_at") ?: 0L,
+                firstQueuedAt = long("first_queued_at") ?: 0L,
+                lastError = string("last_error"),
+            )
 
         private fun Cursor.toRecord(): SmsSendRecord =
             SmsSendRecord(

@@ -1,11 +1,12 @@
 package com.mobilerun.portal.sms
 
-/** In-memory content://sms with the same filter and keyset semantics as the SQL selection. */
-class FakeSmsProvider : SmsProviderSource {
+/**
+ * In-memory content://sms with the same filter and keyset semantics as the SQL selection.
+ * New rows take max(_id) + 1, like the provider's non-AUTOINCREMENT table.
+ */
+class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
     val rows = mutableListOf<SmsProviderRow>()
     var queries = 0
-
-    private var nextId = 1L
 
     fun add(
         type: Int,
@@ -18,7 +19,7 @@ class FakeSmsProvider : SmsProviderSource {
         dateSent: Long? = null,
     ): SmsProviderRow {
         val row = SmsProviderRow(
-            id = nextId++,
+            id = (rows.maxOfOrNull { it.id } ?: 0L) + 1L,
             type = type,
             address = address,
             body = body,
@@ -59,6 +60,30 @@ class FakeSmsProvider : SmsProviderSource {
     }
 
     override fun get(providerId: Long): SmsProviderRow? = rows.firstOrNull { it.id == providerId }
+
+    override fun row(providerId: Long): SmsProviderRow? = get(providerId)
+
+    override fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow> {
+        queries += 1
+        return rows.filter { it.type in types && it.id > afterId }.sortedBy { it.id }.take(limit)
+    }
+
+    override fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow> {
+        queries += 1
+        return rows
+            .filter { it.type in types && it.date >= fromDate }
+            .sortedWith(compareBy<SmsProviderRow>({ it.date }, { it.id }))
+            .take(limit)
+    }
+
+    fun remove(providerId: Long) {
+        rows.removeAll { it.id == providerId }
+    }
+
+    fun update(providerId: Long, transform: (SmsProviderRow) -> SmsProviderRow) {
+        val index = rows.indexOfFirst { it.id == providerId }
+        rows[index] = transform(rows[index])
+    }
 
     override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> =
         rows.filter { it.creator == packageName && it.date >= since }

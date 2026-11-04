@@ -7,6 +7,7 @@ object SmsStorePolicy {
     const val RECOVERY_GRACE_MS = 60_000L
     const val MAX_OWN_SEND_IDS = 2000
     const val MAX_REPORTED_IDS = 2000
+    const val MAX_PENDING_REPORTS = 2000
 
     data class EvictionCandidate(val id: String, val terminal: Boolean, val createdAt: Long)
 

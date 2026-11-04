@@ -7,7 +7,7 @@ import android.provider.Telephony
 /** content://sms reads for the bridge and send recovery. SMS only: RCS and MMS are never read. */
 class AndroidSmsProviderSource(
     private val context: Context,
-) : SmsProviderSource {
+) : SmsProviderSource, SmsReportRowSource {
     override fun latest(): SmsProviderRow? =
         query(selection = null, args = null, sortOrder = "_id DESC LIMIT 1").firstOrNull()
 
@@ -18,6 +18,22 @@ class AndroidSmsProviderSource(
 
     override fun get(providerId: Long): SmsProviderRow? =
         query("_id = ?", arrayOf(providerId.toString()), sortOrder = null).firstOrNull()
+
+    override fun row(providerId: Long): SmsProviderRow? = get(providerId)
+
+    override fun rowsAfterId(types: List<Int>, afterId: Long, limit: Int): List<SmsProviderRow> =
+        query(
+            "type IN (${types.joinToString(",")}) AND _id > ?",
+            arrayOf(afterId.toString()),
+            sortOrder = "_id ASC LIMIT $limit",
+        )
+
+    override fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow> =
+        query(
+            "type IN (${types.joinToString(",")}) AND date >= ?",
+            arrayOf(fromDate.toString()),
+            sortOrder = "date ASC, _id ASC LIMIT $limit",
+        )
 
     override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> {
         val types = listOf(

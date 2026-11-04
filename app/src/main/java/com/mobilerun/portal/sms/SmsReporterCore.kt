@@ -1,0 +1,388 @@
+package com.mobilerun.portal.sms
+
+import org.json.JSONObject
+
+fun interface SmsCancellable {
+    fun cancel()
+}
+
+/** One thread: every task runs in order on it. */
+interface SmsReporterScheduler {
+    fun execute(task: () -> Unit)
+
+    fun schedule(delayMs: Long, task: () -> Unit): SmsCancellable
+}
+
+/** Device -> relay calls; the callback may run on any thread. */
+interface SmsReportCalls {
+    fun call(method: String, params: JSONObject, callback: (SmsReportOutcome) -> Unit)
+}
+
+/** Reporter persistence: scan state, the pending-report queue, the reported-id ring and send records. */
+interface SmsReporterStore {
+    /** Runs [block] serialized with switch seeding and clearing. */
+    fun <T> atomically(block: () -> T): T
+
+    /** Null until the switch seeded it. */
+    fun scanState(): SmsScanState?
+
+    fun seedScanState(latest: SmsProviderRow?, coveredFrom: Long)
+
+    fun isReported(msgId: String): Boolean
+
+    fun ownSendIds(): Set<Long>
+
+    /** Saves [state], queues [reports] (known ids are ignored) and adds them to the reported-id ring. */
+    fun commitScan(state: SmsScanState, reports: List<SmsPendingReport>, now: Long)
+
+    fun duePending(now: Long, limit: Int, exclude: Set<String>): List<SmsPendingReport>
+
+    fun nextPendingAt(exclude: Set<String>): Long?
+
+    /** Updates a queued report; no-op when it was removed meanwhile. */
+    fun updatePending(report: SmsPendingReport)
+
+    fun deletePending(msgId: String)
+
+    fun unreportedRelayRecords(): List<SmsSendRecord>
+
+    fun markReported(id: String, state: SmsSendState)
+}
+
+/**
+ * Device -> cloud SMS reporting over the relay socket: sms/received for new provider rows while
+ * Mobilerun cloud SMS is on and READ_SMS is granted, and sms/sendState for every state change of a
+ * relay send whatever the switch says. All state lives on [scheduler]'s thread.
+ */
+class SmsReporterCore(
+    private val scheduler: SmsReporterScheduler,
+    private val store: SmsReporterStore,
+    private val rows: SmsReportRowSource,
+    private val calls: SmsReportCalls,
+    packageName: String,
+    private val cloudEnabled: () -> Boolean,
+    private val hasReadSms: () -> Boolean,
+    private val sims: () -> SmsReporterSims,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val log: (String) -> Unit = {},
+) {
+    private val scanner = SmsReportScanner(rows, packageName)
+
+    private var connected = false
+    private var scanTask: SmsCancellable? = null
+    private var drainTask: SmsCancellable? = null
+    private var drainAt = Long.MAX_VALUE
+    private var stateTask: SmsCancellable? = null
+    private val inFlight = HashSet<String>()
+
+    private data class StateItem(
+        val record: SmsSendRecord,
+        val attempts: Int = 0,
+        val unconfirmed: Int = 0,
+        val nextAttemptAt: Long,
+        val firstQueuedAt: Long,
+    )
+
+    private val states = LinkedHashMap<String, StateItem>()
+    private val statesInFlight = HashMap<String, SmsSendState>()
+
+    fun start() = post { if (active()) requestScan(DEBOUNCE_MS) }
+
+    fun scanSoon() = post { requestScan(DEBOUNCE_MS) }
+
+    /** An SMS_RECEIVED broadcast: the default SMS app writes the row a little later. */
+    fun scanBurst() {
+        scanSoon()
+        BURST_DELAYS_MS.forEach { delay -> scheduler.schedule(delay) { guarded { requestScan(DEBOUNCE_MS) } } }
+    }
+
+    fun onSocketOpen() = post {
+        connected = true
+        loadStates()
+        requestScan(0L)
+        drain()
+        drainStates()
+    }
+
+    fun onSocketClosed() = post {
+        connected = false
+        drainTask?.cancel()
+        drainTask = null
+        drainAt = Long.MAX_VALUE
+        stateTask?.cancel()
+        stateTask = null
+    }
+
+    fun onCloudSwitchChanged(enabled: Boolean) = post {
+        if (enabled) {
+            requestScan(0L)
+        } else {
+            scanTask?.cancel()
+            scanTask = null
+            drainTask?.cancel()
+            drainTask = null
+            drainAt = Long.MAX_VALUE
+        }
+    }
+
+    /** A persisted state change of a relay send record. */
+    fun onSendStateChanged(record: SmsSendRecord) = post {
+        offerState(record, clock())
+        drainStates()
+    }
+
+    // --- scanning ---
+
+    private fun active(): Boolean = cloudEnabled() && hasReadSms()
+
+    private fun requestScan(delayMs: Long) {
+        val pending = scanTask
+        if (pending != null) {
+            if (delayMs > 0L) return
+            pending.cancel()
+        }
+        scanTask = scheduler.schedule(delayMs) {
+            guarded {
+                scanTask = null
+                scan()
+            }
+        }
+    }
+
+    private fun scan() {
+        if (!active()) return
+        val covered = sims() as? SmsReporterSims.Covered
+        if (covered == null) {
+            if (scanTask == null) scanTask = scheduler.schedule(BLOCKED_RETRY_MS) { guarded { scanTask = null; scan() } }
+            return
+        }
+        val now = clock()
+        val result = try {
+            store.atomically {
+                if (!cloudEnabled()) return@atomically null
+                val state = store.scanState()
+                if (state == null) {
+                    store.seedScanState(rows.latest(), now)
+                    return@atomically null
+                }
+                val result = scanner.scan(state, store.ownSendIds(), store::isReported, covered.subscriptionFilter, now)
+                val queued = result.reports.map {
+                    SmsPendingReport(it.msgId, it.providerId, it.direction, nextAttemptAt = now, firstQueuedAt = now)
+                }
+                store.commitScan(result.state, queued, now)
+                result
+            }
+        } catch (e: Exception) {
+            log("scan failed (${e.javaClass.simpleName})")
+            null
+        } ?: return
+        if (result.reports.isNotEmpty()) log("queued ${result.reports.size} SMS report(s)")
+        if (result.more) requestScan(0L)
+        drain()
+    }
+
+    // --- sms/received ---
+
+    private fun drain() {
+        if (!connected || !active()) return
+        val free = MAX_IN_FLIGHT - inFlight.size
+        if (free <= 0) return
+        val now = clock()
+        val due = try {
+            store.duePending(now, free, inFlight.toSet())
+        } catch (e: Exception) {
+            log("pending read failed (${e.javaClass.simpleName})")
+            scheduleDrain(now + BLOCKED_RETRY_MS)
+            return
+        }
+        if (due.isNotEmpty()) {
+            val covered = sims() as? SmsReporterSims.Covered
+            if (covered == null) {
+                scheduleDrain(now + BLOCKED_RETRY_MS)
+                return
+            }
+            due.forEach { send(it, covered, now) }
+        }
+        scheduleNextDrain()
+    }
+
+    private fun send(report: SmsPendingReport, covered: SmsReporterSims.Covered, now: Long) {
+        val row = try {
+            rows.row(report.providerId)
+        } catch (e: Exception) {
+            log("row read failed (${e.javaClass.simpleName})")
+            store.updatePending(report.copy(nextAttemptAt = now + BLOCKED_RETRY_MS))
+            return
+        }
+        val message = row
+            ?.takeIf { it.messageId == report.msgId }
+            ?.takeIf { covered.subscriptionFilter == null || it.subscriptionId == covered.subscriptionFilter }
+            ?.toBridgeMessage(covered.phoneNumbers)
+            ?.takeIf { it.optString("direction") == report.direction }
+        if (message == null) {
+            store.deletePending(report.msgId)
+            log("dropped SMS report ${report.msgId}: row gone")
+            return
+        }
+        inFlight += report.msgId
+        calls.call(RECEIVED, JSONObject().put("message", message)) { outcome ->
+            post { onReceivedOutcome(report, outcome) }
+        }
+    }
+
+    private fun onReceivedOutcome(report: SmsPendingReport, outcome: SmsReportOutcome) {
+        inFlight -= report.msgId
+        val now = clock()
+        when (val decision = SmsReportPolicy.apply(report, outcome, now)) {
+            is SmsReportDecision.Retry -> store.updatePending(
+                report.copy(
+                    attempts = decision.attempts,
+                    unconfirmed = decision.unconfirmed,
+                    nextAttemptAt = decision.nextAttemptAt,
+                    lastError = decision.lastError,
+                ),
+            )
+            SmsReportDecision.Requeue -> {
+                if (connected) scheduleDrain(now + REQUEUE_DELAY_MS)
+                return
+            }
+            else -> {
+                store.deletePending(report.msgId)
+                describe(decision)?.let { log("SMS report ${report.msgId} $it") }
+            }
+        }
+        drain()
+    }
+
+    private fun scheduleNextDrain() {
+        if (inFlight.size >= MAX_IN_FLIGHT) return
+        val next = try {
+            store.nextPendingAt(inFlight.toSet())
+        } catch (_: Exception) {
+            null
+        } ?: return
+        scheduleDrain(next)
+    }
+
+    private fun scheduleDrain(at: Long) {
+        if (!connected) return
+        if (drainTask != null && drainAt <= at) return
+        drainTask?.cancel()
+        drainAt = at
+        drainTask = scheduler.schedule((at - clock()).coerceAtLeast(0L)) {
+            guarded {
+                drainTask = null
+                drainAt = Long.MAX_VALUE
+                drain()
+            }
+        }
+    }
+
+    // --- sms/sendState ---
+
+    private fun loadStates() {
+        val records = try {
+            store.unreportedRelayRecords()
+        } catch (e: Exception) {
+            log("send records read failed (${e.javaClass.simpleName})")
+            return
+        }
+        val now = clock()
+        records.forEach { offerState(it, now) }
+    }
+
+    private fun offerState(record: SmsSendRecord, now: Long) {
+        if (!record.needsSendStateReport()) return
+        val existing = states[record.id]
+        if (existing != null && existing.record.state == record.state) {
+            if (record.updatedAt > existing.record.updatedAt) states[record.id] = existing.copy(record = record)
+            return
+        }
+        states[record.id] = StateItem(record, nextAttemptAt = now, firstQueuedAt = now)
+    }
+
+    private fun drainStates() {
+        stateTask?.cancel()
+        stateTask = null
+        if (!connected) return
+        val now = clock()
+        var free = MAX_STATE_IN_FLIGHT - statesInFlight.size
+        for (item in states.values.sortedBy { it.record.updatedAt }) {
+            if (free <= 0) break
+            if (item.record.id in statesInFlight || item.nextAttemptAt > now) continue
+            free -= 1
+            val sent = item.record
+            statesInFlight[sent.id] = sent.state
+            calls.call(SEND_STATE, JSONObject().put("status", sent.toBridgeStatus())) { outcome ->
+                post { onStateOutcome(sent, outcome) }
+            }
+        }
+        if (free <= 0) return
+        val next = states.values.filter { it.record.id !in statesInFlight }.minOfOrNull { it.nextAttemptAt } ?: return
+        stateTask = scheduler.schedule((next - now).coerceAtLeast(0L)) {
+            guarded {
+                stateTask = null
+                drainStates()
+            }
+        }
+    }
+
+    private fun onStateOutcome(sent: SmsSendRecord, outcome: SmsReportOutcome) {
+        statesInFlight.remove(sent.id)
+        val item = states[sent.id]
+        // A newer state replaced this one while it was in flight; it goes out next.
+        if (item == null || item.record.state != sent.state) {
+            drainStates()
+            return
+        }
+        val now = clock()
+        when (val decision = SmsReportPolicy.decide(item.attempts, item.unconfirmed, item.firstQueuedAt, outcome, now)) {
+            is SmsReportDecision.Retry -> states[sent.id] = item.copy(
+                attempts = decision.attempts,
+                unconfirmed = decision.unconfirmed,
+                nextAttemptAt = decision.nextAttemptAt,
+            )
+            SmsReportDecision.Requeue -> states[sent.id] = item.copy(nextAttemptAt = now + REQUEUE_DELAY_MS)
+            else -> {
+                states.remove(sent.id)
+                try {
+                    store.markReported(sent.id, sent.state)
+                } catch (e: Exception) {
+                    log("send state save failed (${e.javaClass.simpleName})")
+                }
+                describe(decision)?.let { log("SMS send state ${sent.id} ${sent.state.wire} $it") }
+            }
+        }
+        drainStates()
+    }
+
+    // --- helpers ---
+
+    private fun describe(decision: SmsReportDecision): String? = when (decision) {
+        is SmsReportDecision.Dropped -> "dropped: ${decision.error}"
+        SmsReportDecision.GaveUp -> "gave up after 24 h of errors"
+        SmsReportDecision.DoneUnconfirmed -> "unconfirmed: no reply after retries"
+        else -> null
+    }
+
+    private fun post(task: () -> Unit) = scheduler.execute { guarded(task) }
+
+    private inline fun guarded(task: () -> Unit) {
+        try {
+            task()
+        } catch (e: Exception) {
+            log("reporter task failed (${e.javaClass.simpleName})")
+        }
+    }
+
+    companion object {
+        const val RECEIVED = "sms/received"
+        const val SEND_STATE = "sms/sendState"
+        const val DEBOUNCE_MS = 500L
+        const val MAX_IN_FLIGHT = 8
+        const val MAX_STATE_IN_FLIGHT = 4
+        const val REQUEUE_DELAY_MS = 1_000L
+        const val BLOCKED_RETRY_MS = 60_000L
+        val BURST_DELAYS_MS = longArrayOf(1_000L, 5_000L, 15_000L)
+    }
+}

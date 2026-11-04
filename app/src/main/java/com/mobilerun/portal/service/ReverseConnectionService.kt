@@ -29,6 +29,7 @@ import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.input.MobilerunKeyboardIME
+import com.mobilerun.portal.sms.SmsBridgeReporter
 import com.mobilerun.portal.sms.SmsSubscriptionResolver
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
@@ -431,6 +432,7 @@ class ReverseConnectionService : Service() {
                         "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
                     )
                     rpcSocket = ReverseRpcSocket(this, connectionGeneration)
+                    SmsBridgeReporter.onSocketOpen()
                     retryController.onConnected()
                     reconnectBackoff.onConnected(SystemClock.elapsedRealtime())
                     reverseMediaReleased = false
@@ -658,6 +660,7 @@ class ReverseConnectionService : Service() {
     private fun releaseRpcSocket(closedGeneration: Long) {
         rpcSocket = null
         rpcCalls.failAll(closedGeneration)
+        SmsBridgeReporter.onSocketClosed()
     }
 
     private fun isCurrentWebSocketCallback(connectionGeneration: Long, callback: String): Boolean {
