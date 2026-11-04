@@ -35,6 +35,13 @@ class AndroidSmsProviderSource(
             sortOrder = "date ASC, _id ASC LIMIT $limit",
         )
 
+    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow> =
+        query(
+            "type IN (${types.joinToString(",")}) AND (date > ? OR (date = ? AND _id > ?))",
+            arrayOf(afterDate.toString(), afterDate.toString(), afterId.toString()),
+            sortOrder = "date ASC, _id ASC LIMIT $limit",
+        )
+
     override fun ownSends(packageName: String, since: Long): List<SmsProviderRow> {
         val types = listOf(
             SmsProviderRow.TYPE_SENT,

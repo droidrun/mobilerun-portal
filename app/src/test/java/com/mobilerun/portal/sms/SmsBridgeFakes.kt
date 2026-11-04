@@ -76,6 +76,14 @@ class FakeSmsProvider : SmsProviderSource, SmsReportRowSource {
             .take(limit)
     }
 
+    override fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow> {
+        queries += 1
+        return rows
+            .filter { it.type in types && (it.date > afterDate || (it.date == afterDate && it.id > afterId)) }
+            .sortedWith(compareBy<SmsProviderRow>({ it.date }, { it.id }))
+            .take(limit)
+    }
+
     fun remove(providerId: Long) {
         rows.removeAll { it.id == providerId }
     }

@@ -2,6 +2,7 @@ package com.mobilerun.portal.sms
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -180,6 +181,53 @@ class SmsReportScannerTest {
         assertEquals(reported.state.inbound, result.state.inbound)
     }
 
+    @Test
+    fun watermarkRowGone_fullRecoveryPage_continuesInDateOrder() {
+        val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val state = seeded()
+        // Dated after the rows below but with a lower _id.
+        val late = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1_000)
+        val early = (1..SmsReportScanner.MAX_ROWS_PER_SCAN).map {
+            provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1 + it)
+        }
+        provider.remove(gone.id)
+
+        val first = scan(state)
+        assertEquals(early.map { it.messageId }, first.ids())
+        assertTrue(first.more)
+
+        val second = scan(first.state)
+        assertEquals(listOf(late.messageId), second.ids())
+        assertFalse(second.more)
+        assertNull(second.state.inboundRecovery)
+        assertEquals(SmsWatermark(early.last().id, early.last().date), second.state.inbound)
+
+        val next = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 2_000)
+        assertEquals(listOf(next.messageId), scan(second.state).ids())
+    }
+
+    @Test
+    fun watermarkRowGone_rowsSharingOneDate_arePagedOnce() {
+        val gone = provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 1)
+        val state = seeded()
+        val same = (1..120).map { provider.add(SmsProviderRow.TYPE_INBOX, date = NOW + 5) }
+        provider.remove(gone.id)
+
+        var result = scan(state)
+        val reported = result.ids().toMutableList()
+        var scans = 1
+        while (result.more) {
+            result = scan(result.state)
+            reported += result.ids()
+            scans += 1
+            assertTrue(scans <= 3)
+        }
+
+        assertEquals(same.map { it.messageId }, reported)
+        assertEquals(SmsWatermark(same.last().id, same.last().date), result.state.inbound)
+        assertNull(result.state.inboundRecovery)
+    }
+
     // --- out: the owner's own sends from other apps ---
 
     @Test
@@ -347,6 +395,17 @@ class SmsReportScannerTest {
         assertEquals(rechecks, SmsRecheckCodec.decode(SmsRecheckCodec.encode(rechecks)))
         assertEquals(listOf(SmsRecheck(4, 100)), SmsRecheckCodec.decode("4:100,x:1,5,"))
         assertTrue(SmsRecheckCodec.decode(null).isEmpty())
+    }
+
+    @Test
+    fun recoveryCodec_roundTripsAndRejectsGarbage() {
+        val recovery = SmsRecovery(date = 1_000, id = 7, max = SmsWatermark(9, 900))
+
+        assertEquals(recovery, SmsRecoveryCodec.decode(SmsRecoveryCodec.encode(recovery)))
+        assertEquals("", SmsRecoveryCodec.encode(null))
+        assertNull(SmsRecoveryCodec.decode(""))
+        assertNull(SmsRecoveryCodec.decode("1:2:3"))
+        assertNull(SmsRecoveryCodec.decode("1:x:3:4"))
     }
 
     companion object {

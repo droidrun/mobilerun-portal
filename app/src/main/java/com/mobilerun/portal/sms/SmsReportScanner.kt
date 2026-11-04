@@ -6,11 +6,19 @@ data class SmsWatermark(val id: Long, val date: Long)
 /** An outbox, queued or failed row the owner sent, checked again until it reaches the sent box. */
 data class SmsRecheck(val providerId: Long, val firstSeenAt: Long)
 
+/**
+ * A date-ordered re-read after the watermark row went missing: the next page starts strictly after
+ * (date, id), and [max] is the highest _id read so far, the watermark once the re-read ends.
+ */
+data class SmsRecovery(val date: Long, val id: Long, val max: SmsWatermark)
+
 data class SmsScanState(
     val inbound: SmsWatermark,
     val out: SmsWatermark,
     val coveredFrom: Long,
     val recheck: List<SmsRecheck> = emptyList(),
+    val inboundRecovery: SmsRecovery? = null,
+    val outRecovery: SmsRecovery? = null,
 )
 
 data class SmsReportCandidate(
@@ -38,14 +46,17 @@ interface SmsReportRowSource {
 
     /** Rows of [types] with date >= [fromDate], by (date, _id) ascending. */
     fun rowsFromDate(types: List<Int>, fromDate: Long, limit: Int): List<SmsProviderRow>
+
+    /** Rows of [types] strictly after ([afterDate], [afterId]), by (date, _id) ascending. */
+    fun rowsAfterDate(types: List<Int>, afterDate: Long, afterId: Long, limit: Int): List<SmsProviderRow>
 }
 
 /**
  * Finds provider rows to report as sms/received. in = inbox rows; out = sent rows the owner sent
  * from another app (never the Portal's own). New rows are those past the watermark; when the
  * watermark row is gone or its date changed (_id reuse), rows dated from watermarkDate - 5 min
- * are read instead and already reported ids are skipped. Rows dated before coveredFrom (the
- * moment cloud SMS was turned on) are never reported.
+ * are read in (date, _id) order instead, page by page, and already reported ids are skipped. Rows
+ * dated before coveredFrom (the moment cloud SMS was turned on) are never reported.
  */
 class SmsReportScanner(
     private val rows: SmsReportRowSource,
@@ -71,12 +82,12 @@ class SmsReportScanner(
             reports[msgId] = SmsReportCandidate(msgId, row.id, direction)
         }
 
-        val inbound = page(state.inbound, INBOUND_TYPES, MAX_ROWS_PER_SCAN)
+        val inbound = page(state.inbound, state.inboundRecovery, INBOUND_TYPES, MAX_ROWS_PER_SCAN)
         inbound.rows
             .filter { it.type == SmsProviderRow.TYPE_INBOX && eligible(it, SmsBridgeListParams.DIRECTION_IN) }
             .forEach { report(it, SmsBridgeListParams.DIRECTION_IN) }
 
-        val out = page(state.out, OUT_TYPES, MAX_ROWS_PER_SCAN - inbound.rows.size)
+        val out = page(state.out, state.outRecovery, OUT_TYPES, MAX_ROWS_PER_SCAN - inbound.rows.size)
         val recheck = LinkedHashMap<Long, SmsRecheck>()
         for (entry in state.recheck) {
             val row = rows.row(entry.providerId)
@@ -99,28 +110,49 @@ class SmsReportScanner(
 
         val keptRechecks = recheck.values.sortedBy { it.firstSeenAt }.takeLast(MAX_RECHECKS)
         return SmsScanResult(
-            state = state.copy(inbound = inbound.watermark, out = out.watermark, recheck = keptRechecks),
+            state = state.copy(
+                inbound = inbound.watermark,
+                out = out.watermark,
+                recheck = keptRechecks,
+                inboundRecovery = inbound.recovery,
+                outRecovery = out.recovery,
+            ),
             reports = reports.values.toList(),
             more = inbound.full || out.full,
         )
     }
 
-    private class Page(val rows: List<SmsProviderRow>, val watermark: SmsWatermark, val full: Boolean)
+    private class Page(
+        val rows: List<SmsProviderRow>,
+        val watermark: SmsWatermark,
+        val recovery: SmsRecovery?,
+        val full: Boolean,
+    )
 
-    private fun page(watermark: SmsWatermark, types: List<Int>, limit: Int): Page {
-        if (limit <= 0) return Page(emptyList(), watermark, full = true)
+    private fun page(watermark: SmsWatermark, recovery: SmsRecovery?, types: List<Int>, limit: Int): Page {
+        if (limit <= 0) return Page(emptyList(), watermark, recovery, full = true)
+        if (recovery != null) {
+            val page = rows.rowsAfterDate(types, recovery.date, recovery.id, limit)
+            return recovered(watermark, recovery.max, page, limit)
+        }
         val valid = watermark.id <= 0L || rows.row(watermark.id)?.date == watermark.date
         if (valid) {
             val page = rows.rowsAfterId(types, watermark.id, limit)
             val next = page.lastOrNull()?.let { SmsWatermark(it.id, it.date) } ?: watermark
-            return Page(page, next, page.size >= limit)
+            return Page(page, next, null, page.size >= limit)
         }
-        val page = rows.rowsFromDate(types, watermark.date - SLACK_MS, limit)
-        val full = page.size >= limit
-        // New rows take max(_id) + 1, so the highest _id is the newest row once the page is complete.
-        val anchor = if (full) page.lastOrNull() else page.maxByOrNull { it.id }
-        val next = anchor?.let { SmsWatermark(it.id, it.date) } ?: watermark
-        return Page(page, next, full)
+        return recovered(watermark, null, rows.rowsFromDate(types, watermark.date - SLACK_MS, limit), limit)
+    }
+
+    /** A full date-ordered page continues after its last row; the last page ends the re-read. */
+    private fun recovered(watermark: SmsWatermark, seen: SmsWatermark?, page: List<SmsProviderRow>, limit: Int): Page {
+        val max = (listOfNotNull(seen) + page.map { SmsWatermark(it.id, it.date) }).maxByOrNull { it.id }
+        if (max != null && page.size >= limit) {
+            val last = page.last()
+            return Page(page, watermark, SmsRecovery(last.date, last.id, max), full = true)
+        }
+        // New rows take max(_id) + 1, so the highest _id read is the newest row.
+        return Page(page, max ?: watermark, null, full = false)
     }
 
     companion object {
@@ -148,6 +180,18 @@ object SmsRecheckCodec {
             val seen = parts[1].toLongOrNull() ?: return@mapNotNull null
             SmsRecheck(id, seen)
         }
+}
+
+/** reporter_state encoding of a recovery cursor: "date:id:maxId:maxDate", empty for none. */
+object SmsRecoveryCodec {
+    fun encode(recovery: SmsRecovery?): String =
+        recovery?.let { "${it.date}:${it.id}:${it.max.id}:${it.max.date}" }.orEmpty()
+
+    fun decode(raw: String?): SmsRecovery? {
+        val parts = raw.orEmpty().split(':').map { it.trim().toLongOrNull() ?: return null }
+        if (parts.size != 4) return null
+        return SmsRecovery(parts[0], parts[1], SmsWatermark(parts[2], parts[3]))
+    }
 }
 
 object SmsCloudSims {
