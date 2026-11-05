@@ -7,6 +7,7 @@ class SmsGateway(
     private val stateStore: SmsStateStore,
     private val sender: SmsSender,
     private val subscriptionResolver: SmsSubscriptionResolver,
+    private val partLimiter: SmsPartRateLimiter = SmsPartRateLimiter.portal,
 ) {
     fun capabilities(): SmsJsonResult =
         SmsJsonResult.success(subscriptionResolver.capabilities())
@@ -63,6 +64,8 @@ class SmsGateway(
                 resolved.subscriptionId,
                 stored.callbackToken ?: return SmsJsonResult.error("Failed to create SMS callback token"),
             )
+            // Local API sends are never refused here, but they count toward the relay limit.
+            partLimiter.record(parts.size)
             SmsJsonResult.success(status.toJson())
         } catch (e: Exception) {
             val failed = stateStore.markFailed(

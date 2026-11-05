@@ -50,6 +50,7 @@ class ReverseConnectionStaleSocketTest {
         every { client.send(any<String>()) } answers { frames.add(firstArg()); Unit }
         service = spyk(mockk<ReverseConnectionService>(), recordPrivateCalls = true)
         setField("webSocketClient", client)
+        setField("rpcSocket", ReverseRpcSocket(client, generation = 1))
         setField(
             "actionDispatcherCache",
             ServiceInstanceCache<MobilerunAccessibilityService, ActionDispatcher>(),
@@ -123,6 +124,7 @@ class ReverseConnectionStaleSocketTest {
         val newClient = mockk<WebSocketClient>(relaxed = true)
         every { newClient.isOpen } returns true
         setField("webSocketClient", newClient)
+        setField("rpcSocket", ReverseRpcSocket(newClient, generation = 2))
         return newClient
     }
 

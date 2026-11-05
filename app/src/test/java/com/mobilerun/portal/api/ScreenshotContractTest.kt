@@ -9,6 +9,7 @@ import com.mobilerun.portal.events.PortalWebSocketServer
 import com.mobilerun.portal.service.ActionDispatcher
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.ReverseRpcSocket
 import com.mobilerun.portal.service.ServiceInstanceCache
 import com.mobilerun.portal.service.SocketServer
 import io.mockk.every
@@ -209,7 +210,7 @@ class ScreenshotContractTest {
         every { client.send(any<ByteArray>()) } answers { frames.add(firstArg<ByteArray>()); Unit }
         setField(service, "actionDispatcherCache", ServiceInstanceCache<MobilerunAccessibilityService, ActionDispatcher>())
         setField(service, "commandExecutor", executor)
-        setField(service, "webSocketClient", client)
+        setField(service, "rpcSocket", ReverseRpcSocket(client, generation = 1))
         val receive = ReverseConnectionService::class.java.getDeclaredMethod(
             "handleMessage", WebSocketClient::class.java, String::class.java,
         ).apply { isAccessible = true }

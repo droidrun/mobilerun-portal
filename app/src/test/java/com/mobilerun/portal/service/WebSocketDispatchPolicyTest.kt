@@ -73,6 +73,31 @@ class WebSocketDispatchPolicyTest {
     }
 
     @Test
+    fun bucketForNormalizedMethod_routesEverySmsMethodToSmsExecutor() {
+        for (method in listOf(
+            "sms/send",
+            "sms/sendStatus",
+            "sms/list",
+            "sms/get",
+            "sms/subscriptions",
+            "sms/capabilities",
+            "sms/status",
+            "sms/messages/list",
+            "sms/messages/get",
+        )) {
+            assertEquals(
+                method,
+                WebSocketDispatchBucket.SMS,
+                WebSocketDispatchPolicy.bucketForNormalizedMethod(method),
+            )
+        }
+        assertEquals(
+            WebSocketDispatchBucket.COMMAND,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("smsx/send"),
+        )
+    }
+
+    @Test
     fun shouldTraceExecutionTiming_marksStateAndWebRtcSetupMethods() {
         assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("state"))
         assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("packages"))
@@ -87,9 +112,10 @@ class WebSocketDispatchPolicyTest {
     }
 
     @Test
-    fun requiresOriginSocket_onlyForCommandsAndInstalls() {
+    fun requiresOriginSocket_onlyForCommandsInstallsAndSms() {
         assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.COMMAND))
         assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.INSTALL))
+        assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.SMS))
         assertEquals(false, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.SIGNALING))
         assertEquals(false, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.LIGHTWEIGHT))
     }

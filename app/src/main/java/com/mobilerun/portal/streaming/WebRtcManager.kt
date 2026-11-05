@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.ReverseRequestIds
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -692,7 +693,6 @@ class WebRtcManager private constructor(private val context: Context) {
     private var isRemoteDescriptionSet = false
     private var iceRestartAttempts = 0
     private var waitingForOffer = false
-    private val outgoingMessageId = AtomicInteger(0)
 
     // for all peerConnection lifecycle operations
     private val streamLock = Any()
@@ -2657,7 +2657,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun sendAnswer(desc: SessionDescription, sessionId: String) {
         val json =
             JSONObject().apply {
-                put("id", outgoingMessageId.getAndIncrement())
+                put("id", ReverseRequestIds.next())
                 put("method", "webrtc/answer")
                 put(
                     "params",
@@ -3563,7 +3563,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun sendOffer(sdp: String, sessionId: String) {
         val json =
             JSONObject().apply {
-                put("id", outgoingMessageId.getAndIncrement())
+                put("id", ReverseRequestIds.next())
                 put("method", "webrtc/offer")
                 put(
                     "params",
@@ -3579,7 +3579,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun sendIceCandidate(candidate: IceCandidate, sessionId: String) {
         val json =
             JSONObject().apply {
-                put("id", outgoingMessageId.getAndIncrement())
+                put("id", ReverseRequestIds.next())
                 put("method", "webrtc/ice")
                 put(
                     "params",
