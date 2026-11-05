@@ -921,6 +921,9 @@ class ReverseConnectionService : Service() {
         }
     }
 
+    private fun isCurrentSocket(client: WebSocketClient): Boolean =
+        rpcSocket?.client === client && client.isOpen
+
     private fun handleMessage(client: WebSocketClient, message: String?) {
         if (message == null) return
 
@@ -1000,8 +1003,7 @@ class ReverseConnectionService : Service() {
                     WebSocketDispatchBucket.SMS -> smsExecutor
                 }
             executor.submit {
-                // Its caller can no longer get the reply and may retry, so a stale SMS request must not act.
-                if (bucket == WebSocketDispatchBucket.SMS && rpcSocket?.client !== client) {
+                if (WebSocketDispatchPolicy.requiresOriginSocket(bucket) && !isCurrentSocket(client)) {
                     Log.w(TAG, "Dropped $normalizedMethod (id=$requestId): its socket was closed")
                     return@submit
                 }
