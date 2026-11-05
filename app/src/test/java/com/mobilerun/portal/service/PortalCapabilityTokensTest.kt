@@ -13,7 +13,7 @@ class PortalCapabilityTokensTest {
         assertEquals(
             mapOf(
                 "X-Device-Capabilities" to
-                    "apps,clipboard,files,location,proxy,sms,sms-events,sms-send,timezone",
+                    "apps,clipboard,files,sms,sms-events,sms-send",
                 "X-Device-Platform" to "android",
             ),
             PortalCapabilityTokens.headers(hasTelephony = true),
@@ -21,10 +21,10 @@ class PortalCapabilityTokensTest {
     }
 
     @Test
-    fun headers_withoutTelephonyKeepTheLegacyEquivalentSet() {
+    fun headers_withoutTelephonyAnnounceOnlyServedCapabilities() {
         assertEquals(
             mapOf(
-                "X-Device-Capabilities" to "apps,clipboard,files,location,proxy,timezone",
+                "X-Device-Capabilities" to "apps,clipboard,files",
                 "X-Device-Platform" to "android",
             ),
             PortalCapabilityTokens.headers(hasTelephony = false),
@@ -38,6 +38,7 @@ class PortalCapabilityTokensTest {
             assertEquals(tokens.sorted(), tokens)
             for (forbidden in listOf(
                 "reset", "recording", "recording-trajectory", "app-uninstall", "media",
+                "location", "proxy", "timezone",
                 "screen-control", "sms-services", "sms-kinds", "sms-junk",
             )) {
                 assertFalse(forbidden in tokens)
