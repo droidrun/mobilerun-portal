@@ -209,6 +209,7 @@ class ScreenshotContractTest {
         every { client.send(any<ByteArray>()) } answers { frames.add(firstArg<ByteArray>()); Unit }
         setField(service, "actionDispatcherCache", ServiceInstanceCache<MobilerunAccessibilityService, ActionDispatcher>())
         setField(service, "commandExecutor", executor)
+        setField(service, "webSocketClient", client)
         val receive = ReverseConnectionService::class.java.getDeclaredMethod(
             "handleMessage", WebSocketClient::class.java, String::class.java,
         ).apply { isAccessible = true }

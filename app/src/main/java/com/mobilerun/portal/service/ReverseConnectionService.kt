@@ -888,6 +888,9 @@ class ReverseConnectionService : Service() {
         }
     }
 
+    private fun isCurrentSocket(client: WebSocketClient): Boolean =
+        webSocketClient === client && client.isOpen
+
     private fun handleMessage(client: WebSocketClient, message: String?) {
         if (message == null) return
 
@@ -950,14 +953,19 @@ class ReverseConnectionService : Service() {
 
             val requestId = id
             val dispatchStartedAtMs = SystemClock.elapsedRealtime()
+            val bucket = WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)
             val executor =
-                when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
+                when (bucket) {
                     WebSocketDispatchBucket.SIGNALING -> signalingExecutor
                     WebSocketDispatchBucket.LIGHTWEIGHT -> lightweightExecutor
                     WebSocketDispatchBucket.COMMAND -> commandExecutor
                     WebSocketDispatchBucket.INSTALL -> installExecutor
                 }
             executor.submit {
+                if (WebSocketDispatchPolicy.requiresOriginSocket(bucket) && !isCurrentSocket(client)) {
+                    Log.w(TAG, "Dropped $normalizedMethod (id=$requestId): its socket was closed")
+                    return@submit
+                }
                 dispatchAndRespond(
                     client = client,
                     dispatcher = dispatcher,

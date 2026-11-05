@@ -85,4 +85,12 @@ class WebSocketDispatchPolicyTest {
         assertEquals(false, WebSocketDispatchPolicy.shouldTraceExecutionTiming("task/start"))
         assertEquals(false, WebSocketDispatchPolicy.shouldTraceExecutionTiming("webrtc/offer"))
     }
+
+    @Test
+    fun requiresOriginSocket_onlyForCommandsAndInstalls() {
+        assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.COMMAND))
+        assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.INSTALL))
+        assertEquals(false, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.SIGNALING))
+        assertEquals(false, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.LIGHTWEIGHT))
+    }
 }
