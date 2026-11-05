@@ -238,7 +238,11 @@ class ActionDispatcher(
             }
 
             "location/get" -> {
-                apiHandler.getLocation()
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("location/get requires reverse WebSocket connection")
+                } else {
+                    apiHandler.getLocation()
+                }
             }
 
             "files/list" -> {
