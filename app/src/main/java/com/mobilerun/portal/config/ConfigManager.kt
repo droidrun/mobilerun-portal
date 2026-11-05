@@ -58,6 +58,8 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
         private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
+        private const val KEY_SMS_CLOUD_ENABLED = "sms_cloud_enabled"
+        private const val KEY_SMS_CLOUD_SUBSCRIPTION_ID = "sms_cloud_subscription_id"
         private const val KEY_DEVICE_AUDIO_ENABLED = "device_audio_enabled"
         private const val KEY_DEVICE_AUDIO_PERMISSION_PROMPTED = "device_audio_permission_prompted"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
@@ -533,6 +535,32 @@ class ConfigManager private constructor(private val context: Context) {
             listeners.forEach { it.onSmsGatewayEnabledChanged(value) }
         }
 
+    // Mobilerun cloud SMS consent. Set only from Settings; never derived from smsGatewayEnabled.
+    var smsCloudEnabled: Boolean
+        get() = smsPrefs.getBoolean(KEY_SMS_CLOUD_ENABLED, false)
+        set(value) {
+            if (smsCloudEnabled == value) return
+            smsPrefs.edit(commit = true) { putBoolean(KEY_SMS_CLOUD_ENABLED, value) }
+            listeners.forEach { it.onSmsCloudEnabledChanged(value) }
+        }
+
+    /** The SIM Mobilerun cloud SMS covers; required on multi-SIM devices. */
+    var cloudSubscriptionId: Int?
+        get() = if (smsPrefs.contains(KEY_SMS_CLOUD_SUBSCRIPTION_ID)) {
+            smsPrefs.getInt(KEY_SMS_CLOUD_SUBSCRIPTION_ID, -1)
+        } else {
+            null
+        }
+        set(value) {
+            smsPrefs.edit(commit = true) {
+                if (value == null) remove(KEY_SMS_CLOUD_SUBSCRIPTION_ID) else putInt(KEY_SMS_CLOUD_SUBSCRIPTION_ID, value)
+            }
+        }
+
+    /** Runs after a settings reset so SMS records older than 24 h are dropped (set by PortalApplication). */
+    @Volatile
+    var onSmsReset: (() -> Unit)? = null
+
     // Set only from Settings and the ContentProvider; streaming also needs RECORD_AUDIO.
     var deviceAudioEnabled: Boolean
         get() = audioPrefs.getBoolean(KEY_DEVICE_AUDIO_ENABLED, true)
@@ -908,6 +936,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
         fun onSmsGatewayEnabledChanged(enabled: Boolean) {}
+        fun onSmsCloudEnabledChanged(enabled: Boolean) {}
         fun onDeviceAudioEnabledChanged(enabled: Boolean) {}
         fun onReconnectAfterRestartEnabledChanged(enabled: Boolean) {}
         fun onStreamSessionLimitChanged(limit: Int) {}
@@ -1125,6 +1154,7 @@ class ConfigManager private constructor(private val context: Context) {
         }
         smsPrefs.edit(commit = true) { clear() }
         audioPrefs.edit(commit = true) { clear() }
+        onSmsReset?.invoke()
         // Notify listeners
         listeners.forEach {
             it.onOverlayVisibilityChanged(false)
@@ -1135,6 +1165,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
             it.onKeepScreenAwakeEnabledChanged(false)
             it.onSmsGatewayEnabledChanged(false)
+            it.onSmsCloudEnabledChanged(false)
             it.onDeviceAudioEnabledChanged(true)
             it.onReconnectAfterRestartEnabledChanged(false)
             it.onStreamSessionLimitChanged(DEFAULT_STREAM_SESSION_LIMIT)
