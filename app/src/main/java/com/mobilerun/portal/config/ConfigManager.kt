@@ -59,6 +59,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
         private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
         private const val KEY_SMS_CLOUD_ENABLED = "sms_cloud_enabled"
+        private const val KEY_LOCATION_SHARING_ENABLED = "location_sharing_enabled"
         private const val KEY_SMS_CLOUD_SUBSCRIPTION_ID = "sms_cloud_subscription_id"
         private const val KEY_DEVICE_AUDIO_ENABLED = "device_audio_enabled"
         private const val KEY_DEVICE_AUDIO_PERMISSION_PROMPTED = "device_audio_permission_prompted"
@@ -533,6 +534,16 @@ class ConfigManager private constructor(private val context: Context) {
             if (smsGatewayEnabled == value) return
             smsPrefs.edit { putBoolean(KEY_SMS_GATEWAY_ENABLED, value) }
             listeners.forEach { it.onSmsGatewayEnabledChanged(value) }
+        }
+
+    /**
+     * Location consent for `location/get`. Set only from Settings; install-time grants don't count.
+     * Kept in device prefs, which are never restored from backup.
+     */
+    var locationSharingEnabled: Boolean
+        get() = devicePrefs.getBoolean(KEY_LOCATION_SHARING_ENABLED, false)
+        set(value) {
+            devicePrefs.edit { putBoolean(KEY_LOCATION_SHARING_ENABLED, value) }
         }
 
     // Mobilerun cloud SMS consent. Set only from Settings; never derived from smsGatewayEnabled.

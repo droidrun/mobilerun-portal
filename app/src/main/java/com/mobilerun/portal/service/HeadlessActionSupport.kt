@@ -3,6 +3,8 @@ package com.mobilerun.portal.service
 object HeadlessActionSupport {
     fun isAllowed(normalizedMethod: String): Boolean {
         return normalizedMethod == "version" ||
+            normalizedMethod == "timezone/get" ||
+            normalizedMethod == "location/get" ||
             normalizedMethod == "stream/start" ||
             normalizedMethod == "stream/stop" ||
             normalizedMethod == "global" ||

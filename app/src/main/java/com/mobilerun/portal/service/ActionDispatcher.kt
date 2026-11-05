@@ -233,6 +233,14 @@ class ActionDispatcher(
                 apiHandler.getTime()
             }
 
+            "timezone/get" -> {
+                apiHandler.getTimeZone()
+            }
+
+            "location/get" -> {
+                apiHandler.getLocation()
+            }
+
             "files/list" -> {
                 val path = params.optString("path", "")
                 apiHandler.listFiles(path)

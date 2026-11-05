@@ -247,6 +247,12 @@
     <string name="sms_cloud_no_telephony">This device cannot send or receive SMS</string>
     <string name="sms_cloud_missing_permissions">Missing permissions: %1$s</string>
     <string name="sms_permission_phone_numbers">Phone numbers</string>
+    <string name="location_label">Share location with Mobilerun cloud</string>
+    <string name="location_description">Lets Mobilerun cloud read where this phone is while Portal is connected.</string>
+    <string name="location_status_off">Location permission not granted.</string>
+    <string name="location_status_foreground">Allowed only while Portal is open. Choose \"Allow all the time\" so the cloud can read it.</string>
+    <string name="location_allow">Allow location</string>
+    <string name="location_allow_all_the_time">Allow all the time</string>
 
     <!-- Logout -->
     <string name="logout">Logout</string>

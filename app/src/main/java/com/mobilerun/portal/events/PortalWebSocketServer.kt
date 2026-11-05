@@ -36,6 +36,7 @@ class PortalWebSocketServer(
     private val lightweightExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val locationExecutor = Executors.newSingleThreadExecutor()
     private val localDeviceEventRelay = LocalDeviceEventRelay(
         connectionsProvider = { connections.toList() },
         onSendFailure = { connection, error ->
@@ -120,6 +121,7 @@ class PortalWebSocketServer(
                         WebSocketDispatchBucket.COMMAND,
                         WebSocketDispatchBucket.SMS -> commandExecutor
                         WebSocketDispatchBucket.INSTALL -> installExecutor
+                        WebSocketDispatchBucket.LOCATION -> locationExecutor
                     }
                 executor.submit {
                     dispatchAndRespond(
@@ -271,6 +273,11 @@ class PortalWebSocketServer(
                 installExecutor.shutdownNow()
             } catch (e: Exception) {
                 Log.e(TAG, "Error stopping install executor", e)
+            }
+            try {
+                locationExecutor.shutdownNow()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping location executor", e)
             }
         }
     }

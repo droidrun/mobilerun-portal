@@ -20,6 +20,18 @@ import org.junit.Test
 
 class ActionDispatcherTest {
     @Test
+    fun dispatch_timezoneAndLocationGet_routeToApiHandler() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.getTimeZone() } returns ApiResponse.Success("tz")
+        every { apiHandler.getLocation() } returns ApiResponse.Success("location")
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(ApiResponse.Success("tz"), dispatcher.dispatch("timezone/get", JSONObject()))
+        assertEquals(ApiResponse.Success("location"), dispatcher.dispatch("/action/location/get", JSONObject()))
+    }
+
+    @Test
     fun dispatch_tap_normalizesActionPrefixes() {
         val apiHandler = mockk<ApiHandler>()
         every { apiHandler.performTap(10, 20) } returns ApiResponse.Success("ok")

@@ -19,6 +19,7 @@ class ReverseConnectionLoggingTest {
     @Test
     fun responseRedaction_coversSensitiveReadDeepLinkAndSmsPayloads() {
         assertTrue(shouldRedactReverseResponsePayload("clipboard/get"))
+        assertTrue(shouldRedactReverseResponsePayload("location/get"))
         assertTrue(shouldRedactReverseResponsePayload("app/deep-link"))
         assertTrue(shouldRedactReverseResponsePayload("app/deep-link/resolve"))
         assertTrue(shouldRedactReverseResponsePayload("sms/status"))

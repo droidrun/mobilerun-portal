@@ -98,6 +98,15 @@ class WebSocketDispatchPolicyTest {
     }
 
     @Test
+    fun locationGet_runsOnItsOwnBucket() {
+        assertEquals(
+            WebSocketDispatchBucket.LOCATION,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("location/get"),
+        )
+        assertEquals(true, WebSocketDispatchPolicy.requiresOriginSocket(WebSocketDispatchBucket.LOCATION))
+    }
+
+    @Test
     fun shouldTraceExecutionTiming_marksStateAndWebRtcSetupMethods() {
         assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("state"))
         assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("packages"))
