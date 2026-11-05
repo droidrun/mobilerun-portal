@@ -15,6 +15,7 @@ class LocationReaderTest {
         var throwOnRead: Boolean = false,
     ) : LocationSource {
         var currentCalls = 0
+        var onCurrent: () -> Unit = {}
         override fun hasForegroundPermission() = foreground
         override fun hasBackgroundPermission() = background
         override fun isLocationEnabled() = enabled
@@ -24,6 +25,7 @@ class LocationReaderTest {
         }
         override fun current(timeoutMs: Long): LocationFix? {
             currentCalls++
+            onCurrent()
             return currentFix
         }
         override fun elapsedRealtimeNanos() = now
@@ -95,6 +97,15 @@ class LocationReaderTest {
 
         assertEquals(LocationReading.Unavailable(LocationReader.SHARING_OFF), LocationReader(source) { false }.read())
         assertEquals(0, source.currentCalls)
+    }
+
+    @Test
+    fun read_sharingTurnedOffWhileWaiting_withholdsTheFix() {
+        var sharing = true
+        val source = FakeSource(currentFix = LocationFix(40.4, 49.8, 0))
+        source.onCurrent = { sharing = false }
+
+        assertEquals(LocationReading.Unavailable(LocationReader.SHARING_OFF), LocationReader(source) { sharing }.read())
     }
 
     @Test

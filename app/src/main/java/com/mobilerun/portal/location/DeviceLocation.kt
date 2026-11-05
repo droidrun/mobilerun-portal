@@ -50,8 +50,12 @@ class LocationReader(
             val fix = last?.takeIf { it.isYoungerThan(freshMs) }
                 ?: source.current(timeoutMs)
                 ?: last?.takeIf { it.isYoungerThan(fallbackMs) }
-            fix?.let { LocationReading.Fix(it.latitude, it.longitude) }
-                ?: LocationReading.Unavailable(NO_FIX)
+            when {
+                // Sharing can be turned off while waiting for a current fix.
+                !sharingEnabled() -> LocationReading.Unavailable(SHARING_OFF)
+                fix == null -> LocationReading.Unavailable(NO_FIX)
+                else -> LocationReading.Fix(fix.latitude, fix.longitude)
+            }
         } catch (_: SecurityException) {
             LocationReading.Unavailable(PERMISSION_DENIED)
         }
