@@ -9,4 +9,7 @@
     <exclude domain="sharedpref" path="mobilerun_secrets.xml"/>
     <exclude domain="sharedpref" path="mobilerun_sms.xml"/>
     <exclude domain="sharedpref" path="mobilerun_audio.xml"/>
+    <exclude domain="database" path="mobilerun_sms.db"/>
+    <exclude domain="database" path="mobilerun_sms.db-wal"/>
+    <exclude domain="database" path="mobilerun_sms.db-shm"/>
 </full-backup-content>

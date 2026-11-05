@@ -32,6 +32,12 @@ import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.service.setReconnectAfterRestart
+import com.mobilerun.portal.sms.SmsBridgeReporter
+import com.mobilerun.portal.sms.SmsCloud
+import com.mobilerun.portal.sms.SmsCloudSims
+import com.mobilerun.portal.sms.SmsSimInfo
+import com.mobilerun.portal.sms.SmsSubscriptionResolver
+import com.mobilerun.portal.sms.SmsSubscriptionsResult
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
@@ -54,6 +60,8 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private var suppressSocketServerSwitchCallback = false
     private var suppressWebSocketSwitchCallback = false
     private var suppressDeviceAudioSwitchCallback = false
+    private var suppressSmsCloudSwitchCallback = false
+    private var smsCloudEnabling = false
     private var isInstallReceiverRegistered = false
     private var isSignatureConflictReceiverRegistered = false
 
@@ -106,6 +114,24 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         ActivityResultContracts.RequestPermission(),
     ) {
         updatePermissionSwitches()
+        SmsBridgeReporter.onPermissionsChanged()
+    }
+
+    private val requestSmsCloudPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        updatePermissionSwitches()
+        if (SMS_CLOUD_REQUIRED_PERMISSIONS.all(::isPermissionGranted)) {
+            continueSmsCloudEnable()
+        } else {
+            android.widget.Toast.makeText(this, R.string.sms_cloud_permissions_denied, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val requestPhoneNumbersPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        renderSmsCloud()
     }
 
     private val requestRecordAudioPermissionLauncher = registerForActivityResult(
@@ -512,7 +538,140 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.buttonRequestPhoneState.setOnClickListener {
             requestSmsPermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
         }
+
+        binding.switchSmsCloud.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressSmsCloudSwitchCallback) return@setOnCheckedChangeListener
+            if (isChecked) {
+                // Stays off until the permissions are granted and the watermarks are seeded.
+                setSmsCloudSwitch(false)
+                startSmsCloudEnable()
+            } else {
+                SmsCloud.disable(this)
+                renderSmsCloud()
+            }
+        }
+        binding.buttonSmsCloudSim.setOnClickListener {
+            chooseCloudSim(activeSims()) { subscriptionId ->
+                SmsCloud.chooseSimAsync(this, subscriptionId) { ok ->
+                    if (!ok) {
+                        android.widget.Toast.makeText(this, R.string.sms_cloud_sim_failed, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    if (!isDestroyed) renderSmsCloud()
+                }
+            }
+        }
+        binding.buttonRequestPhoneNumbers.setOnClickListener {
+            requestPhoneNumbersPermissionLauncher.launch(Manifest.permission.READ_PHONE_NUMBERS)
+        }
     }
+
+    private fun startSmsCloudEnable() {
+        if (!SmsSubscriptionResolver(this).hasTelephony()) {
+            android.widget.Toast.makeText(this, R.string.sms_cloud_no_telephony, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        if (SMS_CLOUD_REQUIRED_PERMISSIONS.all(::isPermissionGranted)) {
+            continueSmsCloudEnable()
+            return
+        }
+        val missing = (SMS_CLOUD_REQUIRED_PERMISSIONS + Manifest.permission.READ_PHONE_NUMBERS)
+            .filterNot(::isPermissionGranted)
+        requestSmsCloudPermissionsLauncher.launch(missing.toTypedArray())
+    }
+
+    private fun continueSmsCloudEnable() {
+        val sims = activeSims()
+        if (sims.size > 1) {
+            chooseCloudSim(sims, ::enableSmsCloud)
+        } else {
+            enableSmsCloud(sims.firstOrNull()?.subscriptionId)
+        }
+    }
+
+    private fun enableSmsCloud(cloudSubscriptionId: Int?) {
+        smsCloudEnabling = true
+        renderSmsCloud()
+        SmsCloud.enableAsync(this, cloudSubscriptionId) { ok ->
+            smsCloudEnabling = false
+            if (!ok) {
+                android.widget.Toast.makeText(this, R.string.sms_cloud_enable_failed, android.widget.Toast.LENGTH_LONG).show()
+            }
+            if (!isDestroyed) renderSmsCloud()
+        }
+    }
+
+    private fun chooseCloudSim(sims: List<SmsSimInfo>, onPicked: (Int) -> Unit) {
+        if (sims.isEmpty()) return
+        val labels = sims.map(::simLabel).toTypedArray()
+        val current = sims.indexOfFirst { it.subscriptionId == configManager.cloudSubscriptionId }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.sms_cloud_sim_dialog_title)
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                onPicked(sims[which].subscriptionId)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun simLabel(sim: SmsSimInfo): String {
+        val name = sim.displayName?.takeIf { it.isNotBlank() }
+            ?: sim.carrier?.takeIf { it.isNotBlank() }
+            ?: sim.phoneNumber
+            ?: sim.subscriptionId.toString()
+        return getString(R.string.sms_cloud_sim_label, sim.simSlot + 1, name)
+    }
+
+    private fun activeSims(): List<SmsSimInfo> =
+        (SmsSubscriptionResolver(this).bridgeSubscriptions() as? SmsSubscriptionsResult.Available)
+            ?.subscriptions
+            .orEmpty()
+
+    /** The cloud SIM line: shown on multi-SIM devices and whenever cloud SMS is paused for lack of a SIM. */
+    private fun cloudSimStatus(sims: List<SmsSimInfo>): String? {
+        val cloudId = configManager.cloudSubscriptionId
+        val cloud = SmsCloudSims.pick(sims, cloudId)
+        return when {
+            cloud != null -> if (sims.size > 1) getString(R.string.sms_cloud_sim_status, simLabel(cloud)) else null
+            sims.isEmpty() -> getString(R.string.sms_cloud_no_sim)
+            cloudId != null -> getString(R.string.sms_cloud_sim_inactive)
+            else -> getString(R.string.sms_cloud_sim_missing)
+        }
+    }
+
+    private fun setSmsCloudSwitch(checked: Boolean) {
+        suppressSmsCloudSwitchCallback = true
+        binding.switchSmsCloud.isChecked = checked
+        suppressSmsCloudSwitchCallback = false
+    }
+
+    private fun renderSmsCloud() {
+        val enabled = configManager.smsCloudEnabled
+        setSmsCloudSwitch(enabled)
+        binding.switchSmsCloud.isEnabled = !smsCloudEnabling
+        val subscriptions = if (enabled) SmsSubscriptionResolver(this).bridgeSubscriptions() else null
+        val sims = (subscriptions as? SmsSubscriptionsResult.Available)?.subscriptions.orEmpty()
+        val simStatus = if (subscriptions is SmsSubscriptionsResult.Available) cloudSimStatus(sims) else null
+        val lines = mutableListOf<String>()
+        if (enabled) {
+            val missing = SMS_CLOUD_REQUIRED_PERMISSIONS.filterNot(::isPermissionGranted)
+            if (missing.isNotEmpty()) {
+                lines += getString(
+                    R.string.sms_cloud_missing_permissions,
+                    missing.joinToString { it.substringAfterLast('.') },
+                )
+            }
+            simStatus?.let { lines += it }
+        }
+        binding.textSmsCloudStatus.text = lines.joinToString("\n")
+        binding.textSmsCloudStatus.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
+        binding.buttonSmsCloudSim.visibility = if (simStatus != null && sims.isNotEmpty()) View.VISIBLE else View.GONE
+        binding.buttonRequestPhoneNumbers.visibility =
+            if (isPermissionGranted(Manifest.permission.READ_PHONE_NUMBERS)) View.GONE else View.VISIBLE
+    }
+
+    private fun isPermissionGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun setupEventFilters() {
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
@@ -1031,6 +1190,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         val read = grantLabel(Manifest.permission.READ_SMS)
         val receive = grantLabel(Manifest.permission.RECEIVE_SMS)
         val phoneState = grantLabel(Manifest.permission.READ_PHONE_STATE)
+        val phoneNumbers = grantLabel(Manifest.permission.READ_PHONE_NUMBERS)
         val hasSmsMessaging = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
         } else {
@@ -1043,7 +1203,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             "not available"
         }
         binding.textSmsPermissionsStatus.text =
-            "SMS messaging: $telephony\nSEND_SMS: $send\nREAD_SMS: $read\nRECEIVE_SMS: $receive\nREAD_PHONE_STATE: $phoneState"
+            "SMS messaging: $telephony\nSEND_SMS: $send\nREAD_SMS: $read\nRECEIVE_SMS: $receive\nREAD_PHONE_STATE: $phoneState\n" +
+                "READ_PHONE_NUMBERS: $phoneNumbers"
+        renderSmsCloud()
     }
 
     private fun grantLabel(permission: String): String {
@@ -1100,6 +1262,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         }
     }
 
+    override fun onSmsCloudEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            renderSmsCloud()
+        }
+    }
+
     override fun onDeviceAudioEnabledChanged(enabled: Boolean) {
         runOnUiThread {
             updateDeviceAudioStatus()
@@ -1121,5 +1289,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     companion object {
         private const val MIN_PORT = 1024
         private const val MAX_PORT = 65535
+        private val SMS_CLOUD_REQUIRED_PERMISSIONS = listOf(
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.READ_PHONE_STATE,
+        )
     }
 }

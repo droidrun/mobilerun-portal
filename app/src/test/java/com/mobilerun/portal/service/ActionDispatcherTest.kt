@@ -386,6 +386,45 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_smsBridgeMethods_routeOnlyFromTheRelaySocket() {
+        val apiHandler = mockk<ApiHandler>()
+        val bridgeSend = JSONObject().put("to", "+15550001111").put("body", "hello")
+        val legacySend = JSONObject().put("phone_number", "+15550001111").put("message", "hello")
+        every { apiHandler.handleSmsBridge(any(), any()) } returns ApiResponse.RawObject(JSONObject())
+        every { apiHandler.sendSms(any()) } returns ApiResponse.Success("legacy")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val reverse = ActionDispatcher.Origin.WEBSOCKET_REVERSE
+
+        listOf("sms/list", "sms/get", "sms/subscriptions", "sms/sendStatus").forEach { method ->
+            dispatcher.dispatch(method, JSONObject(), reverse)
+            dispatcher.dispatch("/action/$method", JSONObject(), reverse)
+        }
+        dispatcher.dispatch("sms/send", bridgeSend, reverse)
+        assertEquals(ApiResponse.Success("legacy"), dispatcher.dispatch("sms/send", legacySend, reverse))
+
+        verify(exactly = 2) { apiHandler.handleSmsBridge("sms/list", any()) }
+        verify(exactly = 2) { apiHandler.handleSmsBridge("sms/sendStatus", any()) }
+        verify(exactly = 1) { apiHandler.handleSmsBridge("sms/send", bridgeSend) }
+        verify(exactly = 1) { apiHandler.sendSms(legacySend) }
+    }
+
+    @Test
+    fun dispatch_smsBridgeMethods_areNotExposedLocally() {
+        val apiHandler = mockk<ApiHandler>()
+        val bridgeSend = JSONObject().put("to", "+15550001111").put("body", "hello")
+        every { apiHandler.sendSms(bridgeSend) } returns ApiResponse.Success("legacy")
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        listOf(ActionDispatcher.Origin.HTTP, ActionDispatcher.Origin.WEBSOCKET_LOCAL).forEach { origin ->
+            listOf("sms/list", "sms/get", "sms/subscriptions", "sms/sendStatus").forEach { method ->
+                assertEquals(ApiResponse.Error("Unknown method: $method"), dispatcher.dispatch(method, JSONObject(), origin))
+            }
+            assertEquals(ApiResponse.Success("legacy"), dispatcher.dispatch("sms/send", bridgeSend, origin))
+        }
+        verify(exactly = 0) { apiHandler.handleSmsBridge(any(), any()) }
+    }
+
+    @Test
     fun dispatch_smsGatewaySwitch_isNotExposed() {
         val apiHandler = mockk<ApiHandler>()
         val dispatcher = ActionDispatcher(apiHandler)

@@ -231,6 +231,22 @@
     <string name="sms_permission_read">Read</string>
     <string name="sms_permission_receive">Receive</string>
     <string name="sms_permission_phone_state">Phone state</string>
+    <string name="sms_cloud_label">Mobilerun cloud SMS</string>
+    <string name="sms_cloud_description">Sync this phone\'s SMS with Mobilerun cloud and let it send SMS from this phone</string>
+    <string name="sms_cloud_details">• Mobilerun cloud can read the SMS on this phone, and new incoming and sent SMS.\n• Mobilerun cloud can send SMS from this phone, charged to your mobile plan.\n• SMS only: RCS and MMS are never read or sent.\n• SMS trigger events are separate and stay controlled by the event toggles.</string>
+    <string name="sms_cloud_permissions_denied">Mobilerun cloud SMS needs the SMS and phone state permissions</string>
+    <string name="sms_cloud_enable_failed">Could not turn on Mobilerun cloud SMS</string>
+    <string name="sms_cloud_choose_sim">Choose cloud SIM</string>
+    <string name="sms_cloud_sim_dialog_title">SIM for Mobilerun cloud SMS</string>
+    <string name="sms_cloud_sim_label">SIM %1$d · %2$s</string>
+    <string name="sms_cloud_sim_status">Cloud SIM: %1$s. SMS on other SIMs are not uploaded or sent.</string>
+    <string name="sms_cloud_sim_missing">No cloud SIM chosen. Mobilerun cloud SMS is paused until you choose one.</string>
+    <string name="sms_cloud_sim_inactive">The cloud SIM is not active. Mobilerun cloud SMS is paused until you choose a SIM.</string>
+    <string name="sms_cloud_no_sim">No active SIM. Mobilerun cloud SMS is paused.</string>
+    <string name="sms_cloud_sim_failed">Could not change the cloud SIM</string>
+    <string name="sms_cloud_no_telephony">This device cannot send or receive SMS</string>
+    <string name="sms_cloud_missing_permissions">Missing permissions: %1$s</string>
+    <string name="sms_permission_phone_numbers">Phone numbers</string>
 
     <!-- Logout -->
     <string name="logout">Logout</string>

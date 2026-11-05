@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.events.model.PortalEvent
+import com.mobilerun.portal.sms.SmsBridgeReporter
 import org.json.JSONObject
 import java.util.UUID
 
@@ -92,6 +93,8 @@ class TriggerSmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         TriggerRuntime.initialize(context)
+        // The default SMS app writes the provider row shortly after this broadcast.
+        SmsBridgeReporter.scanBurst()
 
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isNullOrEmpty()) return

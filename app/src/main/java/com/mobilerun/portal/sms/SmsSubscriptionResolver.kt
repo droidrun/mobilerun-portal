@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.telephony.PhoneNumberUtils
+import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
@@ -15,8 +17,18 @@ data class SmsSubscriptionResolution(
     val error: String? = null,
 )
 
+internal fun hasTelephonyFeature(sdkInt: Int, hasSystemFeature: (String) -> Boolean): Boolean =
+    if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+        hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
+    } else {
+        @Suppress("DEPRECATION")
+        hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+    }
+
 class SmsSubscriptionResolver(
     private val context: Context,
+    private val phoneNumberReader: (SubscriptionManager, SubscriptionInfo) -> String? = ::readPhoneNumber,
+    private val e164Formatter: (String, String) -> String? = PhoneNumberUtils::formatNumberToE164,
 ) {
     fun resolve(subscriptionId: Int?, simSlot: Int?): SmsSubscriptionResolution {
         if (subscriptionId != null && simSlot != null) {
@@ -58,21 +70,17 @@ class SmsSubscriptionResolver(
             .put("read_sms_granted", hasPermission(Manifest.permission.READ_SMS))
             .put("receive_sms_granted", hasPermission(Manifest.permission.RECEIVE_SMS))
             .put("read_phone_state_granted", hasReadPhoneState())
+            .put("read_phone_numbers_granted", hasPermission(Manifest.permission.READ_PHONE_NUMBERS))
             .put("active_subscriptions", activeSubscriptions().subscriptionsToJsonArray())
 
     fun hasTelephony(): Boolean {
         val packageManager = context.packageManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
-        }
+        return hasTelephonyFeature(Build.VERSION.SDK_INT, packageManager::hasSystemFeature)
     }
 
     fun hasSendSms(): Boolean = hasPermission(Manifest.permission.SEND_SMS)
 
-    private fun hasReadPhoneState(): Boolean = hasPermission(Manifest.permission.READ_PHONE_STATE)
+    fun hasReadPhoneState(): Boolean = hasPermission(Manifest.permission.READ_PHONE_STATE)
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -96,4 +104,47 @@ class SmsSubscriptionResolver(
             emptyList()
         }
     }
+
+    /** Bridge view: a missing READ_PHONE_STATE is reported, never turned into an empty list. */
+    @SuppressLint("MissingPermission")
+    fun bridgeSubscriptions(): SmsSubscriptionsResult {
+        if (!hasReadPhoneState()) return SmsSubscriptionsResult.PermissionDenied
+        return try {
+            val manager = context.getSystemService(SubscriptionManager::class.java)
+                ?: return SmsSubscriptionsResult.Available(emptyList())
+            SmsSubscriptionsResult.Available(
+                manager.activeSubscriptionInfoList.orEmpty().map { info ->
+                    SmsSimInfo(
+                        subscriptionId = info.subscriptionId,
+                        simSlot = info.simSlotIndex,
+                        phoneNumber = SmsPhoneNumbers.normalizeE164(
+                            raw = runCatching { phoneNumberReader(manager, info) }.getOrNull(),
+                            countryIso = info.countryIso,
+                            formatter = e164Formatter,
+                        ),
+                        carrier = info.carrierName?.toString(),
+                        displayName = info.displayName?.toString(),
+                    )
+                },
+            )
+        } catch (_: SecurityException) {
+            SmsSubscriptionsResult.PermissionDenied
+        } catch (_: Exception) {
+            SmsSubscriptionsResult.Unavailable
+        }
+    }
 }
+
+/** SubscriptionManager.getPhoneNumber on API 33+, SubscriptionInfo.number below; null without READ_PHONE_NUMBERS. */
+@SuppressLint("MissingPermission")
+internal fun readPhoneNumber(manager: SubscriptionManager, info: SubscriptionInfo): String? =
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            manager.getPhoneNumber(info.subscriptionId)
+        } else {
+            @Suppress("DEPRECATION")
+            info.number
+        }
+    } catch (_: SecurityException) {
+        null
+    }
