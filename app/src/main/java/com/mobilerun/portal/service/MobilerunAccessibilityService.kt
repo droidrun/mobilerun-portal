@@ -62,6 +62,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
+        private const val RECORD_AUDIO_RECHECK_MS = 250L
+        private const val MAX_RECORD_AUDIO_RECHECKS = 20
         private const val LOCAL_WS_NOTIFICATION_CHANNEL_ID = "local_ws_connection_channel"
         private const val LOCAL_WS_NOTIFICATION_ID = 2003
         internal const val VISIBLE_ELEMENTS_STALE_GRACE_MS = 750L
@@ -215,6 +217,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     private var lastWebSocketServerToastAtMs = 0L
     private var lastAutoAcceptFailureToastAtMs = 0L
     private val portalAppLabel by lazy { packageManager.getApplicationLabel(applicationInfo).toString() }
+    private val recordAudioRecheck = Runnable { autoAcceptRecordAudio() }
+    private var recordAudioRechecks = 0
 
     // Servers
     // TODO Make nullable
@@ -363,18 +367,9 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         // Auto-accept Portal's own Record audio prompt (same setting as screen share)
-        if (RecordAudioAutoAccept.isPermissionDialog(event, eventClassName) &&
-            configManager.screenShareAutoAcceptEnabled &&
-            AutoAcceptGate.isRecordAudioArmed()
-        ) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null) {
-                try {
-                    RecordAudioAutoAccept.tryAutoAccept(rootNode, portalAppLabel)
-                } finally {
-                    rootNode.recycle()
-                }
-            }
+        if (RecordAudioAutoAccept.isPermissionDialog(event, eventClassName)) {
+            recordAudioRechecks = 0
+            autoAcceptRecordAudio()
         }
 
         if (PackageInstallerAutoAccept.isInstallDialog(event, eventClassName) &&
@@ -1233,6 +1228,23 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
     }
 
+    // A cold prompt can send its last event before its buttons are visible, so re-check for a while.
+    private fun autoAcceptRecordAudio() {
+        mainHandler.removeCallbacks(recordAudioRecheck)
+        if (!configManager.screenShareAutoAcceptEnabled || !AutoAcceptGate.isRecordAudioArmed()) return
+        val rootNode = rootInActiveWindow ?: return
+        val result = try {
+            RecordAudioAutoAccept.tryAutoAccept(rootNode, portalAppLabel)
+        } finally {
+            rootNode.recycle()
+        }
+        if (result == RecordAudioAutoAccept.AutoAcceptResult.NotReady &&
+            recordAudioRechecks++ < MAX_RECORD_AUDIO_RECHECKS
+        ) {
+            mainHandler.postDelayed(recordAudioRecheck, RECORD_AUDIO_RECHECK_MS)
+        }
+    }
+
     private fun showAutoAcceptFailedToastIfEnoughTimeIsPassed() {
         val now = SystemClock.elapsedRealtime()
         if (lastAutoAcceptFailureToastAtMs == 0L ||
@@ -1586,6 +1598,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacks(recordAudioRecheck)
         stopPeriodicUpdates()
         stopSocketServer()
         stopWebSocketServer()
