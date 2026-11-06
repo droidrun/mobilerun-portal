@@ -1,12 +1,12 @@
 package com.mobilerun.portal.service
 
-/** Relay handshake tokens. The base set maps to the same devices-api capabilities as no header. */
+/** Relay handshake tokens. Only capabilities this Portal serves; devices-api turns off the rest. */
 internal object PortalCapabilityTokens {
     const val CAPABILITIES_HEADER = "X-Device-Capabilities"
     const val PLATFORM_HEADER = "X-Device-Platform"
     const val PLATFORM = "android"
 
-    private val BASE = listOf("apps", "clipboard", "files", "location", "proxy", "timezone")
+    private val BASE = listOf("apps", "clipboard", "files", "location-read", "timezone-read")
     private val SMS = listOf("sms", "sms-events", "sms-send")
 
     fun tokens(hasTelephony: Boolean): List<String> =

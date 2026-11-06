@@ -62,6 +62,13 @@ Live device events are sent separately as JSON-RPC-style notifications with no `
 [WebSocket Events](websocket-events.md) and [Triggers and Events](triggers.md) for the event
 contract.
 
+## Device info
+
+These read methods work without the accessibility service:
+
+- `timezone/get` returns `{timezone}` (IANA id).
+- `location/get` returns `{latitude, longitude}`. It needs **Share location with Mobilerun cloud** on in Portal Settings and location allowed all the time; otherwise it returns an error.
+
 ## Trigger Management
 
 Reverse connection supports the same trigger JSON-RPC methods as the local WebSocket API:
@@ -238,7 +245,7 @@ honored exactly.
 - **Auto-accept Screen Share** in Settings can click the MediaProjection dialog and Portal's own Record audio prompt automatically: **While using the app** on Android 11+, **Allow** on Android 10.
 - `stream/start` may return `prompting_user` or `waiting_for_user_notification_tap` while waiting for permission.
 - If the offer has an audio m-line (`recvonly` or `sendrecv`), the Portal answers it with the phone's media audio (Opus, `sendonly`) on Android 10+ when the **Device Audio** switch in Settings is on (the default); otherwise, and for offers without audio, the stream is video-only. Audio stays silent until Record audio is granted, then starts within about 2 seconds without a reconnect.
-- With **Device Audio** on and Record audio not granted, Portal asks for it once: after sign-in or a Connect/Reconnect tap, or at the first stream that needs screen-share consent. Headless: `adb shell pm grant com.mobilerun.portal android.permission.RECORD_AUDIO`; turn it off with `adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:false`; `content query` on the same URI returns `enabled`, `permissionGranted` and `supported`.
+- With **Device Audio** on and Record audio not granted, Portal asks for it once, right after the screen-share consent of the first stream that needs one. Headless: `adb shell pm grant com.mobilerun.portal android.permission.RECORD_AUDIO`; turn it off with `adb shell content insert --uri content://com.mobilerun.portal/device_audio --bind enabled:b:false`; `content query` on the same URI returns `enabled`, `permissionGranted` and `supported`.
 - Media and game audio is streamed. Calls, notifications, ringtones, alarms, system sounds and apps that block capture stay silent.
 
 ## Configure via ContentProvider (optional)

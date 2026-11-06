@@ -48,7 +48,7 @@ internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolea
         normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
-    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link" ||
+    normalizedMethod == "clipboard/get" || normalizedMethod == "location/get" || normalizedMethod == "app/deep-link" ||
         normalizedMethod == "app/deep-link/resolve" || normalizedMethod.startsWith("sms/")
 
 internal enum class ReverseMediaRelease {
@@ -145,6 +145,7 @@ class ReverseConnectionService : Service() {
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
     private val smsExecutor = Executors.newSingleThreadExecutor()
+    private val locationExecutor = Executors.newSingleThreadExecutor()
     private val rpcTimeoutExecutor = Executors.newSingleThreadScheduledExecutor()
 
     @Volatile
@@ -312,6 +313,10 @@ class ReverseConnectionService : Service() {
         }
         try {
             smsExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
+        try {
+            locationExecutor.shutdownNow()
         } catch (_: Exception) {
         }
         try {
@@ -985,7 +990,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only version, stream/*, webrtc/*, screen/keepAwake/*, cloud/reconnectAfterRestart/status, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
+                    "Accessibility Service not ready. Only version, timezone/get, location/get, stream/*, webrtc/*, screen/keepAwake/*, cloud/reconnectAfterRestart/status, global, clipboard/*, app/deep-links, app/deep-link/resolve, sms/*, and triggers/* are available."
                 Log.e(TAG, error)
                 sendErrorResponse(client, id, error, normalizedMethod)
                 return
@@ -1001,6 +1006,7 @@ class ReverseConnectionService : Service() {
                     WebSocketDispatchBucket.COMMAND -> commandExecutor
                     WebSocketDispatchBucket.INSTALL -> installExecutor
                     WebSocketDispatchBucket.SMS -> smsExecutor
+                    WebSocketDispatchBucket.LOCATION -> locationExecutor
                 }
             executor.submit {
                 if (WebSocketDispatchPolicy.requiresOriginSocket(bucket) && !isCurrentSocket(client)) {

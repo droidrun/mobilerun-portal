@@ -24,6 +24,8 @@ import com.mobilerun.portal.input.TextInputResult
 import com.mobilerun.portal.core.JsonBuilders
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.location.AndroidLocationSource
+import com.mobilerun.portal.location.LocationReader
 import com.mobilerun.portal.service.GestureController
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import org.json.JSONArray
@@ -904,6 +906,14 @@ class ApiHandler(
     fun getTime(): ApiResponse {
         return ApiResponse.Success(System.currentTimeMillis())
     }
+
+    private val locationReader by lazy {
+        LocationReader(AndroidLocationSource(context)) { ConfigManager.getInstance(context).locationSharingEnabled }
+    }
+
+    fun getTimeZone(): ApiResponse = timeZoneResponse(java.util.TimeZone.getDefault().id)
+
+    fun getLocation(): ApiResponse = locationResponse(locationReader.read())
 
     private fun getAppLabel(packageName: String): String? {
         return try {
