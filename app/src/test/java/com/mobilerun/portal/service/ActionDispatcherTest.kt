@@ -20,6 +20,35 @@ import org.junit.Test
 
 class ActionDispatcherTest {
     @Test
+    fun dispatch_timezoneAndLocationGet_routeToApiHandler() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.getTimeZone() } returns ApiResponse.Success("tz")
+        every { apiHandler.getLocation() } returns ApiResponse.Success("location")
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Success("tz"),
+            dispatcher.dispatch("timezone/get", JSONObject(), ActionDispatcher.Origin.HTTP),
+        )
+        assertEquals(
+            ApiResponse.Success("location"),
+            dispatcher.dispatch("/action/location/get", JSONObject(), ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+    }
+
+    @Test
+    fun dispatch_locationGet_isRefusedOutsideTheCloudConnection() {
+        val apiHandler = mockk<ApiHandler>()
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        listOf(ActionDispatcher.Origin.HTTP, ActionDispatcher.Origin.WEBSOCKET_LOCAL).forEach { origin ->
+            assertTrue(dispatcher.dispatch("location/get", JSONObject(), origin) is ApiResponse.Error)
+        }
+        verify(exactly = 0) { apiHandler.getLocation() }
+    }
+
+    @Test
     fun dispatch_tap_normalizesActionPrefixes() {
         val apiHandler = mockk<ApiHandler>()
         every { apiHandler.performTap(10, 20) } returns ApiResponse.Success("ok")

@@ -21,6 +21,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
+import com.mobilerun.portal.location.AndroidLocationSource
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
@@ -61,6 +62,8 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private var suppressWebSocketSwitchCallback = false
     private var suppressDeviceAudioSwitchCallback = false
     private var suppressSmsCloudSwitchCallback = false
+    private var suppressLocationSwitchCallback = false
+    private var backgroundLocationAsked = false
     private var smsCloudEnabling = false
     private var isInstallReceiverRegistered = false
     private var isSignatureConflictReceiverRegistered = false
@@ -134,6 +137,25 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         renderSmsCloud()
     }
 
+    private val requestLocationPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        val location = AndroidLocationSource(this)
+        when {
+            location.hasForegroundPermission() -> if (!location.hasBackgroundPermission()) requestBackgroundLocation()
+            // Denied for good: the request returns at once without a dialog. Empty = dismissed.
+            result.isNotEmpty() &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> openAppDetails()
+        }
+        renderLocation()
+    }
+
+    private val requestBackgroundLocationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        renderLocation()
+    }
+
     private val requestRecordAudioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
@@ -157,6 +179,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupReverseConnectionSettings()
         setupStreamSessionLimit()
         setupPermissions()
+        setupLocation()
         setupAutomation()
         setupEventFilters()
         setupUpdateSection()
@@ -172,6 +195,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onResume() {
         super.onResume()
         updatePermissionSwitches()
+        renderLocation()
         syncServerSettingsFromConfig()
         refreshCreditsBalance()
         refreshCurrentVersion()
@@ -563,6 +587,60 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.buttonRequestPhoneNumbers.setOnClickListener {
             requestPhoneNumbersPermissionLauncher.launch(Manifest.permission.READ_PHONE_NUMBERS)
         }
+    }
+
+    private fun setupLocation() {
+        binding.switchLocationSharing.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressLocationSwitchCallback) return@setOnCheckedChangeListener
+            configManager.locationSharingEnabled = isChecked
+            if (isChecked) requestLocationAccess()
+            renderLocation()
+        }
+        binding.buttonRequestLocation.setOnClickListener { requestLocationAccess() }
+    }
+
+    private fun requestLocationAccess() {
+        val location = AndroidLocationSource(this)
+        when {
+            !location.hasForegroundPermission() -> requestLocationPermissionsLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
+            !location.hasBackgroundPermission() -> requestBackgroundLocation()
+        }
+    }
+
+    private fun openAppDetails() {
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+    }
+
+    /** Asks once per screen; after that App info, since a fixed denial returns without any UI. */
+    private fun requestBackgroundLocation() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (backgroundLocationAsked) {
+            openAppDetails()
+        } else {
+            backgroundLocationAsked = true
+            requestBackgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+    }
+
+    private fun renderLocation() {
+        val enabled = configManager.locationSharingEnabled
+        suppressLocationSwitchCallback = true
+        binding.switchLocationSharing.isChecked = enabled
+        suppressLocationSwitchCallback = false
+        val location = AndroidLocationSource(this)
+        val (status, button) = when {
+            !enabled -> null to null
+            !location.hasForegroundPermission() -> R.string.location_status_off to R.string.location_allow
+            !location.hasBackgroundPermission() ->
+                R.string.location_status_foreground to R.string.location_allow_all_the_time
+            else -> null to null
+        }
+        binding.textLocationStatus.visibility = if (status == null) View.GONE else View.VISIBLE
+        status?.let(binding.textLocationStatus::setText)
+        binding.buttonRequestLocation.visibility = if (button == null) View.GONE else View.VISIBLE
+        button?.let(binding.buttonRequestLocation::setText)
     }
 
     private fun startSmsCloudEnable() {

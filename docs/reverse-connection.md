@@ -62,6 +62,13 @@ Live device events are sent separately as JSON-RPC-style notifications with no `
 [WebSocket Events](websocket-events.md) and [Triggers and Events](triggers.md) for the event
 contract.
 
+## Device info
+
+These read methods work without the accessibility service:
+
+- `timezone/get` returns `{timezone}` (IANA id).
+- `location/get` returns `{latitude, longitude}`. It needs **Share location with Mobilerun cloud** on in Portal Settings and location allowed all the time; otherwise it returns an error.
+
 ## Trigger Management
 
 Reverse connection supports the same trigger JSON-RPC methods as the local WebSocket API:

@@ -233,6 +233,18 @@ class ActionDispatcher(
                 apiHandler.getTime()
             }
 
+            "timezone/get" -> {
+                apiHandler.getTimeZone()
+            }
+
+            "location/get" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("location/get requires reverse WebSocket connection")
+                } else {
+                    apiHandler.getLocation()
+                }
+            }
+
             "files/list" -> {
                 val path = params.optString("path", "")
                 apiHandler.listFiles(path)

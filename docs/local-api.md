@@ -86,6 +86,8 @@ Response format:
 | `state` | `filter` | Full state; `filter=false` keeps small elements |
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
+| `timezone/get` | - | `{timezone}`: IANA id |
+| `location/get` | - | Reverse connection only; `{latitude, longitude}`; needs **Share location with Mobilerun cloud** on in Portal Settings and location allowed all the time |
 | `sms/capabilities` | - | Gateway switch (`gateway_enabled`), SMS permissions, SMS messaging availability, active subscriptions |
 | `sms/send` | `phone_number`, `message`, optional `message_id`, `subscription_id` or `sim_slot`, `delivery_report` | Sends one text SMS; multipart bodies are split automatically |
 | `sms/status` | `message_id` | Returns in-memory send state for recent sends |
