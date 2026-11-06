@@ -27,6 +27,8 @@ object RecordAudioAutoAccept {
     sealed class AutoAcceptResult {
         object NoAction : AutoAcceptResult()
         object ActionPerformed : AutoAcceptResult()
+        // Portal's prompt is up but its button is not clickable yet, e.g. still animating in.
+        object NotReady : AutoAcceptResult()
         data class Failed(val reason: String) : AutoAcceptResult()
     }
 
@@ -120,7 +122,7 @@ object RecordAudioAutoAccept {
                 Target.NONE -> null
             } ?: return AutoAcceptResult.NoAction
             // A hidden or disabled choice waits; it never falls back to another button.
-            if (!button.isClickable || !button.isEnabled || !button.isVisibleToUser) return AutoAcceptResult.NoAction
+            if (!button.isClickable || !button.isEnabled || !button.isVisibleToUser) return AutoAcceptResult.NotReady
             val clicked = try {
                 button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             } catch (e: Exception) {

@@ -116,7 +116,7 @@ class ScreenCaptureActivity : Activity() {
     }
 
     override fun onDestroy() {
-        // Closed before the Record audio answer: disarm, and let a later moment ask again.
+        // Closed before the Record audio answer: disarm, and let the next stream ask again.
         if (recordAudioRequestPending) {
             recordAudioRequestPending = false
             AutoAcceptGate.disarmRecordAudio()

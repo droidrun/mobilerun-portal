@@ -177,6 +177,25 @@ class RecordAudioAutoAcceptTest {
     }
 
     @Test
+    fun tryAutoAccept_buttonStillAnimatingIn_isNotReadyThenClicked() {
+        val whileUsing = button("permission_allow_foreground_only_button")
+        every { whileUsing.isVisibleToUser } returnsMany listOf(false, true)
+        val dialog = dialog(whileUsing)
+        AutoAcceptGate.armRecordAudio()
+
+        assertEquals(
+            RecordAudioAutoAccept.AutoAcceptResult.NotReady,
+            RecordAudioAutoAccept.tryAutoAccept(dialog, LABEL, sdk = 34),
+        )
+        assertNotClicked(whileUsing)
+        assertEquals(
+            RecordAudioAutoAccept.AutoAcceptResult.ActionPerformed,
+            RecordAudioAutoAccept.tryAutoAccept(dialog, LABEL, sdk = 34),
+        )
+        verify(exactly = 1) { whileUsing.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+    }
+
+    @Test
     fun tryAutoAccept_unusableWhileUsingTheAppNeverFallsBackToAllow() {
         val variants = listOf(
             button("permission_allow_foreground_only_button", visible = false),
@@ -189,7 +208,7 @@ class RecordAudioAutoAcceptTest {
 
                 val result = RecordAudioAutoAccept.tryAutoAccept(dialog(whileUsing, allow), LABEL, sdk = sdk)
 
-                assertEquals(RecordAudioAutoAccept.AutoAcceptResult.NoAction, result)
+                assertEquals(RecordAudioAutoAccept.AutoAcceptResult.NotReady, result)
                 assertNotClicked(whileUsing, allow)
             }
         }

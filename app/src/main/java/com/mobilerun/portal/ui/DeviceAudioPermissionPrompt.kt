@@ -7,7 +7,7 @@ import android.os.Build
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.AutoAcceptGate
 
-// Portal asks for Record audio on its own once: after sign-in or Connect, or at the first stream.
+// Portal asks for Record audio on its own once, right after a stream's screen-share consent.
 object DeviceAudioPermissionPrompt {
     internal fun shouldPrompt(
         sdk: Int,
