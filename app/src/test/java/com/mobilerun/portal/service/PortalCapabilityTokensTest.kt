@@ -13,7 +13,7 @@ class PortalCapabilityTokensTest {
         assertEquals(
             mapOf(
                 "X-Device-Capabilities" to
-                    "apps,clipboard,files,sms,sms-events,sms-send",
+                    "apps,clipboard,files,location-read,sms,sms-events,sms-send,timezone-read",
                 "X-Device-Platform" to "android",
             ),
             PortalCapabilityTokens.headers(hasTelephony = true),
@@ -24,7 +24,7 @@ class PortalCapabilityTokensTest {
     fun headers_withoutTelephonyAnnounceOnlyServedCapabilities() {
         assertEquals(
             mapOf(
-                "X-Device-Capabilities" to "apps,clipboard,files",
+                "X-Device-Capabilities" to "apps,clipboard,files,location-read,timezone-read",
                 "X-Device-Platform" to "android",
             ),
             PortalCapabilityTokens.headers(hasTelephony = false),

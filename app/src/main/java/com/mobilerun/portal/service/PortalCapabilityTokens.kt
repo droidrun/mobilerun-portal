@@ -6,7 +6,7 @@ internal object PortalCapabilityTokens {
     const val PLATFORM_HEADER = "X-Device-Platform"
     const val PLATFORM = "android"
 
-    private val BASE = listOf("apps", "clipboard", "files")
+    private val BASE = listOf("apps", "clipboard", "files", "location-read", "timezone-read")
     private val SMS = listOf("sms", "sms-events", "sms-send")
 
     fun tokens(hasTelephony: Boolean): List<String> =
