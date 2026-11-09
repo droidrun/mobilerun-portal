@@ -44,7 +44,7 @@
                         android:id="@+id/switchRuleEnabled"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Rule enabled"
+                        android:text="@string/ko_ui_rule_enabled_57993e10"
                         android:textColor="@color/text_white" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -52,7 +52,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="Return to Portal when task ends"
+                        android:text="@string/ko_ui_return_to_portal_when_task_ends_65a36be6"
                         android:textColor="@color/text_white" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -60,7 +60,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="Enable task queuing"
+                        android:text="@string/ko_ui_enable_task_queuing_c52f6136"
                         android:textColor="@color/text_white" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
@@ -68,7 +68,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="Include notification context in the prompt"
+                        android:text="@string/ko_ui_include_notification_context_in_the_prompt_6400e663"
                         android:textColor="@color/text_white" />
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -77,7 +77,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Rule name">
+                        android:hint="@string/ko_ui_rule_name_7c9de4e8">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputRuleName"
@@ -93,7 +93,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Trigger source">
+                        android:hint="@string/ko_ui_trigger_source_45662e9f">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputTriggerSource"
@@ -118,7 +118,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Prompt template">
+                        android:hint="@string/ko_ui_prompt_template_abae9cbc">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputPromptTemplate"
@@ -137,7 +137,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Cooldown seconds">
+                        android:hint="@string/ko_ui_cooldown_seconds_20dde92b">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputCooldownSeconds"
@@ -154,7 +154,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Run limit">
+                        android:hint="@string/ko_ui_run_limit_6c499424">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputRunLimitMode"
@@ -171,7 +171,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Number of successful launches">
+                        android:hint="@string/ko_ui_number_of_successful_launches_dca40d93">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputCustomRunLimit"
@@ -213,7 +213,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Trigger details"
+                        android:text="@string/ko_ui_trigger_details_dac0cee2"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -224,7 +224,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Match mode">
+                        android:hint="@string/ko_ui_match_mode_0fd71ca8">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputMatchMode"
@@ -241,7 +241,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="App filter">
+                        android:hint="@string/ko_ui_app_filter_d8b87eef">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputPackageName"
@@ -258,7 +258,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Notification title filter">
+                        android:hint="@string/ko_ui_notification_title_filter_b9f985d6">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputTitleFilter"
@@ -274,7 +274,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Text or message filter">
+                        android:hint="@string/ko_ui_text_or_message_filter_173c0787">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputTextFilter"
@@ -290,7 +290,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Battery threshold">
+                        android:hint="@string/ko_ui_battery_threshold_c0459af0">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputThresholdValue"
@@ -307,7 +307,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Threshold comparison">
+                        android:hint="@string/ko_ui_threshold_comparison_6f4b3255">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputThresholdComparison"
@@ -324,7 +324,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Network type">
+                        android:hint="@string/ko_ui_network_type_4a8b8f83">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/inputNetworkType"
@@ -341,7 +341,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Phone number filter">
+                        android:hint="@string/ko_ui_phone_number_filter_33e73f44">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputPhoneNumber"
@@ -357,7 +357,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="Message filter">
+                        android:hint="@string/ko_ui_message_filter_43100d97">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/inputMessageFilter"
@@ -390,7 +390,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Schedule"
+                        android:text="@string/ko_ui_schedule_f4830a1d"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -425,7 +425,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_gravity="center_horizontal"
                                 android:layout_marginTop="10dp"
-                                android:text="Enable exact alarms"
+                                android:text="@string/ko_ui_enable_exact_alarms_bbc35350"
                                 android:textAllCaps="false" />
 
                         </LinearLayout>
@@ -442,7 +442,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Delay"
+                            android:text="@string/ko_ui_delay_fd9b6df3"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
 
@@ -459,7 +459,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="10dp"
-                            android:text="Choose delay"
+                            android:text="@string/ko_ui_choose_delay_34b8ed85"
                             android:textAllCaps="false" />
 
                     </LinearLayout>
@@ -474,7 +474,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Specific date and time"
+                            android:text="@string/ko_ui_specific_date_and_time_deeb5e2f"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
 
@@ -490,7 +490,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="Pick date"
+                                android:text="@string/ko_ui_pick_date_9ad828af"
                                 android:textAllCaps="false" />
 
                             <com.google.android.material.button.MaterialButton
@@ -500,7 +500,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="8dp"
                                 android:layout_weight="1"
-                                android:text="Pick time"
+                                android:text="@string/ko_ui_pick_time_911222bc"
                                 android:textAllCaps="false" />
 
                         </LinearLayout>
@@ -526,7 +526,7 @@
                             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="Repeat">
+                            android:hint="@string/ko_ui_repeat_b6b7a006">
 
                             <com.google.android.material.textfield.MaterialAutoCompleteTextView
                                 android:id="@+id/inputRepeatMode"
@@ -543,7 +543,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="10dp"
-                            android:text="Pick time"
+                            android:text="@string/ko_ui_pick_time_911222bc"
                             android:textAllCaps="false" />
 
                         <TextView
@@ -558,7 +558,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:text="Repeat on"
+                            android:text="@string/ko_ui_repeat_on_bb5a9d2c"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
 
@@ -576,49 +576,49 @@
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Sun" />
+                                android:text="@string/ko_ui_sun_db18f17f" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipMonday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Mon" />
+                                android:text="@string/ko_ui_mon_f40d7f51" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipTuesday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Tue" />
+                                android:text="@string/ko_ui_tue_d1eb39b0" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipWednesday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Wed" />
+                                android:text="@string/ko_ui_wed_58339f45" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipThursday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Thu" />
+                                android:text="@string/ko_ui_thu_7da11212" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipFriday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Fri" />
+                                android:text="@string/ko_ui_fri_66dab40c" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipSaturday"
                                 style="@style/Widget.MaterialComponents.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Sat" />
+                                android:text="@string/ko_ui_sat_fdeb71b5" />
 
                         </com.google.android.material.chip.ChipGroup>
 
@@ -646,7 +646,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Task settings"
+                        android:text="@string/ko_ui_task_settings_b8a028c3"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -655,7 +655,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="Turn this on only if this trigger should override the default task runner settings."
+                        android:text="@string/ko_ui_turn_this_on_only_if_this_trigger_should_overrid_fa962984"
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
 
@@ -664,7 +664,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="Use custom task settings"
+                        android:text="@string/ko_ui_use_custom_task_settings_d52d7b33"
                         android:textColor="@color/text_white" />
 
                     <LinearLayout
@@ -722,7 +722,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Delete"
+                    android:text="@string/ko_ui_delete_e2d0a549"
                     android:textAllCaps="false"
                     android:textColor="@color/alert_error_bg" />
 
@@ -733,7 +733,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
-                    android:text="Test"
+                    android:text="@string/ko_ui_test_532eaabd"
                     android:textAllCaps="false" />
 
             </LinearLayout>
@@ -744,7 +744,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="24dp"
-                android:text="Save trigger rule"
+                android:text="@string/ko_ui_save_trigger_rule_691c79a3"
                 android:textAllCaps="false" />
 
         </LinearLayout>

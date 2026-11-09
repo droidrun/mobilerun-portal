@@ -45,7 +45,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="0dp"
-            android:text="Cancel"
+            android:text="@string/ko_ui_cancel_19766ed6"
             android:textAllCaps="false" />
 
     </LinearLayout>

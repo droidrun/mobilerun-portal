@@ -331,7 +331,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Auto-accept Screen Share"
+                        android:text="@string/ko_ui_auto_accept_screen_share_e99472ae"
                         android:textColor="@color/text_white"
                         android:textSize="16sp" />
 
@@ -479,7 +479,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Permissions"
+                android:text="@string/ko_ui_permissions_abccc78c"
                 android:textColor="@color/text_gray"
                 android:textSize="12sp"
                 android:textStyle="bold"
@@ -504,14 +504,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Notification Access"
+                        android:text="@string/ko_ui_notification_access_da73fe6e"
                         android:textColor="@color/text_white"
                         android:textSize="16sp" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Allow reading notifications"
+                        android:text="@string/ko_ui_allow_reading_notifications_f04255ea"
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
                 </LinearLayout>
@@ -540,14 +540,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Post Notifications"
+                        android:text="@string/ko_ui_post_notifications_515765d2"
                         android:textColor="@color/text_white"
                         android:textSize="16sp" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Allow system notifications"
+                        android:text="@string/ko_ui_allow_system_notifications_9c4e14f0"
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
                 </LinearLayout>
@@ -916,7 +916,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Automation"
+                android:text="@string/ko_ui_automation_d909750b"
                 android:textColor="@color/text_gray"
                 android:textSize="12sp"
                 android:textStyle="bold"
@@ -930,7 +930,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="24dp"
-                android:text="Open Trigger Rules" />
+                android:text="@string/ko_ui_open_trigger_rules_27795441" />
 
             <View
                 android:layout_width="match_parent"
@@ -955,14 +955,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Developer Mode"
+                        android:text="@string/ko_ui_developer_mode_6f7c506d"
                         android:textColor="@color/text_white"
                         android:textSize="16sp" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Show server configuration and ports"
+                        android:text="@string/ko_ui_show_server_configuration_and_ports_8e763aea"
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
                 </LinearLayout>
@@ -1014,14 +1014,14 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="HTTP Server (REST)"
+                            android:text="@string/ko_ui_http_server_rest_21019a9a"
                             android:textColor="@color/text_white"
                             android:textSize="16sp" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Enable REST API (Actions)"
+                            android:text="@string/ko_ui_enable_rest_api_actions_81847ec4"
                             android:textColor="@color/text_gray"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -1255,7 +1255,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="24dp"
                 android:layout_marginTop="8dp"
-                android:text="Reset to Defaults"
+                android:text="@string/ko_ui_reset_to_defaults_0953e0d5"
                 android:textColor="@color/status_error"
                 app:strokeColor="@color/status_error"
                 app:cornerRadius="8dp" />
