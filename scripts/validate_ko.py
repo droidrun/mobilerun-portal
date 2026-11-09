@@ -66,6 +66,33 @@ def main():
             title = element.attrib.get(title_attr)
             if title and not title.startswith(("@", "?")):
                 inline_titles.append(f"{layout_path.name}: {title}")
+    # In MaterialToolbar layouts, Android's android:title is ignored.
+    # The app:title namespace is required for an actual visible toolbar title.
+    toolbar_namespace_errors = []
+    android_title = "{http://schemas.android.com/apk/res/android}title"
+    for layout_path in sorted((ROOT.parent / "layout").glob("*.xml")):
+        for element in ET.parse(layout_path).getroot().iter():
+            if element.tag.endswith("MaterialToolbar") and element.attrib.get(android_title):
+                toolbar_namespace_errors.append(layout_path.name)
+
+    # Keep all 17 source labels/descriptions and nine run statuses localized
+    # even when upstream adds new trigger types.
+    model_path = ROOT.parent / "java" / "com" / "mobilerun" / "portal" / "triggers" / "TriggerModels.kt"
+    model_text = model_path.read_text(encoding="utf-8")
+    def enum_members(name: str) -> list[str]:
+        section = re.search(r"enum class " + re.escape(name) + r"\s*\{(.*?)\}", model_text, re.S)
+        if not section:
+            raise AssertionError(f"Missing enum {name}")
+        return re.findall(r"^\s*([A-Z][A-Z_]+)\s*,?\s*$", section.group(1), re.M)
+    trigger_keys = {
+        *(f"trigger_source_{name.lower()}_{kind}"
+          for name in enum_members("TriggerSource") for kind in ("label", "description")),
+        *(f"trigger_disposition_{name.lower()}"
+          for name in enum_members("TriggerRunDisposition")),
+    }
+    missing_trigger_keys = sorted(trigger_keys - source.keys())
+    print(f"Trigger display keys: {len(trigger_keys)}; missing: {missing_trigger_keys}")
+    print(f"MaterialToolbar namespace errors: {toolbar_namespace_errors}")
     print(f"Inline app:title strings: {inline_titles}")
     print(f"Source: {len(source)} | Korean: {len(ko)}")
     print(f"Missing: {missing}")
@@ -73,7 +100,8 @@ def main():
     print(f"Placeholder mismatches: {wrong_format}")
     print(f"Line break mismatches: {wrong_linebreaks}")
     print(f"Untranslated, excluding protocol tokens: {unlocalized}")
-    if missing or unexpected or wrong_format or wrong_linebreaks or unlocalized or inline_titles:
+    if (missing or unexpected or wrong_format or wrong_linebreaks or unlocalized
+            or inline_titles or toolbar_namespace_errors or missing_trigger_keys):
         return 1
     print("Korean locale: PASS")
     return 0
