@@ -18,7 +18,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Connect to a custom WebSocket server"
+        android:text="@string/ko_ui_connect_to_a_custom_websocket_server_e6fcc5ad"
         android:textColor="@color/text_gray"
         android:textSize="14sp"
         android:layout_marginBottom="20dp" />
@@ -30,7 +30,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
-        android:hint="WebSocket URL">
+        android:hint="@string/ko_ui_websocket_url_e09731b4">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_custom_url"
@@ -49,7 +49,7 @@
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
         app:endIconMode="password_toggle"
-        android:hint="Token (optional)">
+        android:hint="@string/ko_ui_token_optional_c7f32adc">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_custom_token"
@@ -62,7 +62,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Use {deviceId} in URL to auto-replace with device ID"
+        android:text="@string/ko_ui_use_deviceid_in_url_to_auto_replace_with_device_3b320d6f"
         android:textColor="@color/text_hint"
         android:textSize="12sp"
         android:layout_marginBottom="20dp" />

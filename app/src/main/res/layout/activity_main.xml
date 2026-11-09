@@ -39,7 +39,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Connected to Cloud"
+                    android:text="@string/ko_ui_connected_to_cloud_8c362f97"
                     android:textSize="24sp"
                     android:textStyle="bold"
                     android:textColor="@color/text_white"
@@ -49,7 +49,7 @@
                     android:id="@+id/text_production_device_id"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Device ID: ..."
+                    android:text="@string/ko_ui_device_id_a539d295"
                     android:textColor="@color/text_gray"
                     android:textSize="16sp"
                     android:fontFamily="monospace" />
@@ -730,7 +730,7 @@
                                     android:id="@+id/text_connecting_status"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Connecting..."
+                                    android:text="@string/ko_ui_connecting_5f04ae9e"
                                     android:textColor="@color/text_white"
                                     android:textSize="14sp" />
 
@@ -759,7 +759,7 @@
                                     android:minHeight="0dp"
                                     android:paddingHorizontal="12dp"
                                     android:paddingVertical="0dp"
-                                    android:text="Cancel"
+                                    android:text="@string/ko_ui_cancel_19766ed6"
                                     android:textColor="@color/text_white"
                                     android:textSize="11sp"
                                     app:strokeColor="@color/stroke_gray"
@@ -828,7 +828,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Connected to Cloud"
+                                    android:text="@string/ko_ui_connected_to_cloud_8c362f97"
                                     android:textColor="@color/text_white"
                                     android:textSize="14sp"
                                     android:textStyle="bold" />
@@ -841,7 +841,7 @@
                                     android:ellipsize="end"
                                     android:fontFamily="monospace"
                                     android:maxLines="1"
-                                    android:text="Device ID: ..."
+                                    android:text="@string/ko_ui_device_id_a539d295"
                                     android:textColor="@color/text_gray"
                                     android:textSize="11sp" />
 
@@ -863,7 +863,7 @@
                                     android:minHeight="0dp"
                                     android:paddingHorizontal="12dp"
                                     android:paddingVertical="0dp"
-                                    android:text="Disconnect"
+                                    android:text="@string/ko_ui_disconnect_acfc5be7"
                                     android:textColor="@color/status_error"
                                     android:textSize="11sp"
                                     app:strokeColor="@color/status_error"
