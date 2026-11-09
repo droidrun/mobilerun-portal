@@ -978,9 +978,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private fun setupResetButton() {
         binding.btnResetSettings.setOnClickListener {
             AlertDialog.Builder(this)
-                .setTitle("Reset to Defaults")
-                .setMessage("This will reset all settings to their default values and disconnect any active connections. Continue?")
-                .setPositiveButton("Reset") { _, _ ->
+                .setTitle(R.string.ko_action_reset_title)
+                .setMessage(R.string.ko_action_reset_message)
+                .setPositiveButton(R.string.ko_action_reset_button) { _, _ ->
                     val session =
                         configManager.reverseConnectionToken.takeIf { configManager.cloudSessionActive }
                     val serviceIntent = Intent(this, ReverseConnectionService::class.java).apply {
@@ -995,7 +995,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
                     android.widget.Toast.makeText(
                         this,
-                        "Settings reset to defaults",
+                        R.string.ko_action_reset_done,
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
 
@@ -1003,7 +1003,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     finish()
                     startActivity(intent)
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show()
         }
     }
