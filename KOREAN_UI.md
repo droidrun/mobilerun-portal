@@ -33,6 +33,19 @@ Gradle 빌드 및 단위 테스트(Windows PowerShell):
 
 Gradle 8.13과 Android Studio의 JDK 25 조합에서는 오류가 나타날 수 있어 JDK 21을 명시함.
 
+## 실제 검증 결과 (2026-11-09)
+
+- assembleDebug 및 testDebugUnitTest: BUILD SUCCESSFUL
+- Android 단위 테스트: 112개 테스트 스위트 / **1,125개 테스트 성공**, 실패 0, 오류 0, 건너뜀 0
+- 원본/한국어 리소스 각각 488개: 키 누락 0, 추가 0, 치환 형식 불일치 0, 줄바꿈 불일치 0
+- 디버그 APK: app/build/outputs/apk/debug/com.mobilerun.portal-0.8.2-debug.apk
+- 크기: 56,960,585바이트
+- SHA256: 6689BDDE1F48AD5DD0CDD3E7E2B98C265356C2D78B6A0EB978A23277EB70623B
+- 인증서: Android Debug (SHA256 ab3f5d21e1e20185ecfbfd68573021da957c55849935c54b7f088b16cb278071)
+- APK 메타데이터: com.mobilerun.portal / 0.8.2 / versionCode 104 / minSdk 26 / targetSdk 34
+- APK 언어 리소스에 ko 포함 확인. 실제 Z Fold7에 설치한 실기 검증은 미수행.
+
+
 ## APK 서명 및 설치 주의
 
 로컬에서 생성하는 app-debug.apk는 개발용 디버그 서명 APK입니다. 공식 Mobilerun Portal과 서명이 다르므로 원래 앱 위에 업데이트할 수 있다는 보장이 없습니다. 기존 앱을 삭제하거나 데이터를 초기화하면서 설치하면 안 됩니다. 현재 인증 토큰, 역방향 연결, 접근성 서비스 설정을 보존해야 합니다.
