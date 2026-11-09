@@ -44,6 +44,8 @@ Gradle 8.13과 Android Studio의 JDK 25 조합에서는 오류가 나타날 수 
 - 인증서: Android Debug (SHA256 ab3f5d21e1e20185ecfbfd68573021da957c55849935c54b7f088b16cb278071)
 - APK 메타데이터: com.mobilerun.portal / 0.8.2 / versionCode 104 / minSdk 26 / targetSdk 34
 - APK 언어 리소스에 ko 포함 확인. 실제 Z Fold7에 설치한 실기 검증은 미수행.
+- 같은 날짜에 Z Fold7 기존 Portal의 읽기 전용 API를 확인함: 인증된 역방향 연결 정상, 설치 버전 0.8.2 확인. 한글 APK는 기기에 설치하지 않았고 기존 앱 데이터 변경 없음.
+- Windows 전달물: E:\\Temp\\MobilerunPortal-KO-v0.8.2-20261109-debug.apk 및 E:\\Temp\\MobilerunPortal-KO-v0.8.2-20261109-source.zip.
 
 
 ## APK 서명 및 설치 주의
