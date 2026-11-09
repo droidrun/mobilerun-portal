@@ -2,7 +2,7 @@
 from pathlib import Path
 import re
 root=Path(__file__).resolve().parents[1]/"app"/"src"/"main"
-attrs=re.compile(r'\bandroid:(?:text|hint|contentDescription|title|label)\s*=\s*"([^"]+)"')
+attrs=re.compile(r'\b(?:android|app):(?:text|hint|contentDescription|title|label)\s*=\s*"([^"]+)"')
 assign=re.compile(r'\b(?:setText|setTitle|setHint|setContentDescription)\s*\(\s*"([^"]+)"')
 kotlin=re.compile(r'\b(?:text|hint|title|contentDescription)\s*=\s*"([^"]+)"')
 for file in sorted(root.rglob("*")):
