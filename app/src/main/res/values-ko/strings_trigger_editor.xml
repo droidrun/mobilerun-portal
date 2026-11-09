@@ -1,0 +1,16 @@
+<resources>
+    <!-- Localized presentation strings for trigger editor controls. -->
+    <string name="trigger_editor_delay_choose">이 트리거를 실행하기 전 대기 시간을 선택하세요.</string>
+    <string name="trigger_editor_absolute_runs">%1$s에 실행합니다.</string>
+    <string name="trigger_editor_absolute_choose">날짜와 시간을 선택하세요.</string>
+    <string name="trigger_editor_recurring_choose">반복 실행할 시간을 선택하세요.</string>
+    <string name="trigger_editor_daily_runs">매일 %1$s에 실행합니다.</string>
+    <string name="trigger_editor_weekly_choose">%1$s에 실행할 요일을 하나 이상 선택하세요.</string>
+    <string name="trigger_editor_weekly_runs">%1$s %2$s에 실행합니다.</string>
+    <string name="trigger_editor_delay_hours_minutes">%1$d시간 %2$d분</string>
+    <string name="trigger_editor_delay_hours">%1$d시간</string>
+    <string name="trigger_editor_delay_minutes">%1$d분</string>
+    <string name="trigger_editor_required">필수 항목입니다</string>
+    <string name="trigger_editor_valid_number">올바른 숫자를 입력하세요</string>
+    <string name="trigger_editor_positive_number">0보다 큰 숫자를 입력하세요</string>
+</resources>
