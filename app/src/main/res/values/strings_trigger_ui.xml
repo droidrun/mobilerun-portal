@@ -1,0 +1,95 @@
+<resources>
+    <!-- Visible trigger labels; serialized rules and remote API values are unchanged. -->
+    <string name="trigger_status_granted">Granted</string>
+    <string name="trigger_status_missing">Missing</string>
+    <string name="trigger_permission_summary">Notification: %1$s | SMS: %2$s | Contacts: %3$s</string>
+    <string name="trigger_alarm_available">Exact alarms are available. Minute-level time rules should run on time.</string>
+    <string name="trigger_alarm_unavailable">Exact alarms are unavailable, so time rules can drift by about a minute until access is granted.</string>
+    <string name="trigger_alarm_unavailable_editor">Exact alarms are unavailable, so minute-level time rules can drift until access is granted.</string>
+    <string name="trigger_editor_add">Add trigger rule</string>
+    <string name="trigger_editor_edit">Edit trigger rule</string>
+    <string name="trigger_editor_connect_models">Connect to Mobilerun to load models.</string>
+    <string name="trigger_editor_used">Used %1$d of %2$d successful launches.</string>
+    <string name="trigger_editor_mode_contains">CONTAINS</string>
+    <string name="trigger_editor_mode_regex">REGEX</string>
+    <string name="trigger_editor_threshold_below">AT OR BELOW</string>
+    <string name="trigger_editor_threshold_above">AT OR ABOVE</string>
+    <string name="trigger_editor_network_any">Any</string>
+    <string name="trigger_editor_network_none">NONE</string>
+    <string name="trigger_editor_network_wifi">WIFI</string>
+    <string name="trigger_editor_network_cellular">CELLULAR</string>
+    <string name="trigger_editor_network_ethernet">ETHERNET</string>
+    <string name="trigger_editor_network_other">OTHER</string>
+    <string name="trigger_editor_every_day">Every day</string>
+    <string name="trigger_editor_selected_weekdays">Selected weekdays</string>
+    <string name="trigger_editor_run_always">Always</string>
+    <string name="trigger_editor_run_once">Once</string>
+    <string name="trigger_editor_run_custom">Custom</string>
+    <string name="trigger_run_recent_removed">Recent run removed</string>
+    <string name="trigger_run_undo">Undo</string>
+    <string name="trigger_rule_enabled">Enabled</string>
+    <string name="trigger_rule_disabled">Disabled</string>
+    <string name="trigger_rule_launch_usage">%1$d/%2$d launches used</string>
+    <string name="trigger_rule_matched">matched %1$s</string>
+    <string name="trigger_rule_launched">launched %1$s</string>
+    <string name="trigger_rule_queued">queued %1$s</string>
+    <string name="trigger_source_time_delay_label">After a delay</string>
+    <string name="trigger_source_time_absolute_label">At a specific time</string>
+    <string name="trigger_source_time_daily_label">Repeat every day</string>
+    <string name="trigger_source_time_weekly_label">Repeat on selected weekdays</string>
+    <string name="trigger_source_notification_posted_label">Notification Posted</string>
+    <string name="trigger_source_notification_removed_label">Notification Removed</string>
+    <string name="trigger_source_app_entered_label">App Entered</string>
+    <string name="trigger_source_app_exited_label">App Exited</string>
+    <string name="trigger_source_battery_low_label">Battery Low</string>
+    <string name="trigger_source_battery_okay_label">Battery Okay</string>
+    <string name="trigger_source_battery_level_changed_label">Battery Level Changed</string>
+    <string name="trigger_source_power_connected_label">Power Connected</string>
+    <string name="trigger_source_power_disconnected_label">Power Disconnected</string>
+    <string name="trigger_source_user_present_label">User Present</string>
+    <string name="trigger_source_network_connected_label">Network Connected</string>
+    <string name="trigger_source_network_type_changed_label">Network Type Changed</string>
+    <string name="trigger_source_sms_received_label">Sms Received</string>
+    <string name="trigger_source_time_delay_description">Run once after the selected delay.</string>
+    <string name="trigger_source_time_absolute_description">Run once at the selected date and time.</string>
+    <string name="trigger_source_time_daily_description">Run every day at the selected time.</string>
+    <string name="trigger_source_time_weekly_description">Run on the selected weekdays at the selected time.</string>
+    <string name="trigger_source_notification_posted_description">Run when a matching notification appears.</string>
+    <string name="trigger_source_notification_removed_description">Run when a matching notification is dismissed or disappears.</string>
+    <string name="trigger_source_app_entered_description">Run when the selected app comes to the foreground.</string>
+    <string name="trigger_source_app_exited_description">Run when the selected app leaves the foreground.</string>
+    <string name="trigger_source_battery_low_description">Run when Android reports that the battery is low.</string>
+    <string name="trigger_source_battery_okay_description">Run when Android reports that the battery is okay again.</string>
+    <string name="trigger_source_battery_level_changed_description">Run when the battery level crosses the selected threshold.</string>
+    <string name="trigger_source_power_connected_description">Run when charging starts.</string>
+    <string name="trigger_source_power_disconnected_description">Run when charging stops.</string>
+    <string name="trigger_source_user_present_description">Run when the device is unlocked and the user becomes active.</string>
+    <string name="trigger_source_network_connected_description">Run when the device gains network connectivity.</string>
+    <string name="trigger_source_network_type_changed_description">Run when the connection type changes, such as Wi-Fi to cellular.</string>
+    <string name="trigger_source_sms_received_description">Run when a matching SMS arrives.</string>
+    <string name="trigger_disposition_matched">Matched</string>
+    <string name="trigger_disposition_launched">Launched</string>
+    <string name="trigger_disposition_skipped_busy">Skipped Busy</string>
+    <string name="trigger_disposition_buffered">Buffered</string>
+    <string name="trigger_disposition_debounced">Debounced</string>
+    <string name="trigger_disposition_permission_missing">Permission Missing</string>
+    <string name="trigger_disposition_launch_failed">Launch Failed</string>
+    <string name="trigger_disposition_rule_disabled">Rule Disabled</string>
+    <string name="trigger_disposition_test_launched">Test Launched</string>
+    <string name="trigger_day_sunday">Sunday</string>
+    <string name="trigger_day_monday">Monday</string>
+    <string name="trigger_day_tuesday">Tuesday</string>
+    <string name="trigger_day_wednesday">Wednesday</string>
+    <string name="trigger_day_thursday">Thursday</string>
+    <string name="trigger_day_friday">Friday</string>
+    <string name="trigger_day_saturday">Saturday</string>
+    <string name="trigger_summary_app">app=%1$s</string>
+    <string name="trigger_summary_pkg">pkg=%1$s</string>
+    <string name="trigger_summary_title">title=%1$s</string>
+    <string name="trigger_summary_text">text=%1$s</string>
+    <string name="trigger_summary_network">network=%1$s</string>
+    <string name="trigger_summary_threshold">threshold=%1$s %2$s</string>
+    <string name="trigger_summary_phone">phone=%1$s</string>
+    <string name="trigger_summary_delay">delay=%1$dm</string>
+    <string name="trigger_summary_at">at=%1$s</string>
+</resources>

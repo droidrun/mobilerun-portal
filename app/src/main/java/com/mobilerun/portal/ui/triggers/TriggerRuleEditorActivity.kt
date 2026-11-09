@@ -86,30 +86,47 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
     private val portalCloudClient = PortalCloudClient()
     private val configManager by lazy { ConfigManager.getInstance(this) }
     private val sourceOptions by lazy {
-        TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it), it) }
+        TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it, this), it) }
     }
     private val matchModeOptions by lazy {
-        TriggerStringMatchMode.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerStringMatchMode.entries.map {
+            LabeledValue(when (it) {
+                TriggerStringMatchMode.CONTAINS -> getString(R.string.trigger_editor_mode_contains)
+                TriggerStringMatchMode.REGEX -> getString(R.string.trigger_editor_mode_regex)
+            }, it)
+        }
     }
     private val thresholdComparisonOptions by lazy {
-        TriggerThresholdComparison.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerThresholdComparison.entries.map {
+            LabeledValue(when (it) {
+                TriggerThresholdComparison.AT_OR_BELOW -> getString(R.string.trigger_editor_threshold_below)
+                TriggerThresholdComparison.AT_OR_ABOVE -> getString(R.string.trigger_editor_threshold_above)
+            }, it)
+        }
     }
     private val networkTypeOptions by lazy {
-        listOf(LabeledValue("Any", null)) + TriggerNetworkType.entries.map {
-            LabeledValue(it.name.replace('_', ' '), it)
-        }
+        listOf(LabeledValue(getString(R.string.trigger_editor_network_any), null)) +
+            TriggerNetworkType.entries.map {
+                LabeledValue(when (it) {
+                    TriggerNetworkType.NONE -> getString(R.string.trigger_editor_network_none)
+                    TriggerNetworkType.WIFI -> getString(R.string.trigger_editor_network_wifi)
+                    TriggerNetworkType.CELLULAR -> getString(R.string.trigger_editor_network_cellular)
+                    TriggerNetworkType.ETHERNET -> getString(R.string.trigger_editor_network_ethernet)
+                    TriggerNetworkType.OTHER -> getString(R.string.trigger_editor_network_other)
+                }, it)
+            }
     }
     private val repeatModeOptions by lazy {
         listOf(
-            LabeledValue("Every day", TriggerSource.TIME_DAILY),
-            LabeledValue("Selected weekdays", TriggerSource.TIME_WEEKLY),
+            LabeledValue(getString(R.string.trigger_editor_every_day), TriggerSource.TIME_DAILY),
+            LabeledValue(getString(R.string.trigger_editor_selected_weekdays), TriggerSource.TIME_WEEKLY),
         )
     }
     private val runLimitOptions by lazy {
         listOf(
-            LabeledValue("Always", RunLimitMode.ALWAYS),
-            LabeledValue("Once", RunLimitMode.ONCE),
-            LabeledValue("Custom", RunLimitMode.CUSTOM),
+            LabeledValue(getString(R.string.trigger_editor_run_always), RunLimitMode.ALWAYS),
+            LabeledValue(getString(R.string.trigger_editor_run_once), RunLimitMode.ONCE),
+            LabeledValue(getString(R.string.trigger_editor_run_custom), RunLimitMode.CUSTOM),
         )
     }
 
@@ -281,11 +298,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             busyPolicy = TriggerBusyPolicy.SKIP,
         )
 
-        binding.topAppBar.title = if (originalRule == null) {
-            "Add trigger rule"
-        } else {
-            "Edit trigger rule"
-        }
+        binding.topAppBar.title = getString(
+            if (originalRule == null) R.string.trigger_editor_add else R.string.trigger_editor_edit
+        )
         binding.editActionsRow.isVisible = originalRule != null
 
         binding.switchRuleEnabled.isChecked = seed.enabled
@@ -356,7 +371,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             binding.modelRetryButton.isVisible = false
             binding.modelWarningText.isVisible = true
             binding.modelWarningText.text =
-                "Connect to Mobilerun to load models."
+                getString(R.string.trigger_editor_connect_models)
             return
         }
 
@@ -396,7 +411,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             sourceOptions.firstOrNull { it.value == source }?.label.orEmpty(),
             false,
         )
-        binding.triggerSourceDescriptionText.text = TriggerUiSupport.sourceDescription(source)
+        binding.triggerSourceDescriptionText.text = TriggerUiSupport.sourceDescription(source, this)
         if (source == TriggerSource.TIME_DAILY || source == TriggerSource.TIME_WEEKLY) {
             binding.inputRepeatMode.setText(
                 repeatModeOptions.firstOrNull { it.value == source }?.label.orEmpty(),
@@ -468,7 +483,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.runLimitUsageText.isVisible = supportsRunLimit && seedRule != null && maxLaunchCount != null
         if (binding.runLimitUsageText.isVisible) {
             binding.runLimitUsageText.text =
-                "Used $successfulLaunchCount of $maxLaunchCount successful launches."
+                getString(R.string.trigger_editor_used, successfulLaunchCount, maxLaunchCount)
         }
     }
 
@@ -479,9 +494,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
         val exactAlarmAvailable = hasExactAlarmAccess()
         binding.exactAlarmNoticeText.text = if (exactAlarmAvailable) {
-            "Exact alarms are available. Minute-level time rules should run on time."
+            getString(R.string.trigger_alarm_available)
         } else {
-            "Exact alarms are unavailable, so minute-level time rules can drift until access is granted."
+            getString(R.string.trigger_alarm_unavailable_editor)
         }
         binding.requestExactAlarmAccessButton.isVisible = !exactAlarmAvailable
     }
@@ -577,28 +592,28 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun refreshTimeSummaries() {
         binding.delaySummaryText.text = if (selectedDelayMinutes == null) {
-            "Choose how long to wait before this trigger runs."
+            getString(R.string.trigger_editor_delay_choose)
         } else {
             formatDelay(selectedDelayMinutes!!)
         }
         binding.absoluteSummaryText.text = buildAbsoluteTimeMillis()?.let { absoluteMs ->
-            "Runs at ${formatDateTime(absoluteMs)}"
-        } ?: "Choose a date and a time."
+            getString(R.string.trigger_editor_absolute_runs, formatDateTime(absoluteMs))
+        } ?: getString(R.string.trigger_editor_absolute_choose)
 
         val recurringTimeText = if (selectedRecurringHour == null || selectedRecurringMinute == null) {
-            "Choose a time for this recurring trigger."
+            getString(R.string.trigger_editor_recurring_choose)
         } else {
             val summary = formatHourMinute(selectedRecurringHour!!, selectedRecurringMinute!!)
             when (selectedSource) {
-                TriggerSource.TIME_DAILY -> "Runs every day at $summary"
+                TriggerSource.TIME_DAILY -> getString(R.string.trigger_editor_daily_runs, summary)
                 TriggerSource.TIME_WEEKLY -> {
                     val days = selectedWeekdays()
-                        .mapNotNull { TriggerUiSupport.dayOfWeekLabel(it) }
+                        .mapNotNull { TriggerUiSupport.dayOfWeekLabel(it, this) }
                         .joinToString(", ")
                     if (days.isBlank()) {
-                        "Choose at least one weekday for $summary"
+                        getString(R.string.trigger_editor_weekly_choose, summary)
                     } else {
-                        "Runs on $days at $summary"
+                        getString(R.string.trigger_editor_weekly_runs, days, summary)
                     }
                 }
 
@@ -619,11 +634,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val ruleName = binding.inputRuleName.text?.toString()?.trim().orEmpty()
         val promptTemplate = binding.inputPromptTemplate.text?.toString()?.trim().orEmpty()
         if (ruleName.isBlank()) {
-            binding.inputRuleNameLayout.error = "Required"
+            binding.inputRuleNameLayout.error = getString(R.string.trigger_editor_required)
             return null
         }
         if (promptTemplate.isBlank()) {
-            binding.inputPromptTemplateLayout.error = "Required"
+            binding.inputPromptTemplateLayout.error = getString(R.string.trigger_editor_required)
             return null
         }
 
@@ -638,7 +653,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             binding.inputCooldownSeconds.text?.isNotBlank() == true &&
             cooldownSeconds == null
         ) {
-            binding.inputCooldownSecondsLayout.error = "Enter a valid number"
+            binding.inputCooldownSecondsLayout.error = getString(R.string.trigger_editor_valid_number)
             return null
         }
 
@@ -655,7 +670,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
                 RunLimitMode.CUSTOM -> {
                     val customLimit = binding.inputCustomRunLimit.text?.toString()?.trim()?.toIntOrNull()
                     if (customLimit == null || customLimit <= 0) {
-                        binding.customRunLimitLayout.error = "Enter a positive number"
+                        binding.customRunLimitLayout.error = getString(R.string.trigger_editor_positive_number)
                         return null
                     }
                     customLimit
@@ -921,9 +936,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val hours = totalMinutes / 60
         val minutes = totalMinutes % 60
         return when {
-            hours > 0 && minutes > 0 -> String.format(Locale.getDefault(), "%d h %d min", hours, minutes)
-            hours > 0 -> String.format(Locale.getDefault(), "%d h", hours)
-            else -> String.format(Locale.getDefault(), "%d min", minutes)
+            hours > 0 && minutes > 0 -> getString(R.string.trigger_editor_delay_hours_minutes, hours, minutes)
+            hours > 0 -> getString(R.string.trigger_editor_delay_hours, hours)
+            else -> getString(R.string.trigger_editor_delay_minutes, minutes)
         }
     }
 

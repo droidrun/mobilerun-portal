@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/background_primary"
-        android:title="@string/ko_ui_triggers_e62f2148"
+        app:title="@string/ko_ui_triggers_e62f2148"
         app:navigationIcon="@drawable/chevron_left"
         app:navigationIconTint="@color/text_white"
         app:titleTextColor="@color/text_white" />
