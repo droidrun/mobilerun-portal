@@ -58,13 +58,22 @@ def main():
             }
         )
     ]
+    # Ensure app-specific toolbar titles resolve through localized resources.
+    title_attr = "{http://schemas.android.com/apk/res-auto}title"
+    inline_titles = []
+    for layout_path in sorted((ROOT.parent / "layout").glob("*.xml")):
+        for element in ET.parse(layout_path).getroot().iter():
+            title = element.attrib.get(title_attr)
+            if title and not title.startswith(("@", "?")):
+                inline_titles.append(f"{layout_path.name}: {title}")
+    print(f"Inline app:title strings: {inline_titles}")
     print(f"Source: {len(source)} | Korean: {len(ko)}")
     print(f"Missing: {missing}")
     print(f"Unexpected: {unexpected}")
     print(f"Placeholder mismatches: {wrong_format}")
     print(f"Line break mismatches: {wrong_linebreaks}")
     print(f"Untranslated, excluding protocol tokens: {unlocalized}")
-    if missing or unexpected or wrong_format or wrong_linebreaks or unlocalized:
+    if missing or unexpected or wrong_format or wrong_linebreaks or unlocalized or inline_titles:
         return 1
     print("Korean locale: PASS")
     return 0
