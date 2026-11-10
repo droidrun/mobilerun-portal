@@ -1,0 +1,95 @@
+<resources>
+    <!-- Visible trigger labels; serialized rules and remote API values are unchanged. -->
+    <string name="trigger_status_granted">허용됨</string>
+    <string name="trigger_status_missing">미허용</string>
+    <string name="trigger_permission_summary">알림: %1$s | SMS: %2$s | 연락처: %3$s</string>
+    <string name="trigger_alarm_available">정확한 알람을 사용할 수 있습니다. 분 단위 시간 규칙이 정시에 실행됩니다.</string>
+    <string name="trigger_alarm_unavailable">정확한 알람 권한이 없습니다. 권한을 허용하기 전까지 시간 규칙이 약 1분 정도 늦어질 수 있습니다.</string>
+    <string name="trigger_alarm_unavailable_editor">정확한 알람 권한이 없습니다. 허용하기 전까지 분 단위 시간 규칙이 지연될 수 있습니다.</string>
+    <string name="trigger_editor_add">트리거 규칙 추가</string>
+    <string name="trigger_editor_edit">트리거 규칙 수정</string>
+    <string name="trigger_editor_connect_models">모델을 불러오려면 Mobilerun에 연결하세요.</string>
+    <string name="trigger_editor_used">성공적인 실행 %2$d회 중 %1$d회 사용했습니다.</string>
+    <string name="trigger_editor_mode_contains">포함</string>
+    <string name="trigger_editor_mode_regex">정규식</string>
+    <string name="trigger_editor_threshold_below">이하</string>
+    <string name="trigger_editor_threshold_above">이상</string>
+    <string name="trigger_editor_network_any">모두</string>
+    <string name="trigger_editor_network_none">연결 없음</string>
+    <string name="trigger_editor_network_wifi">Wi-Fi</string>
+    <string name="trigger_editor_network_cellular">모바일 데이터</string>
+    <string name="trigger_editor_network_ethernet">이더넷</string>
+    <string name="trigger_editor_network_other">기타</string>
+    <string name="trigger_editor_every_day">매일</string>
+    <string name="trigger_editor_selected_weekdays">선택한 요일</string>
+    <string name="trigger_editor_run_always">항상</string>
+    <string name="trigger_editor_run_once">한 번</string>
+    <string name="trigger_editor_run_custom">사용자 지정</string>
+    <string name="trigger_run_recent_removed">최근 실행 기록을 삭제했습니다</string>
+    <string name="trigger_run_undo">되돌리기</string>
+    <string name="trigger_rule_enabled">사용 중</string>
+    <string name="trigger_rule_disabled">사용 안 함</string>
+    <string name="trigger_rule_launch_usage">실행 %1$d/%2$d회 사용</string>
+    <string name="trigger_rule_matched">일치 %1$s</string>
+    <string name="trigger_rule_launched">실행 %1$s</string>
+    <string name="trigger_rule_queued">대기 중 %1$s</string>
+    <string name="trigger_source_time_delay_label">지연 시간 후</string>
+    <string name="trigger_source_time_absolute_label">지정된 시간에</string>
+    <string name="trigger_source_time_daily_label">매일 반복</string>
+    <string name="trigger_source_time_weekly_label">선택한 요일에 반복</string>
+    <string name="trigger_source_notification_posted_label">알림 도착</string>
+    <string name="trigger_source_notification_removed_label">알림 삭제</string>
+    <string name="trigger_source_app_entered_label">앱 열림</string>
+    <string name="trigger_source_app_exited_label">앱 종료</string>
+    <string name="trigger_source_battery_low_label">배터리 부족</string>
+    <string name="trigger_source_battery_okay_label">배터리 정상</string>
+    <string name="trigger_source_battery_level_changed_label">배터리 잔량 변화</string>
+    <string name="trigger_source_power_connected_label">충전 시작</string>
+    <string name="trigger_source_power_disconnected_label">충전 중지</string>
+    <string name="trigger_source_user_present_label">기기 잠금 해제</string>
+    <string name="trigger_source_network_connected_label">네트워크 연결</string>
+    <string name="trigger_source_network_type_changed_label">네트워크 유형 변경</string>
+    <string name="trigger_source_sms_received_label">SMS 수신</string>
+    <string name="trigger_source_time_delay_description">설정한 시간이 지난 뒤 한 번 실행합니다.</string>
+    <string name="trigger_source_time_absolute_description">선택한 날짜와 시간에 한 번 실행합니다.</string>
+    <string name="trigger_source_time_daily_description">매일 지정한 시간에 실행합니다.</string>
+    <string name="trigger_source_time_weekly_description">선택한 요일의 지정한 시간에 실행합니다.</string>
+    <string name="trigger_source_notification_posted_description">조건에 맞는 알림이 도착하면 실행합니다.</string>
+    <string name="trigger_source_notification_removed_description">조건에 맞는 알림이 닫히거나 사라지면 실행합니다.</string>
+    <string name="trigger_source_app_entered_description">선택한 앱이 화면에 나타나면 실행합니다.</string>
+    <string name="trigger_source_app_exited_description">선택한 앱이 화면에서 사라지면 실행합니다.</string>
+    <string name="trigger_source_battery_low_description">Android가 배터리 부족을 알리면 실행합니다.</string>
+    <string name="trigger_source_battery_okay_description">Android가 배터리 상태가 정상으로 돌아왔음을 알리면 실행합니다.</string>
+    <string name="trigger_source_battery_level_changed_description">배터리 잔량이 지정한 기준을 넘으면 실행합니다.</string>
+    <string name="trigger_source_power_connected_description">충전이 시작되면 실행합니다.</string>
+    <string name="trigger_source_power_disconnected_description">충전이 중지되면 실행합니다.</string>
+    <string name="trigger_source_user_present_description">기기의 잠금이 풀리고 사용자가 활동하면 실행합니다.</string>
+    <string name="trigger_source_network_connected_description">기기가 네트워크에 연결되면 실행합니다.</string>
+    <string name="trigger_source_network_type_changed_description">Wi-Fi에서 모바일 데이터로 전환되는 등 네트워크 종류가 변경되면 실행합니다.</string>
+    <string name="trigger_source_sms_received_description">조건에 맞는 SMS가 수신되면 실행합니다.</string>
+    <string name="trigger_disposition_matched">일치</string>
+    <string name="trigger_disposition_launched">실행됨</string>
+    <string name="trigger_disposition_skipped_busy">실행 중이라 건너뜀</string>
+    <string name="trigger_disposition_buffered">대기 처리됨</string>
+    <string name="trigger_disposition_debounced">중복 신호 억제됨</string>
+    <string name="trigger_disposition_permission_missing">권한 없음</string>
+    <string name="trigger_disposition_launch_failed">실행 실패</string>
+    <string name="trigger_disposition_rule_disabled">규칙 비활성</string>
+    <string name="trigger_disposition_test_launched">테스트 실행됨</string>
+    <string name="trigger_day_sunday">일요일</string>
+    <string name="trigger_day_monday">월요일</string>
+    <string name="trigger_day_tuesday">화요일</string>
+    <string name="trigger_day_wednesday">수요일</string>
+    <string name="trigger_day_thursday">목요일</string>
+    <string name="trigger_day_friday">금요일</string>
+    <string name="trigger_day_saturday">토요일</string>
+    <string name="trigger_summary_app">앱=%1$s</string>
+    <string name="trigger_summary_pkg">패키지=%1$s</string>
+    <string name="trigger_summary_title">제목=%1$s</string>
+    <string name="trigger_summary_text">내용=%1$s</string>
+    <string name="trigger_summary_network">네트워크=%1$s</string>
+    <string name="trigger_summary_threshold">기준=%1$s %2$s</string>
+    <string name="trigger_summary_phone">전화번호=%1$s</string>
+    <string name="trigger_summary_delay">지연=%1$d분</string>
+    <string name="trigger_summary_at">시간=%1$s</string>
+</resources>

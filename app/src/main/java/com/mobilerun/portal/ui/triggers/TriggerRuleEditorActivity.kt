@@ -86,30 +86,47 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
     private val portalCloudClient = PortalCloudClient()
     private val configManager by lazy { ConfigManager.getInstance(this) }
     private val sourceOptions by lazy {
-        TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it), it) }
+        TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it, this), it) }
     }
     private val matchModeOptions by lazy {
-        TriggerStringMatchMode.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerStringMatchMode.entries.map {
+            LabeledValue(when (it) {
+                TriggerStringMatchMode.CONTAINS -> getString(R.string.trigger_editor_mode_contains)
+                TriggerStringMatchMode.REGEX -> getString(R.string.trigger_editor_mode_regex)
+            }, it)
+        }
     }
     private val thresholdComparisonOptions by lazy {
-        TriggerThresholdComparison.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerThresholdComparison.entries.map {
+            LabeledValue(when (it) {
+                TriggerThresholdComparison.AT_OR_BELOW -> getString(R.string.trigger_editor_threshold_below)
+                TriggerThresholdComparison.AT_OR_ABOVE -> getString(R.string.trigger_editor_threshold_above)
+            }, it)
+        }
     }
     private val networkTypeOptions by lazy {
-        listOf(LabeledValue("Any", null)) + TriggerNetworkType.entries.map {
-            LabeledValue(it.name.replace('_', ' '), it)
-        }
+        listOf(LabeledValue(getString(R.string.trigger_editor_network_any), null)) +
+            TriggerNetworkType.entries.map {
+                LabeledValue(when (it) {
+                    TriggerNetworkType.NONE -> getString(R.string.trigger_editor_network_none)
+                    TriggerNetworkType.WIFI -> getString(R.string.trigger_editor_network_wifi)
+                    TriggerNetworkType.CELLULAR -> getString(R.string.trigger_editor_network_cellular)
+                    TriggerNetworkType.ETHERNET -> getString(R.string.trigger_editor_network_ethernet)
+                    TriggerNetworkType.OTHER -> getString(R.string.trigger_editor_network_other)
+                }, it)
+            }
     }
     private val repeatModeOptions by lazy {
         listOf(
-            LabeledValue("Every day", TriggerSource.TIME_DAILY),
-            LabeledValue("Selected weekdays", TriggerSource.TIME_WEEKLY),
+            LabeledValue(getString(R.string.trigger_editor_every_day), TriggerSource.TIME_DAILY),
+            LabeledValue(getString(R.string.trigger_editor_selected_weekdays), TriggerSource.TIME_WEEKLY),
         )
     }
     private val runLimitOptions by lazy {
         listOf(
-            LabeledValue("Always", RunLimitMode.ALWAYS),
-            LabeledValue("Once", RunLimitMode.ONCE),
-            LabeledValue("Custom", RunLimitMode.CUSTOM),
+            LabeledValue(getString(R.string.trigger_editor_run_always), RunLimitMode.ALWAYS),
+            LabeledValue(getString(R.string.trigger_editor_run_once), RunLimitMode.ONCE),
+            LabeledValue(getString(R.string.trigger_editor_run_custom), RunLimitMode.CUSTOM),
         )
     }
 
@@ -176,7 +193,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
                 if (rule != null && !rule.enabled) {
                     TriggerRuntime.setRuleEnabled(rule.id, true)
                     originalRule = TriggerRuntime.listRules().firstOrNull { it.id == rule.id }
-                    Toast.makeText(this, "Trigger rule enabled", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.ko_action_trigger_enabled), Toast.LENGTH_SHORT).show()
                 }
             }
             setResult(RESULT_OK)
@@ -281,11 +298,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             busyPolicy = TriggerBusyPolicy.SKIP,
         )
 
-        binding.topAppBar.title = if (originalRule == null) {
-            "Add trigger rule"
-        } else {
-            "Edit trigger rule"
-        }
+        binding.topAppBar.title = getString(
+            if (originalRule == null) R.string.trigger_editor_add else R.string.trigger_editor_edit
+        )
         binding.editActionsRow.isVisible = originalRule != null
 
         binding.switchRuleEnabled.isChecked = seed.enabled
@@ -356,7 +371,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             binding.modelRetryButton.isVisible = false
             binding.modelWarningText.isVisible = true
             binding.modelWarningText.text =
-                "Connect to Mobilerun to load models."
+                getString(R.string.trigger_editor_connect_models)
             return
         }
 
@@ -396,7 +411,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             sourceOptions.firstOrNull { it.value == source }?.label.orEmpty(),
             false,
         )
-        binding.triggerSourceDescriptionText.text = TriggerUiSupport.sourceDescription(source)
+        binding.triggerSourceDescriptionText.text = TriggerUiSupport.sourceDescription(source, this)
         if (source == TriggerSource.TIME_DAILY || source == TriggerSource.TIME_WEEKLY) {
             binding.inputRepeatMode.setText(
                 repeatModeOptions.firstOrNull { it.value == source }?.label.orEmpty(),
@@ -468,7 +483,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.runLimitUsageText.isVisible = supportsRunLimit && seedRule != null && maxLaunchCount != null
         if (binding.runLimitUsageText.isVisible) {
             binding.runLimitUsageText.text =
-                "Used $successfulLaunchCount of $maxLaunchCount successful launches."
+                getString(R.string.trigger_editor_used, successfulLaunchCount, maxLaunchCount)
         }
     }
 
@@ -479,9 +494,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
         val exactAlarmAvailable = hasExactAlarmAccess()
         binding.exactAlarmNoticeText.text = if (exactAlarmAvailable) {
-            "Exact alarms are available. Minute-level time rules should run on time."
+            getString(R.string.trigger_alarm_available)
         } else {
-            "Exact alarms are unavailable, so minute-level time rules can drift until access is granted."
+            getString(R.string.trigger_alarm_unavailable_editor)
         }
         binding.requestExactAlarmAccessButton.isVisible = !exactAlarmAvailable
     }
@@ -493,11 +508,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun requestExactAlarmAccess() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            Toast.makeText(this, "Exact alarms do not need extra access on this Android version", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
             return
         }
         if (hasExactAlarmAccess()) {
-            Toast.makeText(this, "Exact alarms are already enabled", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
             return
         }
         startActivity(
@@ -521,10 +536,10 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         dialogBinding.minutesPicker.wrapSelectorWheel = false
 
         AlertDialog.Builder(this)
-            .setTitle("Choose delay")
+            .setTitle(R.string.ko_action_choose_delay)
             .setView(dialogBinding.root)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Apply") { _, _ ->
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.ko_action_apply) { _, _ ->
                 val totalMinutes =
                     dialogBinding.hoursPicker.value * 60 + dialogBinding.minutesPicker.value
                 selectedDelayMinutes = totalMinutes.coerceAtLeast(1)
@@ -535,7 +550,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showAbsoluteDatePicker() {
         val datePicker = MaterialDatePicker.Builder.datePicker()
-            .setTitleText("Choose date")
+            .setTitleText(getString(R.string.ko_action_choose_date))
             .setSelection(selectedAbsoluteDateUtcMs ?: MaterialDatePicker.todayInUtcMilliseconds())
             .build()
         datePicker.addOnPositiveButtonClickListener { selection ->
@@ -547,7 +562,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showAbsoluteTimePicker() {
         val timePicker = MaterialTimePicker.Builder()
-            .setTitleText("Choose time")
+            .setTitleText(getString(R.string.ko_action_choose_time))
             .setHour(selectedAbsoluteHour ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
             .setMinute(selectedAbsoluteMinute ?: Calendar.getInstance().get(Calendar.MINUTE))
             .setTimeFormat(if (DateFormat.is24HourFormat(this)) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
@@ -562,7 +577,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showRecurringTimePicker() {
         val timePicker = MaterialTimePicker.Builder()
-            .setTitleText("Choose time")
+            .setTitleText(getString(R.string.ko_action_choose_time))
             .setHour(selectedRecurringHour ?: 9)
             .setMinute(selectedRecurringMinute ?: 0)
             .setTimeFormat(if (DateFormat.is24HourFormat(this)) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
@@ -577,28 +592,28 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun refreshTimeSummaries() {
         binding.delaySummaryText.text = if (selectedDelayMinutes == null) {
-            "Choose how long to wait before this trigger runs."
+            getString(R.string.trigger_editor_delay_choose)
         } else {
             formatDelay(selectedDelayMinutes!!)
         }
         binding.absoluteSummaryText.text = buildAbsoluteTimeMillis()?.let { absoluteMs ->
-            "Runs at ${formatDateTime(absoluteMs)}"
-        } ?: "Choose a date and a time."
+            getString(R.string.trigger_editor_absolute_runs, formatDateTime(absoluteMs))
+        } ?: getString(R.string.trigger_editor_absolute_choose)
 
         val recurringTimeText = if (selectedRecurringHour == null || selectedRecurringMinute == null) {
-            "Choose a time for this recurring trigger."
+            getString(R.string.trigger_editor_recurring_choose)
         } else {
             val summary = formatHourMinute(selectedRecurringHour!!, selectedRecurringMinute!!)
             when (selectedSource) {
-                TriggerSource.TIME_DAILY -> "Runs every day at $summary"
+                TriggerSource.TIME_DAILY -> getString(R.string.trigger_editor_daily_runs, summary)
                 TriggerSource.TIME_WEEKLY -> {
                     val days = selectedWeekdays()
-                        .mapNotNull { TriggerUiSupport.dayOfWeekLabel(it) }
+                        .mapNotNull { TriggerUiSupport.dayOfWeekLabel(it, this) }
                         .joinToString(", ")
                     if (days.isBlank()) {
-                        "Choose at least one weekday for $summary"
+                        getString(R.string.trigger_editor_weekly_choose, summary)
                     } else {
-                        "Runs on $days at $summary"
+                        getString(R.string.trigger_editor_weekly_runs, days, summary)
                     }
                 }
 
@@ -619,11 +634,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val ruleName = binding.inputRuleName.text?.toString()?.trim().orEmpty()
         val promptTemplate = binding.inputPromptTemplate.text?.toString()?.trim().orEmpty()
         if (ruleName.isBlank()) {
-            binding.inputRuleNameLayout.error = "Required"
+            binding.inputRuleNameLayout.error = getString(R.string.trigger_editor_required)
             return null
         }
         if (promptTemplate.isBlank()) {
-            binding.inputPromptTemplateLayout.error = "Required"
+            binding.inputPromptTemplateLayout.error = getString(R.string.trigger_editor_required)
             return null
         }
 
@@ -638,7 +653,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             binding.inputCooldownSeconds.text?.isNotBlank() == true &&
             cooldownSeconds == null
         ) {
-            binding.inputCooldownSecondsLayout.error = "Enter a valid number"
+            binding.inputCooldownSecondsLayout.error = getString(R.string.trigger_editor_valid_number)
             return null
         }
 
@@ -655,7 +670,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
                 RunLimitMode.CUSTOM -> {
                     val customLimit = binding.inputCustomRunLimit.text?.toString()?.trim()?.toIntOrNull()
                     if (customLimit == null || customLimit <= 0) {
-                        binding.customRunLimitLayout.error = "Enter a positive number"
+                        binding.customRunLimitLayout.error = getString(R.string.trigger_editor_positive_number)
                         return null
                     }
                     customLimit
@@ -796,7 +811,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         }
 
         if (showToast) {
-            Toast.makeText(this, "Trigger rule saved", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_trigger_saved), Toast.LENGTH_SHORT).show()
         }
         if (finishAfterSave) {
             setResult(RESULT_OK)
@@ -809,13 +824,13 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showNotificationAccessWarning() {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Notification access required")
-            .setMessage("This trigger needs notification access to detect messages. The rule has been saved but kept disabled.\n\nEnable notification access, then activate the rule.")
-            .setPositiveButton("Go to Settings") { _, _ ->
+            .setTitle(R.string.ko_action_notification_required)
+            .setMessage(R.string.ko_action_notification_saved_disabled)
+            .setPositiveButton(R.string.ko_action_go_settings) { _, _ ->
                 pendingNotificationAccessEnable = true
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            .setNegativeButton("OK") { _, _ ->
+            .setNegativeButton(R.string.ko_action_ok) { _, _ ->
                 setResult(RESULT_OK)
                 finish()
             }
@@ -828,20 +843,20 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         if (TriggerEditorSupport.requiresNotificationAccess(savedRule.source) &&
             !TriggerEditorSupport.isNotificationAccessEnabled(this)
         ) {
-            Toast.makeText(this, "Cannot test: notification listener access is not granted", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_cannot_test_notifications), Toast.LENGTH_SHORT).show()
             return
         }
         TriggerRuntime.launchTest(savedRule.id)
-        Toast.makeText(this, "Test run requested for ${savedRule.name}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.ko_action_test_run_requested, savedRule.name), Toast.LENGTH_SHORT).show()
     }
 
     private fun deleteRule() {
         val rule = originalRule ?: return
         AlertDialog.Builder(this)
-            .setTitle("Delete trigger")
-            .setMessage("Delete '${rule.name}'?")
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Delete") { _, _ ->
+            .setTitle(R.string.ko_action_delete_trigger)
+            .setMessage(getString(R.string.ko_action_delete_trigger_message, rule.name))
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.ko_action_delete) { _, _ ->
                 TriggerRuntime.deleteRule(rule.id)
                 setResult(RESULT_OK)
                 finish()
@@ -921,9 +936,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val hours = totalMinutes / 60
         val minutes = totalMinutes % 60
         return when {
-            hours > 0 && minutes > 0 -> String.format(Locale.getDefault(), "%d h %d min", hours, minutes)
-            hours > 0 -> String.format(Locale.getDefault(), "%d h", hours)
-            else -> String.format(Locale.getDefault(), "%d min", minutes)
+            hours > 0 && minutes > 0 -> getString(R.string.trigger_editor_delay_hours_minutes, hours, minutes)
+            hours > 0 -> getString(R.string.trigger_editor_delay_hours, hours)
+            else -> getString(R.string.trigger_editor_delay_minutes, minutes)
         }
     }
 

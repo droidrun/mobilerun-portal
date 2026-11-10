@@ -1,0 +1,16 @@
+<resources>
+    <!-- Localized presentation strings for trigger editor controls. -->
+    <string name="trigger_editor_delay_choose">Choose how long to wait before this trigger runs.</string>
+    <string name="trigger_editor_absolute_runs">Runs at %1$s</string>
+    <string name="trigger_editor_absolute_choose">Choose a date and a time.</string>
+    <string name="trigger_editor_recurring_choose">Choose a time for this recurring trigger.</string>
+    <string name="trigger_editor_daily_runs">Runs every day at %1$s</string>
+    <string name="trigger_editor_weekly_choose">Choose at least one weekday for %1$s</string>
+    <string name="trigger_editor_weekly_runs">Runs on %1$s at %2$s</string>
+    <string name="trigger_editor_delay_hours_minutes">%1$d h %2$d min</string>
+    <string name="trigger_editor_delay_hours">%1$d h</string>
+    <string name="trigger_editor_delay_minutes">%1$d min</string>
+    <string name="trigger_editor_required">Required</string>
+    <string name="trigger_editor_valid_number">Enter a valid number</string>
+    <string name="trigger_editor_positive_number">Enter a positive number</string>
+</resources>

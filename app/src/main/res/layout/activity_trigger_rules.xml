@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/background_primary"
-        android:title="Triggers"
+        app:title="@string/ko_ui_triggers_e62f2148"
         app:navigationIcon="@drawable/chevron_left"
         app:navigationIconTint="@color/text_white"
         app:titleTextColor="@color/text_white" />
@@ -30,7 +30,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Create device-local AI triggers for notifications, apps, time, battery, network, SMS, and unlock events."
+                android:text="@string/ko_ui_create_device_local_ai_triggers_for_notification_84f2225f"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
 
@@ -75,7 +75,7 @@
                             android:gravity="center"
                             android:maxLines="2"
                             android:minLines="2"
-                            android:text="Notification access"
+                            android:text="@string/ko_ui_notification_access_2701f93e"
                             android:textAlignment="center"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
@@ -121,7 +121,7 @@
                             android:gravity="center"
                             android:maxLines="2"
                             android:minLines="2"
-                            android:text="SMS permission"
+                            android:text="@string/ko_ui_sms_permission_7f9fced1"
                             android:textAlignment="center"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
@@ -172,7 +172,7 @@
                             android:gravity="center"
                             android:maxLines="2"
                             android:minLines="2"
-                            android:text="Contacts permission"
+                            android:text="@string/ko_ui_contacts_permission_c30940dd"
                             android:textAlignment="center"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
@@ -210,7 +210,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Exact alarms"
+                        android:text="@string/ko_ui_exact_alarms_b39f0e41"
                         android:textColor="@color/text_white"
                         android:textStyle="bold" />
 
@@ -229,7 +229,7 @@
                         android:layout_height="wrap_content"
                         android:layout_gravity="center_horizontal"
                         android:layout_marginTop="12dp"
-                        android:text="Enable exact alarms"
+                        android:text="@string/ko_ui_enable_exact_alarms_bbc35350"
                         android:textAllCaps="false" />
 
                 </LinearLayout>
@@ -241,13 +241,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="Add Trigger Rule" />
+                android:text="@string/ko_ui_add_trigger_rule_7decb2c7" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:text="Rules"
+                android:text="@string/ko_ui_rules_4228aeb0"
                 android:textColor="@color/text_gray"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -257,7 +257,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="No trigger rules configured."
+                android:text="@string/ko_ui_no_trigger_rules_configured_ff2fbaf7"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
 
@@ -288,7 +288,7 @@
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Recent Runs"
+                        android:text="@string/ko_ui_recent_runs_53972e86"
                         android:textAllCaps="false" />
 
                     <com.google.android.material.button.MaterialButton
@@ -296,7 +296,7 @@
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Queued"
+                        android:text="@string/ko_ui_queued_661ff40a"
                         android:textAllCaps="false" />
 
                 </com.google.android.material.button.MaterialButtonToggleGroup>
@@ -307,7 +307,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:minWidth="0dp"
-                    android:text="Clear all"
+                    android:text="@string/ko_ui_clear_all_29a390f9"
                     android:textAllCaps="false"
                     android:visibility="gone" />
 
@@ -318,7 +318,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="No trigger runs yet."
+                android:text="@string/ko_ui_no_trigger_runs_yet_cc92699d"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
 
@@ -327,7 +327,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="No queued tasks."
+                android:text="@string/ko_ui_no_queued_tasks_e014e9f8"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp"
                 android:visibility="gone" />

@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
+import com.mobilerun.portal.R
 import com.mobilerun.portal.databinding.ActivityTriggerRulesBinding
 import com.mobilerun.portal.databinding.ItemTriggerQueueEntryBinding
 import com.mobilerun.portal.databinding.ItemTriggerRuleBinding
@@ -97,7 +98,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         if (pendingRuleId != null && TriggerEditorSupport.isNotificationAccessEnabled(this)) {
             pendingNotificationAccessRuleId = null
             TriggerRuntime.setRuleEnabled(pendingRuleId, true)
-            Toast.makeText(this, "Trigger rule enabled", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_trigger_enabled), Toast.LENGTH_SHORT).show()
         } else {
             pendingNotificationAccessRuleId = null
             disableNotificationRulesIfAccessRevoked()
@@ -118,7 +119,7 @@ class TriggerRulesActivity : AppCompatActivity() {
 
         binding.buttonSmsPermission.setOnClickListener {
             if (hasPermission(Manifest.permission.RECEIVE_SMS)) {
-                Toast.makeText(this, "SMS permission already granted", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ko_action_sms_permission_granted), Toast.LENGTH_SHORT).show()
             } else {
                 requestSmsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
             }
@@ -126,7 +127,7 @@ class TriggerRulesActivity : AppCompatActivity() {
 
         binding.buttonContactsPermission.setOnClickListener {
             if (hasPermission(Manifest.permission.READ_CONTACTS)) {
-                Toast.makeText(this, "Contacts permission already granted", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ko_action_contacts_permission_granted), Toast.LENGTH_SHORT).show()
             } else {
                 requestContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
             }
@@ -199,15 +200,16 @@ class TriggerRulesActivity : AppCompatActivity() {
     }
 
     private fun refreshPermissionSummary() {
-        val notificationStatus = if (isNotificationAccessEnabled()) "granted" else "missing"
-        val smsStatus = if (hasPermission(Manifest.permission.RECEIVE_SMS)) "granted" else "missing"
-        val contactsStatus = if (hasPermission(Manifest.permission.READ_CONTACTS)) "granted" else "missing"
+        val notificationStatus = getString(if (isNotificationAccessEnabled()) R.string.trigger_status_granted else R.string.trigger_status_missing)
+        val smsStatus = getString(if (hasPermission(Manifest.permission.RECEIVE_SMS)) R.string.trigger_status_granted else R.string.trigger_status_missing)
+        val contactsStatus = getString(if (hasPermission(Manifest.permission.READ_CONTACTS)) R.string.trigger_status_granted else R.string.trigger_status_missing)
 
-        binding.permissionsSummaryText.text =
-            "Notification: $notificationStatus | SMS: $smsStatus | Contacts: $contactsStatus"
-        binding.notificationAccessStatusText.text = notificationStatus.replaceFirstChar { it.uppercase() }
-        binding.smsPermissionStatusText.text = smsStatus.replaceFirstChar { it.uppercase() }
-        binding.contactsPermissionStatusText.text = contactsStatus.replaceFirstChar { it.uppercase() }
+        binding.permissionsSummaryText.text = getString(
+            R.string.trigger_permission_summary, notificationStatus, smsStatus, contactsStatus
+        )
+        binding.notificationAccessStatusText.text = notificationStatus
+        binding.smsPermissionStatusText.text = smsStatus
+        binding.contactsPermissionStatusText.text = contactsStatus
 
         val showExactAlarmCard = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         binding.exactAlarmCard.visibility = if (showExactAlarmCard) View.VISIBLE else View.GONE
@@ -215,9 +217,9 @@ class TriggerRulesActivity : AppCompatActivity() {
 
         val exactAlarmAvailable = hasExactAlarmAccess()
         binding.exactAlarmSummaryText.text = if (exactAlarmAvailable) {
-            "Exact alarms are available. Minute-level time rules should run on time."
+            getString(R.string.trigger_alarm_available)
         } else {
-            "Exact alarms are unavailable, so time rules can drift by about a minute until access is granted."
+            getString(R.string.trigger_alarm_unavailable)
         }
         binding.buttonExactAlarmAccess.visibility = if (exactAlarmAvailable) View.GONE else View.VISIBLE
     }
@@ -247,8 +249,8 @@ class TriggerRulesActivity : AppCompatActivity() {
         }
         TriggerRuntime.deleteRun(record.id)
         reloadData()
-        Snackbar.make(binding.root, "Recent run removed", Snackbar.LENGTH_SHORT)
-            .setAction("Undo") {
+        Snackbar.make(binding.root, getString(R.string.trigger_run_recent_removed), Snackbar.LENGTH_SHORT)
+            .setAction(R.string.trigger_run_undo) {
                 TriggerRuntime.restoreRun(record)
                 reloadData()
             }
@@ -258,10 +260,10 @@ class TriggerRulesActivity : AppCompatActivity() {
     private fun confirmClearRuns() {
         if (runAdapter.itemCount == 0) return
         MaterialAlertDialogBuilder(this)
-            .setTitle("Clear recent runs")
-            .setMessage("Remove all recent trigger run records?")
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Clear") { _, _ ->
+            .setTitle(R.string.ko_action_clear_recent)
+            .setMessage(R.string.ko_action_clear_recent_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.ko_action_clear) { _, _ ->
                 TriggerRuntime.clearRuns()
                 reloadData()
             }
@@ -283,7 +285,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         if (changed) {
             Toast.makeText(
                 this,
-                "Notification triggers disabled — notification access is not granted",
+                getString(R.string.ko_action_notification_triggers_disabled),
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -291,13 +293,13 @@ class TriggerRulesActivity : AppCompatActivity() {
 
     private fun showNotificationAccessWarning(ruleId: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Notification access required")
-            .setMessage("This trigger needs notification access to detect messages. Enable notification access, then activate the rule.")
-            .setPositiveButton("Go to Settings") { _, _ ->
+            .setTitle(R.string.ko_action_notification_required)
+            .setMessage(R.string.ko_action_notification_required_message)
+            .setPositiveButton(R.string.ko_action_go_settings) { _, _ ->
                 pendingNotificationAccessRuleId = ruleId
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            .setNegativeButton("OK", null)
+            .setNegativeButton(R.string.ko_action_ok, null)
             .show()
     }
 
@@ -312,11 +314,11 @@ class TriggerRulesActivity : AppCompatActivity() {
 
     private fun requestExactAlarmAccess() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            Toast.makeText(this, "Exact alarms do not need extra access on this Android version", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
             return
         }
         if (hasExactAlarmAccess()) {
-            Toast.makeText(this, "Exact alarms are already enabled", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
             return
         }
         startActivity(
@@ -365,21 +367,18 @@ class TriggerRulesActivity : AppCompatActivity() {
                 binding.ruleNameText.text = rule.name
                 binding.ruleSummaryText.text = TriggerUiSupport.summary(rule, itemView.context)
                 binding.ruleStatusText.text = buildString {
-                    append(if (rule.enabled) "Enabled" else "Disabled")
+                    append(itemView.context.getString(if (rule.enabled) R.string.trigger_rule_enabled else R.string.trigger_rule_disabled))
                     rule.maxLaunchCount?.let { maxCount ->
                         append(" • ")
-                        append(rule.successfulLaunchCount)
-                        append("/")
-                        append(maxCount)
-                        append(" launches used")
+                        append(itemView.context.getString(R.string.trigger_rule_launch_usage, rule.successfulLaunchCount, maxCount))
                     }
                     if (rule.lastMatchedAtMs > 0) {
-                        append(" • matched ")
-                        append(TriggerUiSupport.formatTimestamp(rule.lastMatchedAtMs))
+                        append(" • ")
+                        append(itemView.context.getString(R.string.trigger_rule_matched, TriggerUiSupport.formatTimestamp(rule.lastMatchedAtMs)))
                     }
                     if (rule.lastLaunchedAtMs > 0) {
-                        append(" • launched ")
-                        append(TriggerUiSupport.formatTimestamp(rule.lastLaunchedAtMs))
+                        append(" • ")
+                        append(itemView.context.getString(R.string.trigger_rule_launched, TriggerUiSupport.formatTimestamp(rule.lastLaunchedAtMs)))
                     }
                 }
                 binding.ruleEnabledSwitch.setOnCheckedChangeListener(null)
@@ -425,14 +424,14 @@ class TriggerRulesActivity : AppCompatActivity() {
             fun bind(entry: TriggerQueueEntry, onCancel: (TriggerQueueEntry) -> Unit) {
                 binding.queueRuleNameText.text = entry.ruleName
                 binding.queueMetaText.text = buildString {
-                    append(entry.source.name.lowercase().replace('_', ' '))
+                    append(TriggerUiSupport.sourceLabel(entry.source, itemView.context))
                     val sender = entry.signal.payload["title"]
                     if (!sender.isNullOrBlank()) {
                         append(" • ")
                         append(sender)
                     }
-                    append(" • queued ")
-                    append(TriggerUiSupport.formatTimestamp(entry.enqueuedAtMs))
+                    append(" • ")
+                    append(itemView.context.getString(R.string.trigger_rule_queued, TriggerUiSupport.formatTimestamp(entry.enqueuedAtMs)))
                 }
                 binding.queueCancelButton.setOnClickListener { onCancel(entry) }
             }
@@ -477,7 +476,7 @@ class TriggerRulesActivity : AppCompatActivity() {
                     append(" • ")
                     append(record.ruleName)
                     append(" • ")
-                    append(TriggerUiSupport.dispositionLabel(record.disposition))
+                    append(TriggerUiSupport.dispositionLabel(record.disposition, itemView.context))
                 }
             }
         }
