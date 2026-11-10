@@ -45,3 +45,17 @@ The built APK is a debug-signed test artifact and has not been installed over th
 - Some errors returned by Android or external services may still appear in English. Device-level visual and accessibility testing remains desirable before release.
 
 The upstream project's AGPL-3.0-or-later license and existing author attribution are preserved.
+
+## Existing Fold7 installation: deployment check (2026-11-10)
+
+- The user's request targets the Portal already installed on Fold7, not SAVE PILOT or the emulator.
+- Fetched upstream `main` (`49d9211`) and fork `feature/korean-ui` (`acd86bd`) before the check. The Korean branch is 13 commits ahead of upstream with no missing upstream commits; the worktree was clean.
+- Re-ran only `scripts/validate_ko.py` and `scripts/audit_hardcoded_ui.py`: 593/593 localized strings, no missing keys, format or newline mismatches. The remaining literal matches are the brand name and an ADB command.
+- Existing candidate: `app/build/outputs/apk/debug/com.mobilerun.portal-0.8.2-debug.apk`, version `0.8.2` / code `104`, Korean locale present.
+- Candidate SHA-256: `DC72944CE9ABC326EF408FF9DEAE288071C3C199511B6E993D011BF4F227751F`.
+- Candidate signer SHA-256: `ab3f5d21e1e20185ecfbfd68573021da957c55849935c54b7f088b16cb278071`.
+- Official `0.8.2` APK previously used for the phone has signer SHA-256 `f425a9af490803f5e10512c4cc47b9bedefa802b04ba8712a39a001efa033406`. This is a comparison of the local official APK and candidate; the phone's installed base.apk was not extracted for an independent certificate comparison.
+- The local official APK has no Korean application UI resources; changing language alone does not add translations. The official signing keystore is not configured in this environment.
+- Android requires a compatible signing identity for an update. See [Android app signing considerations](https://developer.android.com/studio/publish/app-signing#considerations).
+- Phone replacement is NOT RUN. No uninstall, app-data clearing, pairing reset, or permission change was performed. Replacing the official installation may clear Portal's saved connection and permissions, so informed user approval is pending before removal. SAVE PILOT data is outside this operation.
+- No rebuild, full test run, temporary worktree, additional APK copy, or test profile was needed. The existing candidate is retained in the build output directory.
