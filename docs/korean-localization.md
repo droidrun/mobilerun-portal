@@ -7,6 +7,7 @@ This change adds Korean (ko) interface strings for Mobilerun Portal v0.8.2.
 - Localizes all 355 existing strings from values/strings.xml.
 - Extracts 81 user-facing layout labels previously hard-coded in XML to paired English and Korean resources.
 - Extracts 52 user-facing UI messages from Kotlin activities into paired English and Korean resources.
+- Localizes 105 additional trigger screen and editor resources (92 trigger UI strings and 13 trigger editor strings).
 - Keeps English resources as the default. Android selects Korean when the current language is Korean.
 - Preserves package identifiers, URLs, HTTP/WebSocket methods, accessibility service behavior, permissions, authentication and application workflows.
 
@@ -24,8 +25,8 @@ Results from a Windows build:
 
 | Check | Result |
 | --- | --- |
-| English string resources | 488 |
-| Korean string resources | 488 |
+| English string resources | 593 |
+| Korean string resources | 593 |
 | Missing/extra string keys | 0 |
 | Format argument mismatches | 0 |
 | Line-break mismatches | 0 |

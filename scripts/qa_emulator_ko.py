@@ -71,7 +71,7 @@ def scroll_find(serial: str, *, resource_id=None, text=None, tries=8):
     for _ in range(tries):
         root = inspect(serial)
         node = find_node(root, resource_id=resource_id, text=text)
-        if node:
+        if node is not None:
             return node
         run_adb(serial, "shell", "input", "swipe", "170", "525", "170", "150", "370")
         time.sleep(.5)
@@ -127,7 +127,7 @@ def main() -> None:
         value = find_node(page, resource_id=field)
         assert value is not None and value.attrib.get("text") in ("허용됨", "미허용"), field
     alarm = find_node(page, resource_id="exactAlarmSummaryText")
-    if alarm:
+    if alarm is not None:
         assert alarm.attrib.get("text", "").startswith("정확한 알람"), "Exact alarm status not localized"
     screenshot(serial, args.evidence / "triggers-ko.png")
     print("PASS: Trigger status, permission and exact-alarm labels localized")
