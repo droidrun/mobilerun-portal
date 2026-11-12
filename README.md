@@ -271,6 +271,10 @@ For error responses:
 }
 ```
 
+## 🤖 AI Agent Guidance
+
+This repo is regularly worked on with AI coding agents. [`AGENTS.md`](./AGENTS.md) (referenced by [`CLAUDE.md`](./CLAUDE.md)) documents the module layout and the invariants that pull requests must preserve — read it before making changes.
+
 ## 🔧 Technical Details
 - Minimum Android API level: 26 (Android 8.0) for the core compatibility tier
 - File operations (`files/*`) require Android 11 or newer in the current build
