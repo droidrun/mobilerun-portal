@@ -9,7 +9,7 @@ import java.util.Locale
 object TriggerUiSupport {
     private val timestampFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
-    /** Only the visible Android UI uses translated names; API/catalog labels stay stable. */
+    /** Localized labels for the UI; the context-free overloads stay English for the trigger API. */
     fun sourceLabel(source: TriggerSource, context: Context): String {
         return when (source) {
             TriggerSource.TIME_DELAY -> context.getString(R.string.trigger_source_time_delay_label)
@@ -81,7 +81,6 @@ object TriggerUiSupport {
         }
     }
 
-
     fun sourceLabel(source: TriggerSource): String {
         return when (source) {
             TriggerSource.TIME_DELAY -> "After a delay"
@@ -117,33 +116,33 @@ object TriggerUiSupport {
         }
     }
 
-    fun summary(rule: TriggerRule, context: Context? = null): String {
+    fun summary(rule: TriggerRule, context: Context): String {
         return buildList {
-            add(if (context == null) sourceLabel(rule.source) else sourceLabel(rule.source, context))
+            add(sourceLabel(rule.source, context))
             rule.packageName?.takeIf { it.isNotBlank() }?.let { pkg ->
                 val label = resolveAppLabel(context, pkg)
-                add(if (label != null) {
-                    if (context == null) "app=$label" else context.getString(R.string.trigger_summary_app, label)
-                } else {
-                    if (context == null) "pkg=$pkg" else context.getString(R.string.trigger_summary_pkg, pkg)
-                })
+                add(
+                    if (label != null) context.getString(R.string.trigger_summary_app, label)
+                    else context.getString(R.string.trigger_summary_pkg, pkg)
+                )
             }
-            rule.titleFilter?.takeIf { it.isNotBlank() }?.let { add(if (context == null) "title=$it" else context.getString(R.string.trigger_summary_title, it)) }
-            rule.textFilter?.takeIf { it.isNotBlank() }?.let { add(if (context == null) "text=$it" else context.getString(R.string.trigger_summary_text, it)) }
-            rule.networkType?.let { add(if (context == null) "network=${it.name}" else context.getString(R.string.trigger_summary_network, it.name)) }
-            rule.thresholdValue?.let { add(if (context == null) "threshold=${rule.thresholdComparison.name.lowercase()} $it" else context.getString(R.string.trigger_summary_threshold, rule.thresholdComparison.name.lowercase(), it.toString())) }
-            rule.phoneNumberFilter?.takeIf { it.isNotBlank() }?.let { add(if (context == null) "phone=$it" else context.getString(R.string.trigger_summary_phone, it)) }
-            rule.delayMinutes?.let { add(if (context == null) "delay=${it}m" else context.getString(R.string.trigger_summary_delay, it)) }
+            rule.titleFilter?.takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.trigger_summary_title, it)) }
+            rule.textFilter?.takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.trigger_summary_text, it)) }
+            rule.networkType?.let { add(context.getString(R.string.trigger_summary_network, it.name)) }
+            rule.thresholdValue?.let {
+                add(context.getString(R.string.trigger_summary_threshold, rule.thresholdComparison.name.lowercase(), it.toString()))
+            }
+            rule.phoneNumberFilter?.takeIf { it.isNotBlank() }?.let { add(context.getString(R.string.trigger_summary_phone, it)) }
+            rule.delayMinutes?.let { add(context.getString(R.string.trigger_summary_delay, it)) }
             if (rule.source == TriggerSource.TIME_ABSOLUTE) {
-                rule.absoluteTimeMillis?.let { add(if (context == null) "at=${formatTimestamp(it)}" else context.getString(R.string.trigger_summary_at, formatTimestamp(it))) }
+                rule.absoluteTimeMillis?.let { add(context.getString(R.string.trigger_summary_at, formatTimestamp(it))) }
             }
             if (rule.source == TriggerSource.TIME_DAILY || rule.source == TriggerSource.TIME_WEEKLY) {
                 val hour = rule.dailyHour ?: 0
                 val minute = rule.dailyMinute ?: 0
                 add(String.format(Locale.US, "%02d:%02d", hour, minute))
                 if (rule.source == TriggerSource.TIME_WEEKLY) {
-                    val labels = rule.resolvedWeeklyDaysOfWeek()
-                        .mapNotNull { if (context == null) dayOfWeekLabel(it) else dayOfWeekLabel(it, context) }
+                    val labels = rule.resolvedWeeklyDaysOfWeek().mapNotNull { dayOfWeekLabel(it, context) }
                     if (labels.isNotEmpty()) {
                         add(labels.joinToString(", "))
                     }
@@ -152,31 +151,8 @@ object TriggerUiSupport {
         }.joinToString(" • ")
     }
 
-    fun dispositionLabel(disposition: TriggerRunDisposition): String {
-        return disposition.name
-            .lowercase(Locale.US)
-            .split('_')
-            .joinToString(" ") { it.replaceFirstChar { char -> char.titlecase(Locale.US) } }
-    }
-
     fun formatTimestamp(timestampMs: Long): String {
         return timestampFormatter.format(Date(timestampMs))
-    }
-
-    fun dayOfWeekEntries(): List<Pair<String, Int>> {
-        return listOf(
-            "Sunday" to java.util.Calendar.SUNDAY,
-            "Monday" to java.util.Calendar.MONDAY,
-            "Tuesday" to java.util.Calendar.TUESDAY,
-            "Wednesday" to java.util.Calendar.WEDNESDAY,
-            "Thursday" to java.util.Calendar.THURSDAY,
-            "Friday" to java.util.Calendar.FRIDAY,
-            "Saturday" to java.util.Calendar.SATURDAY,
-        )
-    }
-
-    fun dayOfWeekLabel(dayOfWeek: Int): String? {
-        return dayOfWeekEntries().firstOrNull { it.second == dayOfWeek }?.first
     }
 
     fun resolveAppLabel(context: Context?, packageName: String?): String? {
