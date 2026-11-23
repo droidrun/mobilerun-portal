@@ -1493,7 +1493,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             refreshCreditsBalance(force = true)
 
             dialog.dismiss()
-            Toast.makeText(this, getString(R.string.connecting_subtitle), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_connecting), Toast.LENGTH_SHORT).show()
         }
 
         dialog.show()
@@ -1619,11 +1619,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     binding.btnConnectingSignOut.visibility =
                         if (showSignOut) View.VISIBLE else View.GONE
                     if (state == ConnectionState.RECONNECTING) {
-                        binding.textConnectingStatus.text = getString(R.string.reconnecting_subtitle)
+                        binding.textConnectingStatus.text = getString(R.string.main_reconnecting)
                         binding.textConnectingSubtitle.text =
                             getString(R.string.reconnecting_subtitle)
                     } else {
-                        binding.textConnectingStatus.text = getString(R.string.connecting_subtitle)
+                        binding.textConnectingStatus.text = getString(R.string.main_connecting)
                         binding.textConnectingSubtitle.text =
                             getString(R.string.connecting_subtitle)
                     }
@@ -2255,10 +2255,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         try {
             val packageInfo = packageManager.getPackageInfo(packageName, 0)
             val version = packageInfo.versionName
-            binding.versionText.text = getString(R.string.update_current_version, version)
+            binding.versionText.text = getString(R.string.main_version, version)
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error getting app version: ${e.message}")
-            binding.versionText.text = getString(R.string.update_current_version, getString(R.string.task_details_value_unavailable))
+            binding.versionText.text = getString(R.string.main_version, getString(R.string.dashboard_not_available))
         }
     }
 

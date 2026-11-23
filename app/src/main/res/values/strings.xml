@@ -527,7 +527,7 @@
     <string name="trigger_editor_cannot_test_notifications">Cannot test: notification listener access is not granted</string>
     <string name="trigger_editor_test_run_requested">Test run requested for %1$s</string>
     <string name="trigger_editor_delete_trigger">Delete trigger</string>
-    <string name="trigger_editor_delete_trigger_message">Delete %1$s?</string>
+    <string name="trigger_editor_delete_trigger_message">Delete \'%1$s\'?</string>
     <string name="trigger_editor_delete">Delete</string>
     <string name="trigger_rules_clear_recent">Clear recent runs</string>
     <string name="trigger_rules_clear_recent_message">Remove all recent trigger run records?</string>
@@ -547,6 +547,8 @@
     <string name="main_custom_connection_title">Connect to a custom WebSocket server</string>
     <string name="main_connected_to_cloud">Connected to Cloud</string>
     <string name="main_connecting">Connecting...</string>
+    <string name="main_reconnecting">Reconnecting...</string>
+    <string name="main_version">Version: %1$s</string>
     <string name="trigger_rules_contacts_permission">Contacts permission</string>
     <string name="trigger_editor_cooldown_seconds">Cooldown seconds</string>
     <string name="trigger_rules_intro">Create device-local AI triggers for notifications, apps, time, battery, network, SMS, and unlock events.</string>

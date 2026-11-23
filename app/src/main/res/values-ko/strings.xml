@@ -550,6 +550,8 @@
     <string name="main_custom_connection_title">사용자 지정 WebSocket 서버에 연결</string>
     <string name="main_connected_to_cloud">클라우드에 연결됨</string>
     <string name="main_connecting">연결 중...</string>
+    <string name="main_reconnecting">다시 연결 중...</string>
+    <string name="main_version">버전: %1$s</string>
     <string name="trigger_rules_contacts_permission">연락처 권한</string>
     <string name="trigger_editor_cooldown_seconds">재실행 대기 시간(초)</string>
     <string name="trigger_rules_intro">알림, 앱, 시간, 배터리, 네트워크, SMS, 잠금 해제 이벤트에 대한 기기 내부 AI 트리거를 만듭니다.</string>
