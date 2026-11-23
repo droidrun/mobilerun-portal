@@ -22,7 +22,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/ko_ui_hours_21e84929" />
+            android:text="@string/trigger_editor_hours" />
 
     </LinearLayout>
 
@@ -42,7 +42,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/ko_ui_minutes_4f846a84" />
+            android:text="@string/trigger_editor_minutes" />
 
     </LinearLayout>
 

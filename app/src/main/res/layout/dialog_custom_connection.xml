@@ -18,7 +18,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/ko_ui_connect_to_a_custom_websocket_server_e6fcc5ad"
+        android:text="@string/main_custom_connection_title"
         android:textColor="@color/text_gray"
         android:textSize="14sp"
         android:layout_marginBottom="20dp" />
@@ -30,7 +30,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
-        android:hint="@string/ko_ui_websocket_url_e09731b4">
+        android:hint="@string/main_websocket_url">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_custom_url"
@@ -49,7 +49,7 @@
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
         app:endIconMode="password_toggle"
-        android:hint="@string/ko_ui_token_optional_c7f32adc">
+        android:hint="@string/main_token_optional">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_custom_token"
@@ -62,7 +62,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/ko_ui_use_deviceid_in_url_to_auto_replace_with_device_3b320d6f"
+        android:text="@string/main_ws_url_device_id_hint"
         android:textColor="@color/text_hint"
         android:textSize="12sp"
         android:layout_marginBottom="20dp" />

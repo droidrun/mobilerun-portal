@@ -98,7 +98,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         if (pendingRuleId != null && TriggerEditorSupport.isNotificationAccessEnabled(this)) {
             pendingNotificationAccessRuleId = null
             TriggerRuntime.setRuleEnabled(pendingRuleId, true)
-            Toast.makeText(this, getString(R.string.ko_action_trigger_enabled), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.action_trigger_enabled), Toast.LENGTH_SHORT).show()
         } else {
             pendingNotificationAccessRuleId = null
             disableNotificationRulesIfAccessRevoked()
@@ -119,7 +119,7 @@ class TriggerRulesActivity : AppCompatActivity() {
 
         binding.buttonSmsPermission.setOnClickListener {
             if (hasPermission(Manifest.permission.RECEIVE_SMS)) {
-                Toast.makeText(this, getString(R.string.ko_action_sms_permission_granted), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.trigger_rules_sms_permission_granted), Toast.LENGTH_SHORT).show()
             } else {
                 requestSmsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
             }
@@ -127,7 +127,7 @@ class TriggerRulesActivity : AppCompatActivity() {
 
         binding.buttonContactsPermission.setOnClickListener {
             if (hasPermission(Manifest.permission.READ_CONTACTS)) {
-                Toast.makeText(this, getString(R.string.ko_action_contacts_permission_granted), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.trigger_rules_contacts_permission_granted), Toast.LENGTH_SHORT).show()
             } else {
                 requestContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
             }
@@ -260,10 +260,10 @@ class TriggerRulesActivity : AppCompatActivity() {
     private fun confirmClearRuns() {
         if (runAdapter.itemCount == 0) return
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ko_action_clear_recent)
-            .setMessage(R.string.ko_action_clear_recent_message)
+            .setTitle(R.string.trigger_rules_clear_recent)
+            .setMessage(R.string.trigger_rules_clear_recent_message)
             .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.ko_action_clear) { _, _ ->
+            .setPositiveButton(R.string.trigger_rules_clear) { _, _ ->
                 TriggerRuntime.clearRuns()
                 reloadData()
             }
@@ -285,7 +285,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         if (changed) {
             Toast.makeText(
                 this,
-                getString(R.string.ko_action_notification_triggers_disabled),
+                getString(R.string.trigger_rules_notification_triggers_disabled),
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -293,13 +293,13 @@ class TriggerRulesActivity : AppCompatActivity() {
 
     private fun showNotificationAccessWarning(ruleId: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ko_action_notification_required)
-            .setMessage(R.string.ko_action_notification_required_message)
-            .setPositiveButton(R.string.ko_action_go_settings) { _, _ ->
+            .setTitle(R.string.action_notification_required)
+            .setMessage(R.string.trigger_rules_notification_required_message)
+            .setPositiveButton(R.string.action_go_settings) { _, _ ->
                 pendingNotificationAccessRuleId = ruleId
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            .setNegativeButton(R.string.ko_action_ok, null)
+            .setNegativeButton(R.string.action_ok, null)
             .show()
     }
 
@@ -314,11 +314,11 @@ class TriggerRulesActivity : AppCompatActivity() {
 
     private fun requestExactAlarmAccess() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
             return
         }
         if (hasExactAlarmAccess()) {
-            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
             return
         }
         startActivity(

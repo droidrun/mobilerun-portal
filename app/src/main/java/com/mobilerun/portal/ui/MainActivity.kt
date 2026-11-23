@@ -299,7 +299,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 updateOffsetSlider(newOffset)
                 updateOffsetInputField(newOffset)
 
-                Toast.makeText(this, getString(R.string.ko_action_auto_offset_reset, newOffset.toString()), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_auto_offset_reset, newOffset.toString()), Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, getString(R.string.service_not_available), Toast.LENGTH_SHORT).show()
             }
@@ -392,7 +392,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         if (configManager.productionMode) {
             binding.layoutStandardUi.visibility = View.GONE
             binding.layoutProductionMode.visibility = View.VISIBLE
-            binding.textProductionDeviceId.text = getString(R.string.ko_action_device_id, configManager.deviceID)
+            binding.textProductionDeviceId.text = getString(R.string.main_device_id_value, configManager.deviceID)
         } else {
             binding.layoutStandardUi.visibility = View.VISIBLE
             binding.layoutProductionMode.visibility = View.GONE
@@ -1479,7 +1479,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             if (apiKey.isBlank()) {
                 Log.w(TAG, "showApiKeyDialog: API key is blank")
-                Toast.makeText(this, getString(R.string.ko_action_enter_api_key), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_enter_api_key), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
@@ -1550,13 +1550,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             if (url.isBlank()) {
                 Log.w(TAG, "showCustomConnectionDialog: URL is blank")
-                Toast.makeText(this, getString(R.string.ko_action_enter_ws_url), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_enter_ws_url), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
                 Log.w(TAG, "showCustomConnectionDialog: Invalid URL scheme")
-                Toast.makeText(this, getString(R.string.ko_action_ws_scheme), Toast.LENGTH_SHORT)
+                Toast.makeText(this, getString(R.string.main_ws_scheme), Toast.LENGTH_SHORT)
                     .show()
                 return@setOnClickListener
             }
@@ -1576,7 +1576,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             refreshCreditsBalance(force = true)
 
             dialog.dismiss()
-            Toast.makeText(this, getString(R.string.ko_action_connect_custom), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_connect_custom), Toast.LENGTH_SHORT).show()
         }
 
         dialog.show()
@@ -1709,7 +1709,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = android.content.ClipData.newPlainText("Auth Token", configManager.authToken)
             clipboard.setPrimaryClip(clip)
-            Toast.makeText(this, getString(R.string.ko_action_token_copied), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_token_copied), Toast.LENGTH_SHORT).show()
         }
 
         binding.deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
@@ -1860,7 +1860,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     isProgrammaticUpdate = true
                     binding.offsetValueDisplay.setText(boundedValue.toString())
                     isProgrammaticUpdate = false
-                    Toast.makeText(this, getString(R.string.ko_action_value_adjusted), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.main_value_adjusted), Toast.LENGTH_SHORT).show()
                 }
 
                 // Update slider to match and apply the offset
@@ -1869,11 +1869,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 updateOverlayOffset(boundedValue)
             } else {
                 // Invalid input
-                Toast.makeText(this, getString(R.string.ko_action_valid_number), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_valid_number), Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error applying input offset: ${e.message}")
-            Toast.makeText(this, getString(R.string.ko_action_error_detail, e.message), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_error_detail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1938,7 +1938,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                         responseText = data
                         Toast.makeText(
                             this,
-                            getString(R.string.ko_action_state_received),
+                            getString(R.string.main_state_received),
                             Toast.LENGTH_SHORT
                         ).show()
 
@@ -1950,15 +1950,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                         )
                     } else {
                         val error = jsonResponse.getString("error")
-                        responseText = getString(R.string.ko_action_error_detail, error)
-                        Toast.makeText(this, getString(R.string.ko_action_error_detail, error), Toast.LENGTH_SHORT).show()
+                        responseText = getString(R.string.main_error_detail, error)
+                        Toast.makeText(this, getString(R.string.main_error_detail, error), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
 
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error fetching combined state data: ${e.message}")
-            Toast.makeText(this, getString(R.string.ko_action_error_fetch, e.message), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_error_fetch, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2104,7 +2104,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
             } catch (_: Exception) {
-                Toast.makeText(this, getString(R.string.ko_action_file_access_settings_error), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_file_access_settings_error), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -2178,7 +2178,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             Log.e("MainActivity", "Error opening keyboard settings: ${e.message}")
             Toast.makeText(
                 this,
-                getString(R.string.ko_action_keyboard_settings_error),
+                getString(R.string.main_keyboard_settings_error),
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -2191,14 +2191,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             startActivity(intent)
             Toast.makeText(
                 this,
-                getString(R.string.ko_action_enable_accessibility),
+                getString(R.string.main_enable_accessibility),
                 Toast.LENGTH_LONG
             ).show()
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error opening accessibility settings: ${e.message}")
             Toast.makeText(
                 this,
-                getString(R.string.ko_action_accessibility_settings_error),
+                getString(R.string.main_accessibility_settings_error),
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -2216,7 +2216,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error updating socket server status: ${e.message}")
-            binding.socketServerStatus.text = getString(R.string.ko_action_error)
+            binding.socketServerStatus.text = getString(R.string.main_error)
         }
     }
 
@@ -2233,7 +2233,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error updating ADB forward command: ${e.message}")
-            binding.adbForwardCommand.text = getString(R.string.ko_action_error)
+            binding.adbForwardCommand.text = getString(R.string.main_error)
         }
     }
 
@@ -2267,7 +2267,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             // Create a scrollable TextView for the logs
             val scrollView = androidx.core.widget.NestedScrollView(this)
             val textView = TextView(this).apply {
-                text = responseText.ifEmpty { getString(R.string.ko_action_no_logs) }
+                text = responseText.ifEmpty { getString(R.string.main_no_logs) }
                 textSize = 12f
                 setTextColor(ContextCompat.getColor(context, R.color.mobilerun_foreground))
                 setPadding(40, 40, 40, 40)
@@ -2276,16 +2276,16 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             scrollView.addView(textView)
 
             AlertDialog.Builder(this)
-                .setTitle(R.string.ko_action_response_logs)
+                .setTitle(R.string.main_response_logs)
                 .setView(scrollView)
-                .setPositiveButton(R.string.ko_action_close) { dialog, _ ->
+                .setPositiveButton(R.string.main_close) { dialog, _ ->
                     dialog.dismiss()
                 }
-                .setNeutralButton(R.string.ko_action_copy) { _, _ ->
+                .setNeutralButton(R.string.main_copy) { _, _ ->
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = android.content.ClipData.newPlainText(getString(R.string.ko_action_response_logs), responseText)
+                    val clip = android.content.ClipData.newPlainText(getString(R.string.main_response_logs), responseText)
                     clipboard.setPrimaryClip(clip)
-                    Toast.makeText(this, getString(R.string.ko_action_logs_copied), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.main_logs_copied), Toast.LENGTH_SHORT).show()
                 }
                 .create()
                 .apply {
@@ -2294,7 +2294,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 .show()
         } catch (e: Exception) {
             Log.e("MOBILERUN_MAIN", "Error showing logs dialog: ${e.message}")
-            Toast.makeText(this, getString(R.string.ko_action_logs_show_error, e.message), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_logs_show_error, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 

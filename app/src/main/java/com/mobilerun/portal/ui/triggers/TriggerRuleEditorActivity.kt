@@ -193,7 +193,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
                 if (rule != null && !rule.enabled) {
                     TriggerRuntime.setRuleEnabled(rule.id, true)
                     originalRule = TriggerRuntime.listRules().firstOrNull { it.id == rule.id }
-                    Toast.makeText(this, getString(R.string.ko_action_trigger_enabled), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.action_trigger_enabled), Toast.LENGTH_SHORT).show()
                 }
             }
             setResult(RESULT_OK)
@@ -508,11 +508,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun requestExactAlarmAccess() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.action_exact_alarm_not_required), Toast.LENGTH_SHORT).show()
             return
         }
         if (hasExactAlarmAccess()) {
-            Toast.makeText(this, getString(R.string.ko_action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.action_exact_alarm_enabled), Toast.LENGTH_SHORT).show()
             return
         }
         startActivity(
@@ -536,10 +536,10 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         dialogBinding.minutesPicker.wrapSelectorWheel = false
 
         AlertDialog.Builder(this)
-            .setTitle(R.string.ko_action_choose_delay)
+            .setTitle(R.string.trigger_editor_choose_delay)
             .setView(dialogBinding.root)
             .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.ko_action_apply) { _, _ ->
+            .setPositiveButton(R.string.trigger_editor_apply) { _, _ ->
                 val totalMinutes =
                     dialogBinding.hoursPicker.value * 60 + dialogBinding.minutesPicker.value
                 selectedDelayMinutes = totalMinutes.coerceAtLeast(1)
@@ -550,7 +550,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showAbsoluteDatePicker() {
         val datePicker = MaterialDatePicker.Builder.datePicker()
-            .setTitleText(getString(R.string.ko_action_choose_date))
+            .setTitleText(getString(R.string.trigger_editor_choose_date))
             .setSelection(selectedAbsoluteDateUtcMs ?: MaterialDatePicker.todayInUtcMilliseconds())
             .build()
         datePicker.addOnPositiveButtonClickListener { selection ->
@@ -562,7 +562,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showAbsoluteTimePicker() {
         val timePicker = MaterialTimePicker.Builder()
-            .setTitleText(getString(R.string.ko_action_choose_time))
+            .setTitleText(getString(R.string.trigger_editor_choose_time))
             .setHour(selectedAbsoluteHour ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
             .setMinute(selectedAbsoluteMinute ?: Calendar.getInstance().get(Calendar.MINUTE))
             .setTimeFormat(if (DateFormat.is24HourFormat(this)) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
@@ -577,7 +577,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showRecurringTimePicker() {
         val timePicker = MaterialTimePicker.Builder()
-            .setTitleText(getString(R.string.ko_action_choose_time))
+            .setTitleText(getString(R.string.trigger_editor_choose_time))
             .setHour(selectedRecurringHour ?: 9)
             .setMinute(selectedRecurringMinute ?: 0)
             .setTimeFormat(if (DateFormat.is24HourFormat(this)) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
@@ -811,7 +811,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         }
 
         if (showToast) {
-            Toast.makeText(this, getString(R.string.ko_action_trigger_saved), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.trigger_editor_saved), Toast.LENGTH_SHORT).show()
         }
         if (finishAfterSave) {
             setResult(RESULT_OK)
@@ -824,13 +824,13 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun showNotificationAccessWarning() {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ko_action_notification_required)
-            .setMessage(R.string.ko_action_notification_saved_disabled)
-            .setPositiveButton(R.string.ko_action_go_settings) { _, _ ->
+            .setTitle(R.string.action_notification_required)
+            .setMessage(R.string.trigger_editor_notification_saved_disabled)
+            .setPositiveButton(R.string.action_go_settings) { _, _ ->
                 pendingNotificationAccessEnable = true
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            .setNegativeButton(R.string.ko_action_ok) { _, _ ->
+            .setNegativeButton(R.string.action_ok) { _, _ ->
                 setResult(RESULT_OK)
                 finish()
             }
@@ -843,20 +843,20 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         if (TriggerEditorSupport.requiresNotificationAccess(savedRule.source) &&
             !TriggerEditorSupport.isNotificationAccessEnabled(this)
         ) {
-            Toast.makeText(this, getString(R.string.ko_action_cannot_test_notifications), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.trigger_editor_cannot_test_notifications), Toast.LENGTH_SHORT).show()
             return
         }
         TriggerRuntime.launchTest(savedRule.id)
-        Toast.makeText(this, getString(R.string.ko_action_test_run_requested, savedRule.name), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.trigger_editor_test_run_requested, savedRule.name), Toast.LENGTH_SHORT).show()
     }
 
     private fun deleteRule() {
         val rule = originalRule ?: return
         AlertDialog.Builder(this)
-            .setTitle(R.string.ko_action_delete_trigger)
-            .setMessage(getString(R.string.ko_action_delete_trigger_message, rule.name))
+            .setTitle(R.string.trigger_editor_delete_trigger)
+            .setMessage(getString(R.string.trigger_editor_delete_trigger_message, rule.name))
             .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.ko_action_delete) { _, _ ->
+            .setPositiveButton(R.string.trigger_editor_delete) { _, _ ->
                 TriggerRuntime.deleteRule(rule.id)
                 setResult(RESULT_OK)
                 finish()
