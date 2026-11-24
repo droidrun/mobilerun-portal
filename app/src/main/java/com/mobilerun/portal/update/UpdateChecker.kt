@@ -14,6 +14,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import com.mobilerun.portal.BuildConfig
+import com.mobilerun.portal.R
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -121,7 +122,7 @@ object UpdateChecker {
         apiClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 mainHandler.post {
-                    callback(UpdateCheckResult.Failed("Network error: ${e.message}"))
+                    callback(UpdateCheckResult.Failed(context.getString(R.string.update_network_error, e.message.orEmpty())))
                 }
             }
 
@@ -129,14 +130,14 @@ object UpdateChecker {
                 response.use {
                     if (!response.isSuccessful) {
                         mainHandler.post {
-                            callback(UpdateCheckResult.Failed("Check failed: HTTP ${response.code}"))
+                            callback(UpdateCheckResult.Failed(context.getString(R.string.update_check_http_failed, response.code)))
                         }
                         return
                     }
 
                     val body = response.body?.string()
                     if (body.isNullOrBlank()) {
-                        mainHandler.post { callback(UpdateCheckResult.Failed("Empty response")) }
+                        mainHandler.post { callback(UpdateCheckResult.Failed(context.getString(R.string.update_empty_response))) }
                         return
                     }
 
@@ -157,7 +158,7 @@ object UpdateChecker {
                         UpdateCheckResult.Failed(e.message ?: "Invalid update feed")
                     } catch (e: Exception) {
                         Log.e(TAG, "Update check failed", e)
-                        UpdateCheckResult.Failed("Parse error: ${e.message}")
+                        UpdateCheckResult.Failed(context.getString(R.string.update_parse_error, e.message.orEmpty()))
                     }
                     if (result !is UpdateCheckResult.Failed) {
                         markChecked(context)
@@ -199,7 +200,7 @@ object UpdateChecker {
             if (!context.packageManager.canRequestPackageInstalls()) {
                 pendingInstallApkUrl = null
                 clearActiveInstallState()
-                mainHandler.post { onError("Install permission is not enabled") }
+                mainHandler.post { onError(context.getString(R.string.update_install_permission_disabled)) }
                 return@execute
             }
 
@@ -214,14 +215,14 @@ object UpdateChecker {
                     if (!response.isSuccessful) {
                         pendingInstallApkUrl = null
                         clearActiveInstallState()
-                        mainHandler.post { onError("Download failed: HTTP ${response.code}") }
+                        mainHandler.post { onError(context.getString(R.string.update_download_http_failed, response.code)) }
                         return@execute
                     }
 
                     val body = response.body ?: run {
                         pendingInstallApkUrl = null
                         clearActiveInstallState()
-                        mainHandler.post { onError("Empty download response") }
+                        mainHandler.post { onError(context.getString(R.string.update_download_empty)) }
                         return@execute
                     }
 
@@ -250,7 +251,7 @@ object UpdateChecker {
                         apkFile.delete()
                         pendingInstallApkUrl = null
                         clearActiveInstallState()
-                        mainHandler.post { onError("Downloaded APK failed checksum verification") }
+                        mainHandler.post { onError(context.getString(R.string.update_checksum_failed)) }
                         return@execute
                     }
 
@@ -260,9 +261,9 @@ object UpdateChecker {
                         pendingInstallApkUrl = null
                         clearActiveInstallState()
                         val errorMessage = if (archivePackageName == null) {
-                            "Downloaded APK package could not be verified"
+                            context.getString(R.string.update_package_unverified)
                         } else {
-                            "Downloaded APK package mismatch: expected $EXPECTED_PACKAGE_NAME, got $archivePackageName"
+                            context.getString(R.string.update_package_mismatch, EXPECTED_PACKAGE_NAME, archivePackageName)
                         }
                         mainHandler.post { onError(errorMessage) }
                         return@execute
@@ -277,7 +278,7 @@ object UpdateChecker {
                 pendingInstallApkUrl = null
                 clearActiveInstallState()
                 clearRelaunchAfterUpdate(context)
-                mainHandler.post { onError("Update failed: ${e.message}") }
+                mainHandler.post { onError(context.getString(R.string.update_failed_reason, e.message.orEmpty())) }
             }
         }
     }

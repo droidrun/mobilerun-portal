@@ -46,7 +46,7 @@ class TaskHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient = PortalCloudClient(this)
     private val handler = Handler(Looper.getMainLooper())
     private val items = mutableListOf<PortalTaskHistoryItem>()
 

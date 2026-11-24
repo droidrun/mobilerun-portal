@@ -61,7 +61,7 @@ class TaskDetailsActivity : AppCompatActivity() {
         val errorMessage: String? = null,
     )
 
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient = PortalCloudClient(this)
     private val screenshotClient = OkHttpClient()
     private val screenshotUrls = mutableListOf<String>()
     private val screenshotBitmapCache = LinkedHashMap<String, Bitmap>()

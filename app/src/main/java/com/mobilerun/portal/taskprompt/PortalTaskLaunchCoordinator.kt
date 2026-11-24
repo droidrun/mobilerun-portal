@@ -6,7 +6,7 @@ import com.mobilerun.portal.config.ConfigManager
 
 class PortalTaskLaunchCoordinator(
     context: Context,
-    private val portalCloudClient: PortalCloudClient = PortalCloudClient(),
+    private val portalCloudClient: PortalCloudClient = PortalCloudClient(context),
 ) {
     sealed class Result {
         data class Success(val record: PortalActiveTaskRecord) : Result()

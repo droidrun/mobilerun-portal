@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isInstallReceiverRegistered = false
     private var isSignatureConflictReceiverRegistered = false
     private lateinit var taskPromptCardController: TaskPromptCardController
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient = PortalCloudClient(this)
     private lateinit var taskLaunchCoordinator: PortalTaskLaunchCoordinator
     private var taskPromptModels: List<PortalModelOption> = emptyList()
     private var taskPromptModelsFingerprint: String? = null
@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val success = intent.getBooleanExtra(ApiHandler.EXTRA_INSTALL_SUCCESS, false)
             val message =
                 intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE)
-                    ?: "App installed successfully"
+                    ?: getString(R.string.main_install_success)
             val isPortalUpdate =
                 intent.getBooleanExtra(UpdateInstallReceiver.EXTRA_IS_PORTAL_UPDATE, false)
             runOnUiThread {
@@ -1612,7 +1612,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     binding.layoutConnected.visibility = View.VISIBLE
                     binding.btnSignOut.visibility = if (showSignOut) View.VISIBLE else View.GONE
                     binding.textDeviceId.text =
-                        "Device ID: ${ConfigManager.getInstance(this).deviceID}"
+                        getString(R.string.main_device_id_value, ConfigManager.getInstance(this).deviceID)
                 }
 
                 ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
@@ -1713,7 +1713,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             Toast.makeText(this, getString(R.string.main_token_copied), Toast.LENGTH_SHORT).show()
         }
 
-        binding.deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
+        binding.deviceIpText.text = getIpAddress() ?: getString(R.string.main_ip_unavailable)
     }
 
     private fun getIpAddress(): String? {
@@ -1825,7 +1825,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     if (value != null) {
                         if (value !in MIN_OFFSET..MAX_OFFSET) {
                             binding.offsetValueInputLayout.error =
-                                "Value must be between $MIN_OFFSET and $MAX_OFFSET"
+                                getString(R.string.main_offset_out_of_range, MIN_OFFSET, MAX_OFFSET)
                         } else {
                             binding.offsetValueInputLayout.error = null
                             // Auto-apply if value is valid and complete
@@ -1836,12 +1836,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                             }
                         }
                     } else if (s.toString().isNotEmpty() && s.toString() != "-") {
-                        binding.offsetValueInputLayout.error = "Invalid number"
+                        binding.offsetValueInputLayout.error = getString(R.string.main_invalid_number)
                     } else {
                         binding.offsetValueInputLayout.error = null
                     }
                 } catch (e: Exception) {
-                    binding.offsetValueInputLayout.error = "Invalid number"
+                    binding.offsetValueInputLayout.error = getString(R.string.main_invalid_number)
                 }
             }
         })

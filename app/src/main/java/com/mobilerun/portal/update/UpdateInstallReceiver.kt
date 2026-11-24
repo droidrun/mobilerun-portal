@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
+import com.mobilerun.portal.R
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.service.AutoAcceptGate
 
@@ -36,7 +37,7 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                         broadcastResult(
                             context,
                             success = false,
-                            message = "Failed to launch install confirmation: ${e.message}",
+                            message = context.getString(R.string.update_install_confirm_failed, e.message.orEmpty()),
                         )
                     }
                 } else {
@@ -44,7 +45,7 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                     UpdateChecker.pendingInstallApkUrl = null
                     UpdateChecker.clearActiveInstallState()
                     UpdateChecker.clearRelaunchAfterUpdate(context)
-                    broadcastResult(context, success = false, message = "Install confirmation missing")
+                    broadcastResult(context, success = false, message = context.getString(R.string.update_install_confirm_missing))
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> {
@@ -52,8 +53,8 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 UpdateChecker.pendingInstallApkUrl = null
                 UpdateChecker.clearActiveInstallState()
                 UpdateChecker.pendingInstallResult =
-                    InstallResult.Done(true, "Update installed successfully")
-                broadcastResult(context, success = true, message = "Update installed successfully")
+                    InstallResult.Done(true, context.getString(R.string.update_install_success))
+                broadcastResult(context, success = true, message = context.getString(R.string.update_install_success))
                 UpdateRelaunchReceiver.launchPortal(context)
             }
             PackageInstaller.STATUS_FAILURE_CONFLICT -> {
@@ -67,7 +68,7 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                     UpdateChecker.pendingInstallApkUrl = null
                     UpdateChecker.clearActiveInstallState()
                     UpdateChecker.clearRelaunchAfterUpdate(context)
-                    val resultMessage = "Update failed: $message"
+                    val resultMessage = context.getString(R.string.update_failed_reason, message)
                     UpdateChecker.pendingInstallResult =
                         InstallResult.Done(false, resultMessage)
                     broadcastResult(context, success = false, message = resultMessage)
