@@ -64,7 +64,7 @@
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Open" />
+                android:text="@string/trigger_rules_open" />
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.location.AndroidLocationSource
@@ -26,6 +27,8 @@ import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
+import com.mobilerun.portal.databinding.DialogLanguagePickerBinding
+import com.mobilerun.portal.databinding.ItemLanguageOptionBinding
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.AutoAcceptGate
@@ -44,6 +47,7 @@ import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.triggers.TriggerRepository
+import com.mobilerun.portal.ui.AppLanguage
 import com.mobilerun.portal.ui.addWhitespaceStrippingWatcher
 import com.mobilerun.portal.ui.triggers.TriggerRulesActivity
 import com.mobilerun.portal.update.InstallResult
@@ -180,6 +184,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupStreamSessionLimit()
         setupPermissions()
         setupLocation()
+        setupLanguage()
         setupAutomation()
         setupEventFilters()
         setupUpdateSection()
@@ -755,6 +760,39 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
     }
 
+    private fun setupLanguage() {
+        binding.textLanguageValue.setText(AppLanguage.current().nativeName)
+        binding.rowLanguage.setOnClickListener { showLanguagePicker() }
+    }
+
+    private fun showLanguagePicker() {
+        val current = AppLanguage.current()
+        val dialogBinding = DialogLanguagePickerBinding.inflate(layoutInflater)
+        val dialog = AlertDialog.Builder(this).setView(dialogBinding.root).create()
+        AppLanguage.OPTIONS.forEach { option ->
+            val item = ItemLanguageOptionBinding.inflate(layoutInflater, dialogBinding.languageOptions, false)
+            val nativeName = getString(option.nativeName)
+            val name = getString(option.name)
+            val isSelected = option == current
+            item.languageOptionTitle.text = nativeName
+            item.languageOptionSubtitle.text = name
+            item.languageOptionSubtitle.isVisible = name != nativeName
+            item.languageOptionSelectedIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
+            item.languageOptionCard.strokeColor =
+                getColor(if (isSelected) R.color.task_prompt_accent else R.color.task_prompt_stroke)
+            item.languageOptionCard.setCardBackgroundColor(
+                getColor(if (isSelected) R.color.task_prompt_chip_info_bg else R.color.task_prompt_input_surface),
+            )
+            item.languageOptionCard.setOnClickListener {
+                dialog.dismiss()
+                if (!isSelected) AppLanguage.set(option.tag)
+            }
+            dialogBinding.languageOptions.addView(item.root)
+        }
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+    }
+
     private fun setupAutomation() {
         binding.openTriggersButton.setOnClickListener {
             startActivity(TriggerRulesActivity.createIntent(this))
@@ -978,9 +1016,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private fun setupResetButton() {
         binding.btnResetSettings.setOnClickListener {
             AlertDialog.Builder(this)
-                .setTitle("Reset to Defaults")
-                .setMessage("This will reset all settings to their default values and disconnect any active connections. Continue?")
-                .setPositiveButton("Reset") { _, _ ->
+                .setTitle(R.string.settings_reset_title)
+                .setMessage(R.string.settings_reset_message)
+                .setPositiveButton(R.string.settings_reset_button) { _, _ ->
                     val session =
                         configManager.reverseConnectionToken.takeIf { configManager.cloudSessionActive }
                     val serviceIntent = Intent(this, ReverseConnectionService::class.java).apply {
@@ -995,7 +1033,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
                     android.widget.Toast.makeText(
                         this,
-                        "Settings reset to defaults",
+                        R.string.settings_reset_done,
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
 
@@ -1003,7 +1041,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     finish()
                     startActivity(intent)
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show()
         }
     }
