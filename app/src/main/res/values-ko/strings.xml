@@ -545,6 +545,9 @@
     <string name="trigger_editor_app_filter">앱 필터</string>
     <string name="settings_auto_accept_screen_share">화면 공유 자동 승인</string>
     <string name="settings_language">언어</string>
+    <string name="settings_app_language">앱 언어</string>
+    <string name="language_name_english">영어</string>
+    <string name="language_name_korean">한국어</string>
     <string name="settings_automation">자동화</string>
     <string name="trigger_editor_battery_threshold">배터리 기준값</string>
     <string name="trigger_rules_clear_all">모두 지우기</string>

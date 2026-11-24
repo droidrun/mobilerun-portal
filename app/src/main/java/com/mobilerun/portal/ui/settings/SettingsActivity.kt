@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.location.AndroidLocationSource
@@ -26,6 +27,8 @@ import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.databinding.ActivitySettingsBinding
+import com.mobilerun.portal.databinding.DialogLanguagePickerBinding
+import com.mobilerun.portal.databinding.ItemLanguageOptionBinding
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.AutoAcceptGate
@@ -758,16 +761,36 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     }
 
     private fun setupLanguage() {
-        val buttons = mapOf(
-            AppLanguage.ENGLISH to binding.buttonLanguageEn.id,
-            AppLanguage.KOREAN to binding.buttonLanguageKo.id,
-        )
+        binding.textLanguageValue.setText(AppLanguage.current().nativeName)
+        binding.rowLanguage.setOnClickListener { showLanguagePicker() }
+    }
+
+    private fun showLanguagePicker() {
         val current = AppLanguage.current()
-        binding.languageToggleGroup.check(buttons.getValue(current))
-        binding.languageToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            val tag = buttons.entries.first { it.value == checkedId }.key
-            if (isChecked && tag != current) AppLanguage.set(tag)
+        val dialogBinding = DialogLanguagePickerBinding.inflate(layoutInflater)
+        val dialog = AlertDialog.Builder(this).setView(dialogBinding.root).create()
+        AppLanguage.OPTIONS.forEach { option ->
+            val item = ItemLanguageOptionBinding.inflate(layoutInflater, dialogBinding.languageOptions, false)
+            val nativeName = getString(option.nativeName)
+            val name = getString(option.name)
+            val isSelected = option == current
+            item.languageOptionTitle.text = nativeName
+            item.languageOptionSubtitle.text = name
+            item.languageOptionSubtitle.isVisible = name != nativeName
+            item.languageOptionSelectedIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
+            item.languageOptionCard.strokeColor =
+                getColor(if (isSelected) R.color.task_prompt_accent else R.color.task_prompt_stroke)
+            item.languageOptionCard.setCardBackgroundColor(
+                getColor(if (isSelected) R.color.task_prompt_chip_info_bg else R.color.task_prompt_input_surface),
+            )
+            item.languageOptionCard.setOnClickListener {
+                dialog.dismiss()
+                if (!isSelected) AppLanguage.set(option.tag)
+            }
+            dialogBinding.languageOptions.addView(item.root)
         }
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
     private fun setupAutomation() {
