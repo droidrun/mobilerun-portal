@@ -18,9 +18,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
-import androidx.core.os.LocaleListCompat
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.location.AndroidLocationSource
@@ -46,6 +44,7 @@ import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.triggers.TriggerRepository
+import com.mobilerun.portal.ui.AppLanguage
 import com.mobilerun.portal.ui.addWhitespaceStrippingWatcher
 import com.mobilerun.portal.ui.triggers.TriggerRulesActivity
 import com.mobilerun.portal.update.InstallResult
@@ -759,28 +758,15 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     }
 
     private fun setupLanguage() {
-        val tags = listOf("", "en", "ko")
-        val labels = arrayOf(
-            getString(R.string.settings_language_system),
-            getString(R.string.language_english),
-            getString(R.string.language_korean),
+        val buttons = mapOf(
+            AppLanguage.ENGLISH to binding.buttonLanguageEn.id,
+            AppLanguage.KOREAN to binding.buttonLanguageKo.id,
         )
-        val currentTag = AppCompatDelegate.getApplicationLocales()[0]?.language.orEmpty()
-        val current = tags.indexOf(currentTag).coerceAtLeast(0)
-        binding.textLanguageValue.text = labels[current]
-        binding.rowLanguage.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.settings_language)
-                .setSingleChoiceItems(labels, current) { dialog, which ->
-                    dialog.dismiss()
-                    if (which == current) return@setSingleChoiceItems
-                    AppCompatDelegate.setApplicationLocales(
-                        if (tags[which].isEmpty()) LocaleListCompat.getEmptyLocaleList()
-                        else LocaleListCompat.forLanguageTags(tags[which]),
-                    )
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+        val current = AppLanguage.current()
+        binding.languageToggleGroup.check(buttons.getValue(current))
+        binding.languageToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            val tag = buttons.entries.first { it.value == checkedId }.key
+            if (isChecked && tag != current) AppLanguage.set(tag)
         }
     }
 

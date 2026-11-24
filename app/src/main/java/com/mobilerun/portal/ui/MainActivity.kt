@@ -155,6 +155,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLanguage.applyDefault()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
