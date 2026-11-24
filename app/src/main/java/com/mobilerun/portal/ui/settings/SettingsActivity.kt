@@ -18,7 +18,9 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
+import androidx.core.os.LocaleListCompat
 import com.mobilerun.portal.auth.DeviceCodeAuthClient
 import com.mobilerun.portal.R
 import com.mobilerun.portal.location.AndroidLocationSource
@@ -180,6 +182,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupStreamSessionLimit()
         setupPermissions()
         setupLocation()
+        setupLanguage()
         setupAutomation()
         setupEventFilters()
         setupUpdateSection()
@@ -753,6 +756,32 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
     private fun setupEventFilters() {
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
+    }
+
+    private fun setupLanguage() {
+        val tags = listOf("", "en", "ko")
+        val labels = arrayOf(
+            getString(R.string.settings_language_system),
+            getString(R.string.language_english),
+            getString(R.string.language_korean),
+        )
+        val currentTag = AppCompatDelegate.getApplicationLocales()[0]?.language.orEmpty()
+        val current = tags.indexOf(currentTag).coerceAtLeast(0)
+        binding.textLanguageValue.text = labels[current]
+        binding.rowLanguage.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.settings_language)
+                .setSingleChoiceItems(labels, current) { dialog, which ->
+                    dialog.dismiss()
+                    if (which == current) return@setSingleChoiceItems
+                    AppCompatDelegate.setApplicationLocales(
+                        if (tags[which].isEmpty()) LocaleListCompat.getEmptyLocaleList()
+                        else LocaleListCompat.forLanguageTags(tags[which]),
+                    )
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
     }
 
     private fun setupAutomation() {

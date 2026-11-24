@@ -916,6 +916,43 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:text="@string/settings_language"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="24dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/row_language"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:paddingHorizontal="24dp"
+                android:paddingVertical="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_app_language"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/text_language_value"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:text="@string/settings_automation"
                 android:textColor="@color/text_gray"
                 android:textSize="12sp"

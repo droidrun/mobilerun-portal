@@ -541,6 +541,11 @@
     <string name="settings_allow_system_notifications">Allow system notifications</string>
     <string name="trigger_editor_app_filter">App filter</string>
     <string name="settings_auto_accept_screen_share">Auto-accept Screen Share</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_app_language">App language</string>
+    <string name="settings_language_system">System default</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_korean" translatable="false">한국어</string>
     <string name="settings_automation">Automation</string>
     <string name="trigger_editor_battery_threshold">Battery threshold</string>
     <string name="trigger_rules_clear_all">Clear all</string>

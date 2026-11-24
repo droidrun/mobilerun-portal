@@ -32,6 +32,10 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     signingConfigs {
         create("release") {
             storeFile = file(System.getenv("DROIDRUN_KEYSTORE_PATH") ?: "/dev/null")
