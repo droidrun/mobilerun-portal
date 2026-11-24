@@ -21,6 +21,7 @@ import android.util.Base64
 import android.util.Log
 import android.widget.Toast
 import com.mobilerun.portal.BuildConfig
+import com.mobilerun.portal.R
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.config.ConfigManager
@@ -1873,7 +1874,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         if (!shouldShow) return
         mainHandler.post {
-            Toast.makeText(context, "Cloud stream connected", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.stream_cloud_connected_toast, Toast.LENGTH_SHORT).show()
         }
     }
 

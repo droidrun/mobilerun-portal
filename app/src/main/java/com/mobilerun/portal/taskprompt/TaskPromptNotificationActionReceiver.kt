@@ -62,7 +62,7 @@ class TaskPromptNotificationActionReceiver : BroadcastReceiver() {
         TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
         PortalTaskStateMonitor.reconcileActiveTask(immediate = true)
 
-        val client = PortalCloudClient()
+        val client = PortalCloudClient(appContext)
         client.cancelTask(restBaseUrl, authToken, taskId) { result ->
             mainHandler.post {
                 when (result) {

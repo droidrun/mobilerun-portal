@@ -83,7 +83,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
     private lateinit var settingsController: TaskPromptSettingsPanelController
     private lateinit var weekdayChips: List<Pair<Int, Chip>>
 
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient = PortalCloudClient(this)
     private val configManager by lazy { ConfigManager.getInstance(this) }
     private val sourceOptions by lazy {
         TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it, this), it) }
@@ -766,26 +766,26 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun applyValidationIssues(validation: TriggerRuleValidator.Result) {
         validation.firstIssueFor(TriggerRuleValidator.Field.NAME)?.let {
-            binding.inputRuleNameLayout.error = it.message
+            binding.inputRuleNameLayout.error = getString(it.messageRes)
         }
         validation.firstIssueFor(TriggerRuleValidator.Field.PROMPT_TEMPLATE)?.let {
-            binding.inputPromptTemplateLayout.error = it.message
+            binding.inputPromptTemplateLayout.error = getString(it.messageRes)
         }
         validation.firstIssueFor(TriggerRuleValidator.Field.COOLDOWN_SECONDS)?.let {
-            binding.inputCooldownSecondsLayout.error = it.message
+            binding.inputCooldownSecondsLayout.error = getString(it.messageRes)
         }
         validation.firstIssueFor(TriggerRuleValidator.Field.THRESHOLD_VALUE)?.let {
-            binding.thresholdValueLayout.error = it.message
+            binding.thresholdValueLayout.error = getString(it.messageRes)
         }
         validation.firstIssueFor(TriggerRuleValidator.Field.MAX_LAUNCH_COUNT)?.let {
-            binding.customRunLimitLayout.error = it.message
+            binding.customRunLimitLayout.error = getString(it.messageRes)
         }
 
-        val toastMessage = validation.firstIssueFor(TriggerRuleValidator.Field.DELAY_MINUTES)?.message
-            ?: validation.firstIssueFor(TriggerRuleValidator.Field.ABSOLUTE_TIME)?.message
-            ?: validation.firstIssueFor(TriggerRuleValidator.Field.RECURRING_TIME)?.message
-            ?: validation.firstIssueFor(TriggerRuleValidator.Field.WEEKLY_DAYS)?.message
-        if (!toastMessage.isNullOrBlank()) {
+        val toastMessage = validation.firstIssueFor(TriggerRuleValidator.Field.DELAY_MINUTES)?.messageRes
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.ABSOLUTE_TIME)?.messageRes
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.RECURRING_TIME)?.messageRes
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.WEEKLY_DAYS)?.messageRes
+        if (toastMessage != null) {
             Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         }
     }

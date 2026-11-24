@@ -1,5 +1,8 @@
 package com.mobilerun.portal.triggers
 
+import androidx.annotation.StringRes
+import com.mobilerun.portal.R
+
 object TriggerRuleValidator {
     enum class Field {
         NAME,
@@ -13,9 +16,11 @@ object TriggerRuleValidator {
         MAX_LAUNCH_COUNT,
     }
 
+    /** [message] stays English for the trigger API; the editor shows [messageRes]. */
     data class Issue(
         val field: Field,
         val message: String,
+        @StringRes val messageRes: Int,
     )
 
     data class Result(
@@ -44,38 +49,38 @@ object TriggerRuleValidator {
         val issues = mutableListOf<Issue>()
 
         if (trimmedName.isBlank()) {
-            issues += Issue(Field.NAME, "Required")
+            issues += Issue(Field.NAME, "Required", R.string.trigger_editor_required)
         }
         if (trimmedPromptTemplate.isBlank()) {
-            issues += Issue(Field.PROMPT_TEMPLATE, "Required")
+            issues += Issue(Field.PROMPT_TEMPLATE, "Required", R.string.trigger_editor_required)
         }
         if (capabilities.supportsCooldown && rule.cooldownSeconds < 0) {
-            issues += Issue(Field.COOLDOWN_SECONDS, "Enter zero or a positive number")
+            issues += Issue(Field.COOLDOWN_SECONDS, "Enter zero or a positive number", R.string.trigger_validation_cooldown)
         }
         if (capabilities.supportsRunLimit && rule.maxLaunchCount != null && rule.maxLaunchCount <= 0) {
-            issues += Issue(Field.MAX_LAUNCH_COUNT, "Enter a positive number")
+            issues += Issue(Field.MAX_LAUNCH_COUNT, "Enter a positive number", R.string.trigger_validation_positive)
         }
 
         when (preparedRule.source) {
             TriggerSource.BATTERY_LEVEL_CHANGED -> {
                 if (preparedRule.thresholdValue == null || preparedRule.thresholdValue !in 0..100) {
-                    issues += Issue(Field.THRESHOLD_VALUE, "Enter a battery level between 0 and 100")
+                    issues += Issue(Field.THRESHOLD_VALUE, "Enter a battery level between 0 and 100", R.string.trigger_validation_battery)
                 }
             }
 
             TriggerSource.TIME_DELAY -> {
                 if (preparedRule.delayMinutes == null || preparedRule.delayMinutes <= 0) {
-                    issues += Issue(Field.DELAY_MINUTES, "Choose a delay longer than zero minutes")
+                    issues += Issue(Field.DELAY_MINUTES, "Choose a delay longer than zero minutes", R.string.trigger_validation_delay)
                 }
             }
 
             TriggerSource.TIME_ABSOLUTE -> {
                 when {
                     preparedRule.absoluteTimeMillis == null ->
-                        issues += Issue(Field.ABSOLUTE_TIME, "Choose both a date and a time")
+                        issues += Issue(Field.ABSOLUTE_TIME, "Choose both a date and a time", R.string.trigger_validation_date_time)
 
                     preparedRule.absoluteTimeMillis <= nowMs ->
-                        issues += Issue(Field.ABSOLUTE_TIME, "Choose a future date and time")
+                        issues += Issue(Field.ABSOLUTE_TIME, "Choose a future date and time", R.string.trigger_validation_future)
                 }
             }
 
@@ -83,13 +88,13 @@ object TriggerRuleValidator {
             TriggerSource.TIME_WEEKLY,
             -> {
                 if (preparedRule.dailyHour == null || preparedRule.dailyMinute == null) {
-                    issues += Issue(Field.RECURRING_TIME, "Choose a recurring time")
+                    issues += Issue(Field.RECURRING_TIME, "Choose a recurring time", R.string.trigger_validation_recurring_time)
                 }
                 if (
                     preparedRule.source == TriggerSource.TIME_WEEKLY &&
                     preparedRule.resolvedWeeklyDaysOfWeek().isEmpty()
                 ) {
-                    issues += Issue(Field.WEEKLY_DAYS, "Choose at least one weekday")
+                    issues += Issue(Field.WEEKLY_DAYS, "Choose at least one weekday", R.string.trigger_validation_weekday)
                 }
             }
 

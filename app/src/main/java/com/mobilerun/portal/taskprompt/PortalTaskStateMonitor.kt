@@ -20,7 +20,7 @@ object PortalTaskStateMonitor {
     private val mainHandler: Handler by lazy(LazyThreadSafetyMode.NONE) {
         Handler(Looper.getMainLooper())
     }
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient by lazy { PortalCloudClient(appContext) }
 
     @Volatile
     private var statusRequestInFlight = false

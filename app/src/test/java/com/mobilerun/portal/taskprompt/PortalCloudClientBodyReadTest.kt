@@ -50,7 +50,7 @@ class PortalCloudClientBodyReadTest {
                 .build()
             firstArg<Callback>().onResponse(call, response)
         }
-        return PortalCloudClient(okHttpClient)
+        return PortalCloudClient(mockk(relaxed = true), okHttpClient)
     }
 
     @Test

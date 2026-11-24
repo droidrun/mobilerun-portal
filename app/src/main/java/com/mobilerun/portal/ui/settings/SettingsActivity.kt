@@ -61,7 +61,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
     private lateinit var configManager: ConfigManager
     private lateinit var binding: ActivitySettingsBinding
-    private val portalCloudClient = PortalCloudClient()
+    private val portalCloudClient = PortalCloudClient(this)
     private var suppressSocketServerSwitchCallback = false
     private var suppressWebSocketSwitchCallback = false
     private var suppressDeviceAudioSwitchCallback = false
@@ -83,7 +83,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 android.widget.Toast.makeText(
                     this@SettingsActivity,
                     message.ifBlank {
-                        if (success) "Update installed successfully" else "Update failed"
+                        getString(if (success) R.string.update_install_success else R.string.update_failed)
                     },
                     android.widget.Toast.LENGTH_LONG,
                 ).show()
@@ -111,7 +111,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         if (isGranted) {
             android.widget.Toast.makeText(
                 this,
-                "Notification permission granted",
+                R.string.settings_notification_permission_granted,
                 android.widget.Toast.LENGTH_SHORT
             ).show()
         }
@@ -260,7 +260,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     configManager.setSocketServerPortWithNotification(port)
                     binding.inputSocketServerPort.clearFocus()
                 } else {
-                    binding.inputSocketServerPort.error = "Invalid Port"
+                    binding.inputSocketServerPort.error = getString(R.string.settings_invalid_port)
                 }
                 true
             } else {
@@ -284,7 +284,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     configManager.setWebSocketPortWithNotification(port)
                     binding.inputWsPort.clearFocus()
                 } else {
-                    binding.inputWsPort.error = "Invalid Port"
+                    binding.inputWsPort.error = getString(R.string.settings_invalid_port)
                 }
                 true
             } else {
@@ -455,13 +455,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 startActivity(intent)
                 android.widget.Toast.makeText(
                     this,
-                    "Please grant Notification Access to Mobilerun Portal",
+                    R.string.settings_grant_notification_access,
                     android.widget.Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(
                     this,
-                    "Error opening settings",
+                    R.string.settings_open_settings_failed,
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
